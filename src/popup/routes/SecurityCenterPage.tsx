@@ -927,6 +927,30 @@ export default function SecurityCenterPage({
   const maxScore = checks.reduce((sum, check) => sum + check.maxPoints, 0);
   const normalizedScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 
+  const checksById = new Map(checks.map((check) => [check.id, check]));
+
+  const deviceCheckIds = [
+    "encrypted-vault",
+    "auto-lock",
+    "touch-id",
+    "keychain-host",
+  ] as const;
+
+  const recoveryCheckIds = ["recovery-backup"] as const;
+  const privacyCheckIds = ["hide-balances"] as const;
+
+  const renderCheckRow = (check: SecurityCheck) => (
+    <Row
+      key={check.id}
+      icon={check.status === "secure" ? <ShieldIcon /> : <WarningIcon />}
+      title={check.title}
+      subtitle={check.subtitle}
+      value={check.value}
+      valueColor={getStatusColor(check.status)}
+      onClick={check.onClick}
+    />
+  );
+
   if (showSeedBackupVerification) {
     return (
       <SeedBackupVerificationPage
@@ -968,66 +992,13 @@ export default function SecurityCenterPage({
         </section>
 
         <section style={styles.section}>
-          <SectionLabel>Checks</SectionLabel>
+          <SectionLabel>Device security</SectionLabel>
 
           <div className="row-list">
-            {checks.map((check) => (
-              <Row
-                key={check.id}
-                icon={check.status === "secure" ? <ShieldIcon /> : <WarningIcon />}
-                title={check.title}
-                subtitle={check.subtitle}
-                value={check.value}
-                valueColor={getStatusColor(check.status)}
-                onClick={check.onClick}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section style={styles.section}>
-          <SectionLabel>Actions</SectionLabel>
-
-          <div className="row-list">
-            <Row
-              icon={<ShieldIcon />}
-              title="Change auto-lock"
-              subtitle={
-                typeof securityState.autoLockMinutes === "number"
-                  ? `Currently ${securityState.autoLockMinutes} min.`
-                  : "Choose wallet inactivity timeout."
-              }
-              value="›"
-              onClick={changeAutoLock}
-            />
-
-            <Row
-              icon={<ShieldIcon />}
-              title={securityState.hideBalances === true ? "Show balances" : "Hide balances"}
-              subtitle={
-                securityState.hideBalances === true
-                  ? "Balance privacy mode is enabled."
-                  : "Hide portfolio values on wallet screens."
-              }
-              value="›"
-              onClick={toggleHideBalances}
-            />
-
-            <Row
-              icon={<ShieldIcon />}
-              title={isCheckingKeychain ? "Checking Keychain Host" : "Check macOS Keychain Host"}
-              subtitle="Verify native Touch ID integration."
-              value="›"
-              onClick={isCheckingKeychain ? undefined : checkKeychainHost}
-            />
-
-            <Row
-              icon={<ShieldIcon />}
-              title="Verify recovery backup"
-              subtitle="Select random recovery words."
-              value="›"
-              onClick={() => setShowSeedBackupVerification(true)}
-            />
+            {deviceCheckIds
+              .map((id) => checksById.get(id))
+              .filter((check): check is SecurityCheck => Boolean(check))
+              .map(renderCheckRow)}
 
             <Row
               icon={<ShieldIcon />}
@@ -1035,6 +1006,44 @@ export default function SecurityCenterPage({
               subtitle="Return to unlock screen."
               value="›"
               onClick={lockWallet}
+            />
+          </div>
+        </section>
+
+        <section style={styles.section}>
+          <SectionLabel>Recovery</SectionLabel>
+
+          <div className="row-list">
+            {recoveryCheckIds
+              .map((id) => checksById.get(id))
+              .filter((check): check is SecurityCheck => Boolean(check))
+              .map(renderCheckRow)}
+          </div>
+        </section>
+
+        <section style={styles.section}>
+          <SectionLabel>Privacy</SectionLabel>
+
+          <div className="row-list">
+            {privacyCheckIds
+              .map((id) => checksById.get(id))
+              .filter((check): check is SecurityCheck => Boolean(check))
+              .map(renderCheckRow)}
+
+            <Row
+              icon={<ShieldIcon />}
+              title="Connected sites"
+              subtitle="Review websites that can request wallet access."
+              value="Soon"
+              valueColor="var(--text-secondary, #777777)"
+            />
+
+            <Row
+              icon={<ShieldIcon />}
+              title="Token approvals"
+              subtitle="Review contract spending permissions."
+              value="Soon"
+              valueColor="var(--text-secondary, #777777)"
             />
           </div>
 
