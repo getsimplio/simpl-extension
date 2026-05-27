@@ -847,6 +847,7 @@ export default function WalletConnectPage({
   const [isApproving, setIsApproving] = useState(false);
   const [pendingRequest, setPendingRequest] = useState<WalletConnectPendingRequest | null>(null);
   const [isResponding, setIsResponding] = useState(false);
+  const [approvalPassword, setApprovalPassword] = useState("");
 
   const site = useMemo(() => {
     return proposal ? getProposalSite(proposal) : null;
@@ -1004,6 +1005,12 @@ export default function WalletConnectPage({
       }
 
       if (pendingRequest.method === "eth_sendTransaction") {
+        const password = approvalPassword.trim();
+
+        if (!password) {
+          throw new Error("Wallet password is required.");
+        }
+
         const snapshot = await readWalletSnapshot();
         const requestedChainId = getWalletConnectTransactionChainId(pendingRequest.params);
 
@@ -1018,6 +1025,7 @@ export default function WalletConnectPage({
         const transaction = normalizeWalletConnectTransaction(pendingRequest.params);
 
         const result = await walletService.sendSelectedPreparedTransaction({
+          password,
           transaction,
         });
 
@@ -1032,6 +1040,7 @@ export default function WalletConnectPage({
 
         setWalletSnapshot(await readWalletSnapshot());
         setPendingRequest(null);
+        setApprovalPassword("");
         await clearPendingWalletConnectRequest();
         setStatus(`Transaction submitted: ${shortHash(result.hash)}`);
 
@@ -1092,6 +1101,7 @@ export default function WalletConnectPage({
       });
 
       setPendingRequest(null);
+      setApprovalPassword("");
       await clearPendingWalletConnectRequest();
       setStatus("WalletConnect request rejected.");
     } catch (nextError) {
@@ -1450,7 +1460,10 @@ export default function WalletConnectPage({
               <button
                 type="button"
                 className="btn primary lg full"
-                disabled={isResponding}
+                disabled={
+                  isResponding ||
+                  (pendingRequest.method === "eth_sendTransaction" && !approvalPassword.trim())
+                }
                 onClick={() => void approvePendingRequest()}
               >
                 {isResponding

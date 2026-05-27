@@ -376,6 +376,7 @@ export class WalletService {
   async sendSelectedPreparedTransaction(input: {
     transaction: PreparedTransactionRequest;
     waitForReceipt?: boolean;
+    password?: string;
   }): Promise<SendPreparedTransactionResult> {
     const walletState = await this.storage.getWalletState();
     const selectedAccount = this.getRequiredSelectedAccount(walletState);
@@ -384,7 +385,7 @@ export class WalletService {
       throw new Error("Watch-only wallet cannot send transactions.");
     }
 
-    const mnemonic = await this.getMnemonicForSensitiveOperation();
+    const mnemonic = await this.getMnemonicForSensitiveOperation(input.password);
     const privateKey = deriveEvmPrivateKey(mnemonic, selectedAccount.index);
 
     return sendAssetService.sendPreparedTransaction({
