@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { walletService } from "../../core/wallet/wallet.service";
 
 import SeedBackupVerificationPage from "./SeedBackupVerificationPage";
+import ConnectedSitesPage from "./ConnectedSitesPage";
 type SecurityStatus = "secure" | "warning" | "danger" | "unknown";
 
 type Snapshot = Record<string, unknown>;
@@ -625,6 +626,7 @@ export default function SecurityCenterPage({
   const [isCheckingKeychain, setIsCheckingKeychain] = useState(false);
   const [showSeedBackupVerification, setShowSeedBackupVerification] = useState(false);
   const [isAutoLockSheetOpen, setIsAutoLockSheetOpen] = useState(false);
+  const [showConnectedSites, setShowConnectedSites] = useState(false);
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0 });
@@ -951,6 +953,10 @@ export default function SecurityCenterPage({
     />
   );
 
+  if (showConnectedSites) {
+    return <ConnectedSitesPage onBack={() => setShowConnectedSites(false)} />;
+  }
+
   if (showSeedBackupVerification) {
     return (
       <SeedBackupVerificationPage
@@ -1034,8 +1040,9 @@ export default function SecurityCenterPage({
               icon={<ShieldIcon />}
               title="Connected sites"
               subtitle="Review websites that can request wallet access."
-              value="Soon"
+              value="0"
               valueColor="var(--text-secondary, #777777)"
+              onClick={() => setShowConnectedSites(true)}
             />
 
             <Row
