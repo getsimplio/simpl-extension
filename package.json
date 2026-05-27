@@ -21,8 +21,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@reown/walletkit": "^1.5.5",
     "@scure/bip39": "^2.2.0",
     "@tailwindcss/vite": "^4.3.0",
+    "@walletconnect/core": "^2.23.9",
+    "@walletconnect/utils": "^2.23.9",
     "ethers": "^6.16.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
