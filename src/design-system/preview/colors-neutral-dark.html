@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; background: #0B0B0A; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; border: 1px solid #232220; border-radius: 4px; overflow: hidden; }
+  .sw { padding: 18px 12px; display: flex; flex-direction: column; gap: 10px; min-height: 88px; border-right: 1px solid #232220; background: #141413; }
+  .sw:last-child { border-right: 0; }
+  .sw .name { font-size: 11px; font-weight: 500; color: #F1F0EB; font-family: "IBM Plex Sans", system-ui; }
+  .sw .hex { font-size: 10px; color: #7A776E; font-family: "IBM Plex Mono", monospace; }
+  .sw .swatch-color { height: 28px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.06); }
+  .header { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: #7A776E; margin-bottom: 14px; font-family: "IBM Plex Sans", system-ui; }
+</style></head>
+<body><div class="card">
+  <div class="header">Dark — Graphite</div>
+  <div class="swatch-grid">
+    <div class="sw"><div class="swatch-color" style="background:#0B0B0A"></div><div class="name">canvas</div><div class="hex">#0B0B0A</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#141413"></div><div class="name">surface</div><div class="hex">#141413</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#050504"></div><div class="name">sunken</div><div class="hex">#050504</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#232220"></div><div class="name">line</div><div class="hex">#232220</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#7A776E"></div><div class="name">ink-3</div><div class="hex">#7A776E</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#F1F0EB"></div><div class="name">ink-1</div><div class="hex">#F1F0EB</div></div>
+  </div>
+</div></body></html>

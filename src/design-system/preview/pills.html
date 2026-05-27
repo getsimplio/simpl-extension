@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; }
+  .label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px; }
+  .group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; font: 500 11px/1.4 var(--font-sans); }
+  .dot { width: 6px; height: 6px; border-radius: 999px; }
+  .pill.secure { background: var(--secure-soft); color: var(--secure); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.danger { background: var(--danger-soft); color: var(--danger); }
+  .pill.info { background: var(--info-soft); color: var(--info); }
+  .pill.neutral { background: var(--bg-sunken); color: var(--ink-2); }
+  .pill.outline { background: transparent; color: var(--ink-2); border: 1px solid var(--line-strong); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+</style></head>
+<body><div class="card">
+  <div class="label">Status pills & chips</div>
+  <div class="row">
+    <span class="pill secure"><span class="dot" style="background:var(--secure)"></span>Secure</span>
+    <span class="pill warn"><span class="dot" style="background:var(--warn)"></span>Pending</span>
+    <span class="pill danger"><span class="dot" style="background:var(--danger)"></span>At risk</span>
+    <span class="pill info"><span class="dot" style="background:var(--info)"></span>Testnet</span>
+    <span class="pill neutral">Mainnet</span>
+    <span class="pill outline">Read-only</span>
+  </div>
+  <div style="height:14px"></div>
+  <div class="row">
+    <span class="pill secure">Confirmed · 24</span>
+    <span class="pill warn">Pending · 1</span>
+    <span class="pill outline">+ Add network</span>
+    <span class="pill neutral">Account 1</span>
+    <span class="pill neutral">Ledger</span>
+  </div>
+</div></body></html>

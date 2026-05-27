@@ -1,0 +1,268 @@
+/* ============================================================
+   SIMPLE — Foundations
+   Monochrome-first, paper & ink. One accent. Utility over decoration.
+   ============================================================ */
+
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+:root {
+  /* -------- Type families --------
+     Substitutes for unlicensed Söhne / ABC Diatype.
+     Plex Sans Condensed used for the wordmark + occasional display lockups. */
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* -------- Type scale -------- */
+  --fs-12: 11px;  /* meta / micro labels */
+  --fs-13: 12px;  /* secondary UI text */
+  --fs-14: 13px;  /* default UI body */
+  --fs-15: 14px;  /* primary body */
+  --fs-16: 15px;  /* slightly emphasized */
+  --fs-18: 17px;  /* h4 / list titles */
+  --fs-20: 20px;  /* h3 */
+  --fs-24: 24px;  /* h2 */
+  --fs-32: 30px;  /* h1 — extension scale */
+  --fs-44: 42px;  /* display balance */
+  --fs-64: 62px;  /* hero / onboarding */
+
+  --lh-tight: 1.1;
+  --lh-snug: 1.25;
+  --lh-normal: 1.45;
+  --lh-loose: 1.6;
+
+  --tr-tight: -0.02em;
+  --tr-normal: -0.005em;
+  --tr-wide: 0.04em;
+  --tr-caps: 0.08em;
+
+  /* -------- Light palette (paper) --------
+     Warm bone, not stark white. Soft ink, not pure black. */
+  --bg-canvas:   #F6F5F1;
+  --bg-surface:  #FFFFFF;
+  --bg-sunken:   #EFEEE9;
+  --bg-hover:    #F2F1EC;
+  --bg-active:   #E9E7E1;
+
+  --line:        #E5E3DC;
+  --line-strong: #D2D0C8;
+  --line-focus:  #14140F;
+
+  --ink-1:       #14140F; /* primary text, primary buttons */
+  --ink-2:       #46443D; /* secondary text */
+  --ink-3:       #807D74; /* tertiary / meta */
+  --ink-4:       #B0ADA3; /* placeholder / disabled */
+  --ink-on-dark: #F6F5F1; /* text on dark surfaces in light mode */
+
+  /* -------- Signal colors --------
+     Used SPARINGLY. Saturation kept low.
+     "secure" is the only accent that appears regularly. */
+  --secure:      #2A6F4E; /* hardware LED green */
+  --secure-soft: #E6EFE9;
+  --warn:        #9A6B1E; /* mustard, not yellow */
+  --warn-soft:   #F4EEDF;
+  --danger:      #A33A2C; /* rust, not red */
+  --danger-soft: #F2E1DD;
+  --info:        #2C5C8F;
+  --info-soft:   #E1E8F0;
+
+  /* -------- Radii --------
+     Small and sharp. Utility-first. */
+  --r-0:  0px;
+  --r-1:  2px;
+  --r-2:  4px;
+  --r-3:  6px;
+  --r-4:  8px;
+  --r-5:  10px;
+  --r-6:  12px;
+  --r-full: 999px;
+
+  /* -------- Spacing (4-based) -------- */
+  --sp-1:  2px;
+  --sp-2:  4px;
+  --sp-3:  6px;
+  --sp-4:  8px;
+  --sp-5:  12px;
+  --sp-6:  16px;
+  --sp-7:  20px;
+  --sp-8:  24px;
+  --sp-9:  32px;
+  --sp-10: 40px;
+  --sp-11: 48px;
+  --sp-12: 64px;
+
+  /* -------- Elevation --------
+     Borders before shadows. Only two elevation tokens. */
+  --elev-0: none;
+  --elev-1: 0 1px 0 rgba(20, 20, 15, 0.04), 0 0 0 1px rgba(20, 20, 15, 0.06);
+  --elev-2: 0 8px 24px -8px rgba(20, 20, 15, 0.12), 0 0 0 1px rgba(20, 20, 15, 0.06);
+  --elev-popover: 0 16px 48px -12px rgba(20, 20, 15, 0.18), 0 0 0 1px rgba(20, 20, 15, 0.08);
+
+  /* -------- Motion --------
+     Short, quiet. No bounces. */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 90ms;
+  --dur-base: 160ms;
+  --dur-slow: 240ms;
+
+  /* -------- Layout -------- */
+  --extension-w: 380px;
+  --extension-h: 600px;
+
+  /* -------- Semantic role aliases -------- */
+  --fg:          var(--ink-1);
+  --fg-muted:    var(--ink-2);
+  --fg-subtle:   var(--ink-3);
+  --fg-disabled: var(--ink-4);
+  --bg:          var(--bg-canvas);
+  --surface:     var(--bg-surface);
+  --border:      var(--line);
+  --border-strong: var(--line-strong);
+}
+
+/* -------- Dark palette (graphite) -------- */
+:root[data-theme="dark"],
+.theme-dark {
+  --bg-canvas:   #0B0B0A;
+  --bg-surface:  #141413;
+  --bg-sunken:   #050504;
+  --bg-hover:    #1B1B19;
+  --bg-active:   #232220;
+
+  --line:        #232220;
+  --line-strong: #322F2B;
+  --line-focus:  #F6F5F1;
+
+  --ink-1:       #F1F0EB;
+  --ink-2:       #B5B2A9;
+  --ink-3:       #7A776E;
+  --ink-4:       #4A4843;
+  --ink-on-dark: #F6F5F1;
+
+  --secure:      #5BAE82;
+  --secure-soft: #14241C;
+  --warn:        #C6932F;
+  --warn-soft:   #2A2114;
+  --danger:      #D85F4D;
+  --danger-soft: #2A1714;
+  --info:        #6A9DD2;
+  --info-soft:   #14202A;
+
+  --elev-1: 0 1px 0 rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 252, 0.04);
+  --elev-2: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 252, 0.06);
+  --elev-popover: 0 16px 48px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 252, 0.08);
+}
+
+/* ============================================================
+   Semantic typography classes
+   ============================================================ */
+
+.t-display {
+  font-family: var(--font-display);
+  font-size: var(--fs-64);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  color: var(--ink-1);
+}
+.t-h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-32);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tr-tight);
+  color: var(--ink-1);
+}
+.t-h2 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-24);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-tight);
+  color: var(--ink-1);
+}
+.t-h3 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-20);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tr-normal);
+  color: var(--ink-1);
+}
+.t-h4 {
+  font-family: var(--font-sans);
+  font-size: var(--fs-18);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  color: var(--ink-1);
+}
+.t-body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-15);
+  font-weight: 400;
+  line-height: var(--lh-normal);
+  color: var(--ink-1);
+}
+.t-body-sm {
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  font-weight: 400;
+  line-height: var(--lh-normal);
+  color: var(--ink-1);
+}
+.t-meta {
+  font-family: var(--font-sans);
+  font-size: var(--fs-13);
+  font-weight: 400;
+  line-height: var(--lh-normal);
+  color: var(--ink-2);
+}
+.t-micro {
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  line-height: var(--lh-normal);
+  color: var(--ink-3);
+}
+.t-overline {
+  font-family: var(--font-sans);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  line-height: var(--lh-normal);
+  letter-spacing: var(--tr-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.t-num {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" on, "zero" on;
+  letter-spacing: var(--tr-normal);
+}
+.t-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.t-balance {
+  font-family: var(--font-display);
+  font-size: var(--fs-44);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: var(--tr-tight);
+  font-feature-settings: "tnum" on;
+  color: var(--ink-1);
+}
+
+/* ============================================================
+   Base resets you can opt into
+   ============================================================ */
+.sim-base {
+  font-family: var(--font-sans);
+  font-size: var(--fs-15);
+  color: var(--ink-1);
+  background: var(--bg-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

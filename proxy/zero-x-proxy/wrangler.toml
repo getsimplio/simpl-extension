@@ -1,0 +1,7 @@
+name = "simpl-zero-x-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[vars]
+SIMPLE_SWAP_FEE_BPS = "50"
+ALLOWED_ORIGINS = "chrome-extension://aklgbinnbghdgfcigfiglplkdjjfkego"

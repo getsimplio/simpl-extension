@@ -1,0 +1,9 @@
+
+.tx-swap-amount {
+  color: var(--ink-1);
+  font-weight: 650;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}

@@ -1,0 +1,40 @@
+/* Card shell — used by every preview/*.html card.
+   Cards are ~700px wide, heights vary. No outer titles — the asset name shows outside. */
+@import url("../colors_and_type.css");
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-canvas);
+  color: var(--ink-1);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.card {
+  width: 700px;
+  padding: 24px;
+  background: var(--bg-canvas);
+  box-sizing: border-box;
+}
+.card.surface {
+  background: var(--bg-surface);
+}
+.card.dark {
+  background: var(--bg-canvas);
+}
+.row { display: flex; }
+.col { display: flex; flex-direction: column; }
+.gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; } .gap-5 { gap: 20px; } .gap-6 { gap: 24px; }
+.gap-8 { gap: 32px; }
+
+.label-tiny {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+}

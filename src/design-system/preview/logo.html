@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; }
+  .row-marks { display: flex; align-items: center; gap: 28px; }
+  .mark-cell { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .mark-cell .swatch { width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
+  .mark-cell.dark .swatch { background: #14140F; padding: 8px; border-radius: 6px; }
+  .mark-cell .label { font-size: 10px; color: var(--ink-3); letter-spacing: 0.08em; text-transform: uppercase; }
+  .wordmark-row { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 14px; }
+  .wm-text { font-family: var(--font-display); font-weight: 600; font-size: 36px; letter-spacing: 0.04em; color: var(--ink-1); }
+  .wm-mark { width: 36px; height: 36px; }
+</style></head>
+<body><div class="card">
+  <div class="row-marks">
+    <div class="mark-cell"><div class="swatch" style="color: var(--ink-1)"><svg viewBox="0 0 64 64" width="56" height="56"><path d="M0 6 L 50 6 L 50 38 L 38 50 L 0 50 Z" fill="currentColor"/><rect x="10" y="26" width="22" height="4" fill="#F6F5F1"/></svg></div><div class="label">PRIMARY</div></div>
+    <div class="mark-cell dark"><div class="swatch"><svg viewBox="0 0 64 64" width="48" height="48" style="color:#F6F5F1"><path d="M0 6 L 50 6 L 50 38 L 38 50 L 0 50 Z" fill="currentColor"/><rect x="10" y="26" width="22" height="4" fill="#14140F"/></svg></div><div class="label">INVERSE</div></div>
+    <div class="mark-cell"><div class="swatch"><svg viewBox="0 0 64 64" width="56" height="56" style="color:var(--ink-1)"><path d="M2 8 L 48 8 L 48 36 L 36 48 L 2 48 Z" fill="none" stroke="currentColor" stroke-width="3"/><rect x="12" y="26" width="20" height="3" fill="currentColor"/></svg></div><div class="label">OUTLINE</div></div>
+    <div class="mark-cell"><div class="swatch" style="color:var(--ink-1)"><svg viewBox="0 0 64 64" width="32" height="32"><path d="M0 6 L 50 6 L 50 38 L 38 50 L 0 50 Z" fill="currentColor"/><rect x="10" y="26" width="22" height="4" fill="#F6F5F1"/></svg></div><div class="label">FAVICON 16</div></div>
+    <div class="mark-cell"><div class="swatch"><svg viewBox="0 0 128 128" width="56" height="56"><rect width="128" height="128" rx="28" fill="#14140F"/><path d="M22 30 L 86 30 L 86 70 L 70 86 L 22 86 Z" fill="#F6F5F1"/><rect x="36" y="54" width="32" height="6" fill="#14140F"/></svg></div><div class="label">APP ICON</div></div>
+  </div>
+  <div class="wordmark-row">
+    <svg class="wm-mark" viewBox="0 0 64 64" style="color: var(--ink-1)"><path d="M0 6 L 50 6 L 50 38 L 38 50 L 0 50 Z" fill="currentColor"/><rect x="10" y="26" width="22" height="4" fill="#F6F5F1"/></svg>
+    <div class="wm-text">SIMPLE</div>
+  </div>
+</div></body></html>

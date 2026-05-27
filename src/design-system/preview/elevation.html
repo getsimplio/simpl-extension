@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; background: var(--bg-sunken); }
+  .label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 18px; }
+  .row { display: flex; gap: 20px; }
+  .surf { flex: 1; background: var(--bg-surface); padding: 18px; border-radius: 6px; min-height: 110px; display: flex; flex-direction: column; justify-content: space-between; }
+  .surf .name { font-size: 11px; font-weight: 500; color: var(--ink-1); }
+  .surf .css { font-size: 10px; font-family: var(--font-mono); color: var(--ink-3); }
+  .e0 { box-shadow: none; border: 1px solid var(--line); }
+  .e1 { box-shadow: 0 1px 0 rgba(20,20,15,0.04), 0 0 0 1px rgba(20,20,15,0.06); }
+  .e2 { box-shadow: 0 8px 24px -8px rgba(20,20,15,0.12), 0 0 0 1px rgba(20,20,15,0.06); }
+  .e3 { box-shadow: 0 16px 48px -12px rgba(20,20,15,0.18), 0 0 0 1px rgba(20,20,15,0.08); }
+</style></head>
+<body><div class="card">
+  <div class="label">Elevation · borders before shadows</div>
+  <div class="row">
+    <div class="surf e0"><div class="name">elev-0</div><div class="css">1px line</div></div>
+    <div class="surf e1"><div class="name">elev-1</div><div class="css">cards · resting</div></div>
+    <div class="surf e2"><div class="name">elev-2</div><div class="css">modals · sheets</div></div>
+    <div class="surf e3"><div class="name">elev-popover</div><div class="css">menus · dropdowns</div></div>
+  </div>
+</div></body></html>

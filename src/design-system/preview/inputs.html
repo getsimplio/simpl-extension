@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; }
+  .label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px; }
+  .group { margin-bottom: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 11px; font-weight: 500; color: var(--ink-2); }
+  .input {
+    height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px;
+    background: var(--bg-surface); font: 400 14px/1 var(--font-sans); color: var(--ink-1);
+    transition: border-color var(--dur-base) var(--ease-out);
+  }
+  .input:focus { outline: none; border-color: var(--ink-1); }
+  .input.mono { font-family: var(--font-mono); font-size: 13px; }
+  .input.error { border-color: var(--danger); }
+  .help { font-size: 11px; color: var(--ink-3); }
+  .help.error { color: var(--danger); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .pwd { position: relative; }
+  .pwd .eye { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--ink-3); cursor: pointer; }
+</style></head>
+<body><div class="card">
+  <div class="row">
+    <div class="field">
+      <label>Password</label>
+      <div class="pwd"><input class="input" type="password" value="••••••••••"/><span class="eye">SHOW</span></div>
+      <div class="help">8+ characters, never sent to a server.</div>
+    </div>
+    <div class="field">
+      <label>Recipient</label>
+      <input class="input mono" value="0x7d2F…9aE1"/>
+      <div class="help">Verified on Ethereum</div>
+    </div>
+  </div>
+  <div style="height:14px"></div>
+  <div class="row">
+    <div class="field">
+      <label>Amount</label>
+      <input class="input mono error" value="2.5 ETH"/>
+      <div class="help error">Insufficient balance</div>
+    </div>
+    <div class="field">
+      <label>Network</label>
+      <select class="input"><option>Ethereum Mainnet</option></select>
+    </div>
+  </div>
+</div></body></html>

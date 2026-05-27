@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .sw { padding: 18px 12px; display: flex; flex-direction: column; gap: 10px; min-height: 88px; border-right: 1px solid var(--line); }
+  .sw:last-child { border-right: 0; }
+  .sw .name { font-size: 11px; font-weight: 500; color: var(--ink-1); font-family: var(--font-sans); }
+  .sw .hex { font-size: 10px; color: var(--ink-3); font-family: var(--font-mono); letter-spacing: 0; }
+  .sw .swatch-color { height: 28px; border-radius: 2px; border: 1px solid rgba(0,0,0,0.06); }
+  .header { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 14px; }
+</style></head>
+<body><div class="card">
+  <div class="header">Light — Paper & Ink</div>
+  <div class="swatch-grid">
+    <div class="sw"><div class="swatch-color" style="background:#F6F5F1"></div><div class="name">canvas</div><div class="hex">#F6F5F1</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#FFFFFF"></div><div class="name">surface</div><div class="hex">#FFFFFF</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#EFEEE9"></div><div class="name">sunken</div><div class="hex">#EFEEE9</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#E5E3DC"></div><div class="name">line</div><div class="hex">#E5E3DC</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#807D74"></div><div class="name">ink-3</div><div class="hex">#807D74</div></div>
+    <div class="sw"><div class="swatch-color" style="background:#14140F"></div><div class="name">ink-1</div><div class="hex">#14140F</div></div>
+  </div>
+</div></body></html>

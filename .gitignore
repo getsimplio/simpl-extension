@@ -1,0 +1,31 @@
+node_modules/
+dist/
+.patch-backups/
+.disabled-tsx-backups/
+
+.DS_Store
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+*.bak
+*.old
+*.log
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env backups
+.env.local*
+.env.*.bak*
+*.bak
+*.bak-*
+*.old
+
+# local context / temp files
+swap_settings_context.txt
+export_claude_design_context.py
+.package-lock.json

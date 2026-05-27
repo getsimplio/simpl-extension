@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  .card { padding: 28px 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; }
+  .sig { padding: 16px; border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 10px; background: var(--bg-surface); }
+  .dot { width: 10px; height: 10px; border-radius: 999px; }
+  .top { display: flex; align-items: center; gap: 8px; }
+  .lbl { font-size: 12px; font-weight: 500; color: var(--ink-1); }
+  .hex { font-size: 10px; color: var(--ink-3); font-family: var(--font-mono); }
+  .soft { height: 22px; border-radius: 2px; }
+  .use { font-size: 10px; color: var(--ink-3); }
+</style></head>
+<body><div class="card">
+  <div class="grid">
+    <div class="sig"><div class="top"><span class="dot" style="background:#2A6F4E"></span><span class="lbl">Secure</span></div><div class="hex">#2A6F4E</div><div class="soft" style="background:#E6EFE9"></div><div class="use">confirmed · safe · live</div></div>
+    <div class="sig"><div class="top"><span class="dot" style="background:#9A6B1E"></span><span class="lbl">Warn</span></div><div class="hex">#9A6B1E</div><div class="soft" style="background:#F4EEDF"></div><div class="use">caution · pending</div></div>
+    <div class="sig"><div class="top"><span class="dot" style="background:#A33A2C"></span><span class="lbl">Danger</span></div><div class="hex">#A33A2C</div><div class="soft" style="background:#F2E1DD"></div><div class="use">risk · destructive</div></div>
+    <div class="sig"><div class="top"><span class="dot" style="background:#2C5C8F"></span><span class="lbl">Info</span></div><div class="hex">#2C5C8F</div><div class="soft" style="background:#E1E8F0"></div><div class="use">testnet · notice</div></div>
+  </div>
+</div></body></html>
