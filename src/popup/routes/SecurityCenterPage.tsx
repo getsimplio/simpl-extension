@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { walletService } from "../../core/wallet/wallet.service";
 
+import SeedBackupVerificationPage from "./SeedBackupVerificationPage";
 type SecurityStatus = "secure" | "warning" | "danger" | "unknown";
 
 type Snapshot = Record<string, unknown>;
@@ -621,6 +622,7 @@ export default function SecurityCenterPage({
   const [snapshot, setSnapshot] = useState<Snapshot>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingKeychain, setIsCheckingKeychain] = useState(false);
+  const [showSeedBackupVerification, setShowSeedBackupVerification] = useState(false);
 
   useEffect(() => {
     pageRef.current?.scrollTo({ top: 0 });
@@ -687,6 +689,15 @@ export default function SecurityCenterPage({
       "__localStorage.settings.security.seedBackupConfirmed",
     ]);
 
+    const seedBackupVerified = firstBoolean(snapshot, [
+      "securitySettings.seedBackupVerified",
+      "settings.security.seedBackupVerified",
+      "walletState.settings.security.seedBackupVerified",
+      "seedBackupVerified",
+      "__localStorage.securitySettings.seedBackupVerified",
+      "__localStorage.settings.security.seedBackupVerified",
+    ]);
+
     const keychainStatus = firstString(snapshot, [
       "securitySettings.lastKeychainHostCheckStatus",
       "settings.security.lastKeychainHostCheckStatus",
@@ -709,6 +720,7 @@ export default function SecurityCenterPage({
       autoLockMinutes,
       touchIdEnabled,
       seedBackupConfirmed,
+      seedBackupVerified,
       keychainStatus,
       hideBalances,
     };
@@ -729,6 +741,18 @@ export default function SecurityCenterPage({
     });
 
     setSnapshot(mergeSnapshots(nextSnapshot, initialSnapshot));
+  };
+
+  const handleSeedBackupVerified = async () => {
+    const nextSnapshot = await updateSecuritySettings({
+      seedBackupConfirmed: true,
+      seedBackupConfirmedAt: new Date().toISOString(),
+      seedBackupVerified: true,
+      seedBackupVerifiedAt: new Date().toISOString(),
+    });
+
+    setSnapshot(mergeSnapshots(nextSnapshot, initialSnapshot));
+    setShowSeedBackupVerification(false);
   };
 
   const checkKeychainHost = async () => {
@@ -868,14 +892,16 @@ export default function SecurityCenterPage({
         id: "recovery-backup",
         title: "Recovery phrase backup",
         subtitle:
-          securityState.seedBackupConfirmed === true
-            ? "Recovery phrase backup was confirmed."
-            : "Confirm only after writing the recovery phrase down.",
-        status: securityState.seedBackupConfirmed === true ? "secure" : "warning",
-        value: securityState.seedBackupConfirmed === true ? "Verified" : "Review",
-        points: securityState.seedBackupConfirmed === true ? 20 : 0,
+          securityState.seedBackupVerified === true
+            ? "Recovery phrase backup was verified."
+            : securityState.seedBackupConfirmed === true
+              ? "Backup was confirmed, but word check is not completed."
+              : "Select random recovery words to verify backup.",
+        status: securityState.seedBackupVerified === true ? "secure" : "warning",
+        value: securityState.seedBackupVerified === true ? "Verified" : "Review",
+        points: securityState.seedBackupVerified === true ? 20 : 0,
         maxPoints: 20,
-        onClick: securityState.seedBackupConfirmed === true ? undefined : confirmSeedBackup,
+        onClick: () => setShowSeedBackupVerification(true),
       },
       {
         id: "keychain-host",
@@ -925,6 +951,15 @@ export default function SecurityCenterPage({
   const score = checks.reduce((sum, check) => sum + check.points, 0);
   const maxScore = checks.reduce((sum, check) => sum + check.maxPoints, 0);
   const normalizedScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+
+  if (showSeedBackupVerification) {
+    return (
+      <SeedBackupVerificationPage
+        onBack={() => setShowSeedBackupVerification(false)}
+        onVerified={handleSeedBackupVerified}
+      />
+    );
+  }
 
   return (
     <main ref={pageRef} style={styles.page}>
@@ -1013,10 +1048,10 @@ export default function SecurityCenterPage({
 
             <Row
               icon={<ShieldIcon />}
-              title="Confirm recovery backup"
-              subtitle="Mark recovery phrase as safely backed up."
+              title="Verify recovery backup"
+              subtitle="Select random recovery words."
               value="›"
-              onClick={confirmSeedBackup}
+              onClick={() => setShowSeedBackupVerification(true)}
             />
 
             <Row

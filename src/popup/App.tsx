@@ -22,6 +22,7 @@ import { SwapPage } from "./routes/SwapPage";
 import { TransactionHistoryPage } from "./routes/TransactionHistoryPage";
 import { openSidePanel } from "./surface-actions";
 
+import SeedBackupVerificationPage from "./routes/SeedBackupVerificationPage";
 export type PopupRoute =
   | "welcome"
   | "create-wallet"
@@ -37,7 +38,7 @@ export type PopupRoute =
   | "add-custom-token"
   | "reveal-seed"
   | "reveal-private-key"
-  | "settings";
+  | "settings"  | "verify-seed-backup";
 
 export type PopupViewState = {
   runtimeState: WalletRuntimeState;
@@ -291,6 +292,7 @@ export function App() {
           <CreateWalletPage
             onCreated={async () => {
               await refresh();
+              setRoute("verify-seed-backup");
             }}
             onBack={() => setRoute("welcome")}
           />
@@ -317,7 +319,18 @@ export function App() {
           />
         );
 
-      case "home":
+            case "verify-seed-backup":
+        return (
+          <SeedBackupVerificationPage
+            allowBack={false}
+            onVerified={async () => {
+              await refresh();
+              setRoute("home");
+            }}
+          />
+        );
+
+case "home":
         if (!viewState.walletState) {
           return null;
         }
