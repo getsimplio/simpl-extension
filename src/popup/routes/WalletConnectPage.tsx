@@ -38,6 +38,13 @@ type WalletConnectNamespace = {
   events?: string[];
 };
 
+type WalletConnectPendingRequest = {
+  topic: string;
+  id: number;
+  method: string;
+  params: unknown;
+};
+
 type WalletKitClient = {
   on?: (event: string, handler: (event: any) => void) => void;
   off?: (event: string, handler: (event: any) => void) => void;
@@ -83,6 +90,7 @@ const WALLETCONNECT_METHODS = [
   "eth_sendTransaction",
   "wallet_switchEthereumChain",
   "wallet_addEthereumChain",
+  "wallet_getCapabilities",
 ] as const;
 
 const WALLETCONNECT_EVENTS = ["accountsChanged", "chainChanged"] as const;
@@ -507,8 +515,99 @@ function getJsonRpcResult(method: string, snapshot: WalletSnapshot): unknown {
     case "net_version":
       return String(snapshot.chainId);
 
+    case "wallet_getCapabilities":
+      return {
+        [toHexChainId(snapshot.chainId)]: {},
+      };
+
     default:
       throw new Error(`${method} is not supported yet.`);
+  }
+}
+
+function canAutoRespondToMethod(method: string): boolean {
+  return [
+    "eth_requestAccounts",
+    "eth_accounts",
+    "eth_chainId",
+    "net_version",
+    "wallet_getCapabilities",
+  ].includes(method);
+}
+
+function canApprovePendingRequest(method: string): boolean {
+  return method === "wallet_switchEthereumChain";
+}
+
+function getPendingRequestActionLabel(method: string): string {
+  switch (method) {
+    case "wallet_switchEthereumChain":
+      return "Approve network switch";
+
+    case "personal_sign":
+    case "eth_sign":
+    case "eth_signTypedData":
+    case "eth_signTypedData_v3":
+    case "eth_signTypedData_v4":
+      return "Signature approval is coming next";
+
+    case "eth_sendTransaction":
+      return "Transaction approval is coming next";
+
+    default:
+      return "Unsupported request";
+  }
+}
+
+function formatRequestParams(params: unknown): string {
+  try {
+    const formatted = JSON.stringify(params ?? null, null, 2);
+    return formatted.length > 2400 ? `${formatted.slice(0, 2400)}…` : formatted;
+  } catch {
+    return String(params ?? "");
+  }
+}
+
+function extractSwitchChainId(params: unknown): number {
+  const firstParam = Array.isArray(params) ? params[0] : params;
+  const record = asRecord(firstParam);
+  const rawChainId = record.chainId;
+
+  if (typeof rawChainId !== "string" && typeof rawChainId !== "number") {
+    throw new Error("Switch network request does not include chainId.");
+  }
+
+  const chainId =
+    typeof rawChainId === "number"
+      ? rawChainId
+      : rawChainId.toLowerCase().startsWith("0x")
+        ? Number.parseInt(rawChainId, 16)
+        : Number(rawChainId);
+
+  if (!Number.isFinite(chainId) || chainId <= 0) {
+    throw new Error("Switch network request includes an invalid chainId.");
+  }
+
+  return chainId;
+}
+
+async function updateSelectedChainId(chainId: number) {
+  const stored = await chromeStorageGet(["walletState"]);
+  const walletState = asRecord(stored.walletState);
+
+  const nextWalletState = {
+    ...walletState,
+    selectedChainId: chainId,
+  };
+
+  await chromeStorageSet({
+    walletState: nextWalletState,
+  });
+
+  try {
+    localStorage.setItem("walletState", JSON.stringify(nextWalletState));
+  } catch {
+    // Local storage can be unavailable in some extension surfaces.
   }
 }
 
@@ -538,6 +637,8 @@ export default function WalletConnectPage({
   const [error, setError] = useState<string | null>(null);
   const [isPairing, setIsPairing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState<WalletConnectPendingRequest | null>(null);
+  const [isResponding, setIsResponding] = useState(false);
 
   const site = useMemo(() => {
     return proposal ? getProposalSite(proposal) : null;
@@ -642,6 +743,97 @@ export default function WalletConnectPage({
     }
   }
 
+  async function approvePendingRequest() {
+    if (!pendingRequest) {
+      return;
+    }
+
+    setIsResponding(true);
+    setError(null);
+    setStatus(`Approving ${pendingRequest.method}…`);
+
+    try {
+      const client = await getClient();
+
+      if (pendingRequest.method === "wallet_switchEthereumChain") {
+        const chainId = extractSwitchChainId(pendingRequest.params);
+
+        await updateSelectedChainId(chainId);
+
+        await client.respondSessionRequest?.({
+          topic: pendingRequest.topic,
+          response: {
+            id: pendingRequest.id,
+            jsonrpc: "2.0",
+            result: null,
+          },
+        });
+
+        setWalletSnapshot(await readWalletSnapshot());
+        setPendingRequest(null);
+        setStatus(`Network switched to chain ${chainId}.`);
+        return;
+      }
+
+      await respondUnsupported(
+        client,
+        pendingRequest.topic,
+        pendingRequest.id,
+        `${pendingRequest.method} approval is not supported yet.`,
+      );
+
+      setPendingRequest(null);
+      setStatus(`${pendingRequest.method} was rejected because it is not supported yet.`);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Could not approve WalletConnect request.",
+      );
+      setStatus("WalletConnect request approval failed.");
+    } finally {
+      setIsResponding(false);
+    }
+  }
+
+  async function rejectPendingRequest() {
+    if (!pendingRequest) {
+      return;
+    }
+
+    setIsResponding(true);
+    setError(null);
+    setStatus(`Rejecting ${pendingRequest.method}…`);
+
+    try {
+      const client = await getClient();
+
+      await client.respondSessionRequest?.({
+        topic: pendingRequest.topic,
+        response: {
+          id: pendingRequest.id,
+          jsonrpc: "2.0",
+          error: {
+            code: 4001,
+            message: "User rejected the request.",
+          },
+        },
+      });
+
+      setPendingRequest(null);
+      setStatus("WalletConnect request rejected.");
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Could not reject WalletConnect request.",
+      );
+      setStatus("WalletConnect request rejection failed.");
+    } finally {
+      setIsResponding(false);
+    }
+  }
+
   useEffect(() => {
     let active = true;
 
@@ -662,33 +854,49 @@ export default function WalletConnectPage({
           const id = Number(event.id ?? event.params?.request?.id);
           const request = event.params?.request ?? event.request ?? {};
           const method = String(request.method ?? "");
+          const params = request.params ?? [];
 
-          if (!topic || !Number.isFinite(id)) {
+          if (!topic || !Number.isFinite(id) || !method) {
             return;
           }
 
-          try {
-            const snapshot = await readWalletSnapshot();
-            const result = getJsonRpcResult(method, snapshot);
+          if (canAutoRespondToMethod(method)) {
+            try {
+              const snapshot = await readWalletSnapshot();
+              const result = getJsonRpcResult(method, snapshot);
 
-            await client.respondSessionRequest?.({
-              topic,
-              response: {
+              await client.respondSessionRequest?.({
+                topic,
+                response: {
+                  id,
+                  jsonrpc: "2.0",
+                  result,
+                },
+              });
+
+              return;
+            } catch (requestError) {
+              await respondUnsupported(
+                client,
+                topic,
                 id,
-                jsonrpc: "2.0",
-                result,
-              },
-            });
-          } catch (requestError) {
-            await respondUnsupported(
-              client,
-              topic,
-              id,
-              requestError instanceof Error
-                ? requestError.message
-                : "WalletConnect request is not supported yet.",
-            );
+                requestError instanceof Error
+                  ? requestError.message
+                  : "WalletConnect request is not supported yet.",
+              );
+
+              return;
+            }
           }
+
+          setPendingRequest({
+            topic,
+            id,
+            method,
+            params,
+          });
+          setError(null);
+          setStatus(`WalletConnect request received: ${method}`);
         };
 
         client.on?.("session_proposal", handleProposal);
@@ -879,6 +1087,122 @@ export default function WalletConnectPage({
           >
             {error}
           </div>
+        ) : null}
+
+        {pendingRequest ? (
+          <section
+            style={{
+              marginTop: 28,
+              border: "1px solid var(--border, #dedede)",
+              borderRadius: 24,
+              padding: 18,
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 999,
+                background: "var(--text-primary, #111111)",
+                color: "#ffffff",
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <LinkIcon />
+            </div>
+
+            <div
+              style={{
+                marginTop: 16,
+                fontSize: 18,
+                lineHeight: "24px",
+                fontWeight: 850,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              WalletConnect request
+            </div>
+
+            <p
+              style={{
+                margin: "6px 0 0",
+                color: "var(--text-secondary, #777777)",
+                fontSize: 13,
+                lineHeight: "19px",
+              }}
+            >
+              A connected dApp is requesting an action from SIMPLE.
+            </p>
+
+            <div
+              style={{
+                marginTop: 16,
+                display: "grid",
+                gap: 10,
+                fontSize: 13,
+                lineHeight: "19px",
+              }}
+            >
+              <div>
+                <strong>Method:</strong> {pendingRequest.method}
+              </div>
+
+              <div>
+                <strong>Status:</strong> {getPendingRequestActionLabel(pendingRequest.method)}
+              </div>
+
+              <pre
+                style={{
+                  margin: 0,
+                  maxHeight: 220,
+                  overflow: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  border: "1px solid var(--border, #dedede)",
+                  borderRadius: 14,
+                  padding: 12,
+                  background: "#f7f7f4",
+                  color: "var(--text-secondary, #777777)",
+                  fontSize: 12,
+                  lineHeight: "17px",
+                }}
+              >
+                {formatRequestParams(pendingRequest.params)}
+              </pre>
+            </div>
+
+            <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
+              {canApprovePendingRequest(pendingRequest.method) ? (
+                <button
+                  type="button"
+                  className="btn primary lg full"
+                  disabled={isResponding}
+                  onClick={() => void approvePendingRequest()}
+                >
+                  {isResponding ? "Approving…" : "Approve"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn primary lg full"
+                  disabled
+                  title="This request type needs a dedicated approval screen."
+                >
+                  Approval coming next
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="btn secondary lg full"
+                disabled={isResponding}
+                onClick={() => void rejectPendingRequest()}
+              >
+                {isResponding ? "Rejecting…" : "Reject"}
+              </button>
+            </div>
+          </section>
         ) : null}
 
         {site && proposal ? (
