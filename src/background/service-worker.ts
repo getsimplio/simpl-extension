@@ -55,8 +55,8 @@ async function openWalletConnectApprovalWindow(): Promise<number | undefined> {
   const createdWindow = await chrome.windows.create({
     url,
     type: "popup",
-    width: 440,
-    height: 720,
+    width: 520,
+    height: 760,
     focused: true,
   });
 

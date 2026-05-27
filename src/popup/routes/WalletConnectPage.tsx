@@ -1274,9 +1274,9 @@ export default function WalletConnectPage({
         <section
           style={{
             width: "100%",
-            maxWidth: 420,
+            maxWidth: 460,
             margin: "0 auto",
-            padding: "28px 18px 88px",
+            padding: "24px 18px 88px",
             boxSizing: "border-box",
           }}
         >
@@ -1297,8 +1297,8 @@ export default function WalletConnectPage({
           <h1
             style={{
               margin: "18px 0 0",
-              fontSize: 30,
-              lineHeight: "34px",
+              fontSize: 28,
+              lineHeight: "32px",
               letterSpacing: "-0.055em",
               fontWeight: 900,
             }}
@@ -1410,6 +1410,70 @@ export default function WalletConnectPage({
               </details>
             </div>
           </section>
+
+          {/* Approval password visible input */}
+          {pendingRequest.method === "eth_sendTransaction" ? (
+            <label
+              style={{
+                display: "grid",
+                gap: 8,
+                marginTop: 14,
+              }}
+            >
+              <span
+                style={{
+                  color: "var(--text-primary, #111111)",
+                  fontSize: 12,
+                  lineHeight: "16px",
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  fontWeight: 800,
+                }}
+              >
+                Wallet password
+              </span>
+
+              <input
+                type="password"
+                value={approvalPassword}
+                placeholder="Enter wallet password"
+                autoComplete="current-password"
+                autoFocus
+                onChange={(event) => {
+                  setApprovalPassword(event.target.value);
+
+                  if (
+                    error === "Wallet password is required." ||
+                    error === "Password is required."
+                  ) {
+                    setError(null);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !isResponding &&
+                    approvalPassword.trim()
+                  ) {
+                    void approvePendingRequest();
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  minHeight: 48,
+                  border: "1px solid var(--border, #dedede)",
+                  borderRadius: 14,
+                  background: "var(--bg, #ffffff)",
+                  color: "var(--text-primary, #111111)",
+                  padding: "0 14px",
+                  boxSizing: "border-box",
+                  font: "inherit",
+                  fontSize: 15,
+                  outline: "none",
+                }}
+              />
+            </label>
+          ) : null}
 
           {/* Approval status visible block */}
           <div
