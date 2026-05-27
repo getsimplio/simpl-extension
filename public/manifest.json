@@ -18,12 +18,13 @@
     "storage",
     "nativeMessaging",
     "sidePanel",
-    "tabs"
+    "tabs",
+    "windows"
   ],
   "host_permissions": [
-    
     "http://localhost:8787/*",
-    "http://127.0.0.1:8787/*","https://ethereum-rpc.publicnode.com/*",
+    "http://127.0.0.1:8787/*",
+    "https://ethereum-rpc.publicnode.com/*",
     "https://ethereum-sepolia-rpc.publicnode.com/*",
     "https://base-rpc.publicnode.com/*",
     "https://bsc-rpc.publicnode.com/*",

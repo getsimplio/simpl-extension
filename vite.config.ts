@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, "popup.html"),
         sidepanel: resolve(__dirname, "sidepanel.html"),
+        walletconnectApproval: resolve(__dirname, "walletconnect-approval.html"),
         serviceWorker: resolve(__dirname, "src/background/service-worker.ts"),
       },
       output: {

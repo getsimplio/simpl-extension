@@ -77,6 +77,7 @@ type WalletSnapshot = {
 };
 
 const CONNECTED_SITES_KEY = "connectedSites";
+const PENDING_WALLETCONNECT_REQUEST_KEY = "pendingWalletConnectRequest";
 
 const WALLETCONNECT_METHODS = [
   "eth_requestAccounts",
@@ -167,6 +168,102 @@ function chromeStorageSet(items: Record<string, unknown>): Promise<void> {
       resolve();
     }
   });
+}
+
+function safeParsePendingWalletConnectRequest(
+  value: unknown,
+): WalletConnectPendingRequest | null {
+  const record = asRecord(value);
+  const topic = typeof record.topic === "string" ? record.topic : "";
+  const id = typeof record.id === "number" ? record.id : Number(record.id);
+  const method = typeof record.method === "string" ? record.method : "";
+
+  if (!topic || !Number.isFinite(id) || !method) {
+    return null;
+  }
+
+  return {
+    topic,
+    id,
+    method,
+    params: record.params,
+  };
+}
+
+async function readPendingWalletConnectRequest(): Promise<WalletConnectPendingRequest | null> {
+  const stored = await chromeStorageGet(PENDING_WALLETCONNECT_REQUEST_KEY);
+  const fromChrome = safeParsePendingWalletConnectRequest(
+    stored[PENDING_WALLETCONNECT_REQUEST_KEY],
+  );
+
+  if (fromChrome) {
+    return fromChrome;
+  }
+
+  try {
+    const raw = localStorage.getItem(PENDING_WALLETCONNECT_REQUEST_KEY);
+    return safeParsePendingWalletConnectRequest(raw ? JSON.parse(raw) : null);
+  } catch {
+    return null;
+  }
+}
+
+async function savePendingWalletConnectRequest(request: WalletConnectPendingRequest) {
+  await chromeStorageSet({
+    [PENDING_WALLETCONNECT_REQUEST_KEY]: request,
+  });
+
+  try {
+    localStorage.setItem(PENDING_WALLETCONNECT_REQUEST_KEY, JSON.stringify(request));
+  } catch {
+    // Local storage can be unavailable in some extension surfaces.
+  }
+}
+
+async function clearPendingWalletConnectRequest() {
+  await chromeStorageSet({
+    [PENDING_WALLETCONNECT_REQUEST_KEY]: null,
+  });
+
+  try {
+    localStorage.removeItem(PENDING_WALLETCONNECT_REQUEST_KEY);
+  } catch {
+    // Local storage can be unavailable in some extension surfaces.
+  }
+}
+
+function openWalletConnectApprovalWindow() {
+  const runtime = (globalThis as unknown as {
+    chrome?: {
+      runtime?: {
+        sendMessage?: (
+          message: unknown,
+          callback?: (response?: unknown) => void,
+        ) => void;
+        lastError?: {
+          message?: string;
+        };
+      };
+    };
+  }).chrome?.runtime;
+
+  if (typeof runtime?.sendMessage !== "function") {
+    return;
+  }
+
+  try {
+    runtime.sendMessage(
+      {
+        type: "SIMPLE_OPEN_WALLETCONNECT_APPROVAL_WINDOW",
+      },
+      () => {
+        // Access lastError to avoid unchecked runtime error noise.
+        void runtime.lastError?.message;
+      },
+    );
+  } catch {
+    // Approval window auto-open is best-effort.
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -755,6 +852,25 @@ export default function WalletConnectPage({
     return proposal ? getProposalSite(proposal) : null;
   }, [proposal]);
 
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const surface = searchParams.get("surface");
+
+    if (surface !== "approval") {
+      return;
+    }
+
+    void readPendingWalletConnectRequest().then((request) => {
+      if (!request) {
+        return;
+      }
+
+      setPendingRequest(request);
+      setError(null);
+      setStatus(`WalletConnect request received: ${request.method}`);
+    });
+  }, []);
+
   async function getClient(): Promise<WalletKitClient> {
     if (clientRef.current) {
       return clientRef.current;
@@ -882,6 +998,7 @@ export default function WalletConnectPage({
 
         setWalletSnapshot(await readWalletSnapshot());
         setPendingRequest(null);
+        await clearPendingWalletConnectRequest();
         setStatus(`Network switched to chain ${chainId}.`);
         return;
       }
@@ -915,6 +1032,7 @@ export default function WalletConnectPage({
 
         setWalletSnapshot(await readWalletSnapshot());
         setPendingRequest(null);
+        await clearPendingWalletConnectRequest();
         setStatus(`Transaction submitted: ${shortHash(result.hash)}`);
         return;
       }
@@ -927,6 +1045,7 @@ export default function WalletConnectPage({
       );
 
       setPendingRequest(null);
+      await clearPendingWalletConnectRequest();
       setStatus(`${pendingRequest.method} was rejected because it is not supported yet.`);
     } catch (nextError) {
       setError(
@@ -965,6 +1084,7 @@ export default function WalletConnectPage({
       });
 
       setPendingRequest(null);
+      await clearPendingWalletConnectRequest();
       setStatus("WalletConnect request rejected.");
     } catch (nextError) {
       setError(
@@ -1033,14 +1153,19 @@ export default function WalletConnectPage({
             }
           }
 
-          setPendingRequest({
+          const pendingRequestPayload: WalletConnectPendingRequest = {
             topic,
             id,
             method,
             params,
-          });
+          };
+
+          await savePendingWalletConnectRequest(pendingRequestPayload);
+
+          setPendingRequest(pendingRequestPayload);
           setError(null);
           setStatus(`WalletConnect request received: ${method}`);
+          openWalletConnectApprovalWindow();
         };
 
         client.on?.("session_proposal", handleProposal);
