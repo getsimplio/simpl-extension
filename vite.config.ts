@@ -14,6 +14,7 @@ export default defineConfig({
         popup: resolve(__dirname, "popup.html"),
         sidepanel: resolve(__dirname, "sidepanel.html"),
         walletconnectApproval: resolve(__dirname, "walletconnect-approval.html"),
+        walletconnectOffscreen: resolve(__dirname, "walletconnect-offscreen.html"),
         serviceWorker: resolve(__dirname, "src/background/service-worker.ts"),
       },
       output: {

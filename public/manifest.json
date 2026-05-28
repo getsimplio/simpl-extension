@@ -19,7 +19,8 @@
     "nativeMessaging",
     "sidePanel",
     "tabs",
-    "windows"
+    "windows",
+    "offscreen"
   ],
   "host_permissions": [
     "http://localhost:8787/*",

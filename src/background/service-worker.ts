@@ -21,11 +21,13 @@ function disableSidePanelOnActionClick() {
 chrome.runtime.onInstalled.addListener(() => {
   console.log("Local EVM Wallet extension installed.");
   disableSidePanelOnActionClick();
+  void pingWalletConnectEngine();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   console.log("Local EVM Wallet extension started.");
   disableSidePanelOnActionClick();
+  void pingWalletConnectEngine();
 });
 
 // Also run once when service worker is evaluated.
@@ -104,3 +106,74 @@ chrome.runtime.onMessage.addListener(
     return true;
   },
 );
+
+
+const WALLETCONNECT_OFFSCREEN_DOCUMENT_PATH = "walletconnect-offscreen.html";
+
+async function hasOffscreenDocument(): Promise<boolean> {
+  const offscreenApi = (chrome as unknown as {
+    offscreen?: {
+      hasDocument?: () => Promise<boolean>;
+    };
+  }).offscreen;
+
+  if (typeof offscreenApi?.hasDocument === "function") {
+    return offscreenApi.hasDocument();
+  }
+
+  const clientsApi = (globalThis as unknown as {
+    clients?: {
+      matchAll?: () => Promise<Array<{ url?: string }>>;
+    };
+  }).clients;
+
+  if (typeof clientsApi?.matchAll !== "function") {
+    return false;
+  }
+
+  const extensionUrl = chrome.runtime.getURL(WALLETCONNECT_OFFSCREEN_DOCUMENT_PATH);
+  const matchedClients = await clientsApi.matchAll();
+
+  return matchedClients.some((client) => client.url === extensionUrl);
+}
+
+async function ensureWalletConnectOffscreenDocument(): Promise<void> {
+  const offscreenApi = (chrome as unknown as {
+    offscreen?: {
+      createDocument?: (input: {
+        url: string;
+        reasons: string[];
+        justification: string;
+      }) => Promise<void>;
+    };
+  }).offscreen;
+
+  if (typeof offscreenApi?.createDocument !== "function") {
+    console.warn("chrome.offscreen API is not available.");
+    return;
+  }
+
+  if (await hasOffscreenDocument()) {
+    return;
+  }
+
+  await offscreenApi.createDocument({
+    url: WALLETCONNECT_OFFSCREEN_DOCUMENT_PATH,
+    reasons: ["LOCAL_STORAGE"],
+    justification: "Keep WalletConnect sessions and requests active while the wallet UI is closed.",
+  });
+}
+
+async function pingWalletConnectEngine(): Promise<void> {
+  await ensureWalletConnectOffscreenDocument();
+
+  try {
+    await chrome.runtime.sendMessage({
+      type: "SIMPLE_WALLETCONNECT_ENGINE_PING",
+    });
+  } catch (error) {
+    console.warn("WalletConnect engine ping failed:", error);
+  }
+}
+
+void pingWalletConnectEngine();
