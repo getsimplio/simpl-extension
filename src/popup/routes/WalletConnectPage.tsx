@@ -1458,37 +1458,16 @@ export default function WalletConnectPage({
               </pre>
             </div>
 
-            <details>
-              <summary
-                style={{
-                  cursor: "pointer",
-                  fontSize: 14,
-                  fontWeight: 800,
-                }}
-              >
+            <details className="wc-raw-details">
+              <summary className="wc-raw-summary">
                 Raw request data
               </summary>
 
-              <pre
-                style={{
-                  margin: "12px 0 0",
-                  maxHeight: 96,
-                  overflowY: "auto",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  overflowWrap: "anywhere",
-                  borderRadius: 16,
-                  background: "#f1f0eb",
-                  padding: 12,
-                  fontFamily:
-                    'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-                  color: "#5e5e57",
-                  fontSize: 12,
-                  lineHeight: "18px",
-                }}
-              >
-                {formatRequestParams(pendingRequest.params)}
-              </pre>
+              <div className="wc-raw-box wc-scrollbar">
+                <pre className="wc-raw-pre">
+                  {formatRequestParams(pendingRequest.params)}
+                </pre>
+              </div>
             </details>
           </div>
 
