@@ -34,7 +34,7 @@ export type WalletAssetBalance = {
   logoUrl?: string | null;
   isSpam?: boolean;
   isVerified?: boolean;
-  source?: "native" | "registry" | "discovery" | "custom";
+  source?: "native" | "registry" | "discovery" | "custom" | "watched";
 };
 
 export type WalletPortfolio = {

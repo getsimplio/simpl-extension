@@ -1,6 +1,13 @@
 // src/core/wallet/wallet.service.ts
 
-import { JsonRpcProvider, Wallet, type TypedDataDomain, type TypedDataField } from "ethers";
+import {
+  Contract,
+  JsonRpcProvider,
+  Wallet,
+  formatUnits,
+  type TypedDataDomain,
+  type TypedDataField,
+} from "ethers";
 import { accountService } from "../accounts/account.service";
 import type {
   WalletAccount,
@@ -25,6 +32,7 @@ import {
 } from "../storage/storage.repository";
 import {
   tokenBalanceService,
+  type WalletAssetBalance,
   type WalletPortfolio,
 } from "../tokens/token-balance.service";
 import {
@@ -34,6 +42,26 @@ import {
 } from "../transactions/send-asset.service";
 import { vaultService } from "../vault/vault.service";
 import type { EncryptedVault } from "../vault/vault.types";
+const WATCHED_ASSETS_STORAGE_KEY = "watchedAssets";
+
+const ERC20_BALANCE_OF_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+] as const;
+
+type WatchedAssetStorageItem = {
+  id?: string;
+  type?: string;
+  chainId?: number;
+  chainNamespace?: string;
+  address?: string;
+  symbol?: string;
+  decimals?: number;
+  image?: string;
+  name?: string;
+  addedAt?: string;
+  updatedAt?: string;
+};
+
 import type {
   AddAccountInput,
   AddAccountResult,
@@ -344,10 +372,37 @@ export class WalletService {
     const walletState = await this.storage.getWalletState();
     const selectedAccount = this.getRequiredSelectedAccount(walletState);
 
-    return tokenBalanceService.getPortfolio(
+    const portfolio = await tokenBalanceService.getPortfolio(
       selectedAccount.address,
       walletState.selectedChainId,
     );
+
+    const watchedAssets = await this.getWatchedAssetBalances(
+      selectedAccount.address,
+      walletState.selectedChainId,
+    );
+
+    if (watchedAssets.length === 0) {
+      return portfolio;
+    }
+
+    const existingKeys = new Set(
+      portfolio.assets.map((asset) => this.getPortfolioAssetKey(asset)),
+    );
+
+    const newWatchedAssets = watchedAssets.filter((asset) => {
+      return !existingKeys.has(this.getPortfolioAssetKey(asset));
+    });
+
+    if (newWatchedAssets.length === 0) {
+      return portfolio;
+    }
+
+    return {
+      ...portfolio,
+      assets: [...portfolio.assets, ...newWatchedAssets],
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   async sendSelectedAsset(
@@ -604,6 +659,120 @@ export class WalletService {
       accountsState,
       walletState,
     };
+  }
+
+  private async getWatchedAssetBalances(
+    ownerAddress: EvmAddress,
+    chainId: number,
+  ): Promise<WalletAssetBalance[]> {
+    const watchedAssets = await this.readWatchedAssets();
+    const chain = networkService.getRequiredChainById(chainId);
+
+    const tokens = watchedAssets.filter((asset) => {
+      return (
+        asset.chainId === chainId &&
+        asset.type?.toUpperCase() === "ERC20" &&
+        typeof asset.address === "string" &&
+        asset.address.startsWith("0x") &&
+        typeof asset.symbol === "string" &&
+        asset.symbol.trim().length > 0 &&
+        typeof asset.decimals === "number" &&
+        Number.isInteger(asset.decimals) &&
+        asset.decimals >= 0 &&
+        asset.decimals <= 255
+      );
+    });
+
+    if (tokens.length === 0) {
+      return [];
+    }
+
+    const provider = new JsonRpcProvider(chain.rpcUrl, chain.chainId);
+
+    const settledResults = await Promise.allSettled(
+      tokens.map(async (asset): Promise<WalletAssetBalance> => {
+        const address = asset.address as `0x${string}`;
+        const decimals = asset.decimals ?? 18;
+        const contract = new Contract(address, ERC20_BALANCE_OF_ABI, provider);
+        const rawBalance = (await contract.balanceOf(ownerAddress)) as bigint;
+        const rawBalanceString = rawBalance.toString();
+        const symbol = asset.symbol?.trim() || "TOKEN";
+        const name = asset.name?.trim() || symbol;
+
+        return {
+          id: `erc20:${chainId}:${address.toLowerCase()}`,
+          type: "erc20",
+          chainId,
+          chainName: chain.name,
+          name,
+          symbol,
+          decimals,
+          contractAddress: address,
+          balanceRaw: rawBalanceString,
+          formatted: formatUnits(rawBalance, decimals),
+          updatedAt: new Date().toISOString(),
+          isTransferable: true,
+          visible: true,
+          usdPrice: null,
+          usdValue: null,
+          logoUrl: asset.image ?? null,
+          isSpam: false,
+          isVerified: false,
+          source: "watched",
+        };
+      }),
+    );
+
+    return settledResults.flatMap((result) => {
+      if (result.status === "fulfilled") {
+        return [result.value];
+      }
+
+      console.debug("Failed to load watched asset balance:", result.reason);
+      return [];
+    });
+  }
+
+  private async readWatchedAssets(): Promise<WatchedAssetStorageItem[]> {
+    const chromeLike = (globalThis as unknown as {
+      chrome?: {
+        storage?: {
+          local?: {
+            get?: (
+              keys: string | string[],
+            ) => Promise<Record<string, unknown>>;
+          };
+        };
+      };
+    }).chrome;
+
+    if (typeof chromeLike?.storage?.local?.get !== "function") {
+      return [];
+    }
+
+    try {
+      const stored = await chromeLike.storage.local.get(WATCHED_ASSETS_STORAGE_KEY);
+      const value = stored[WATCHED_ASSETS_STORAGE_KEY];
+
+      if (!Array.isArray(value)) {
+        return [];
+      }
+
+      return value.filter((item): item is WatchedAssetStorageItem => {
+        return Boolean(item) && typeof item === "object";
+      });
+    } catch (error) {
+      console.debug("Failed to read watched assets:", error);
+      return [];
+    }
+  }
+
+  private getPortfolioAssetKey(asset: WalletAssetBalance): string {
+    if (asset.type === "native") {
+      return `native:${asset.chainId}`;
+    }
+
+    return `erc20:${asset.chainId}:${asset.contractAddress?.toLowerCase() ?? ""}`;
   }
 
   private async getMnemonicForSensitiveOperation(
