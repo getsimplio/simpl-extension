@@ -102,6 +102,134 @@ async function getSwapTransactionReceipt(
 }
 
 
+
+function toRpcQuantity(value?: string): string {
+  if (!value || value === "0") {
+    return "0x0";
+  }
+
+  if (value.startsWith("0x")) {
+    return value;
+  }
+
+  return `0x${BigInt(value).toString(16)}`;
+}
+
+function decodeEvmErrorString(data: unknown): string | null {
+  if (typeof data !== "string") {
+    return null;
+  }
+
+  const hex = data.startsWith("0x") ? data.slice(2) : data;
+
+  // Error(string) selector: 0x08c379a0
+  if (!hex.startsWith("08c379a0") || hex.length < 8 + 64 + 64) {
+    return null;
+  }
+
+  const lengthHex = hex.slice(8 + 64, 8 + 128);
+  const length = Number.parseInt(lengthHex, 16);
+
+  if (!Number.isFinite(length) || length <= 0) {
+    return null;
+  }
+
+  const stringHex = hex.slice(8 + 128, 8 + 128 + length * 2);
+  const bytes: number[] = [];
+
+  for (let i = 0; i < stringHex.length; i += 2) {
+    bytes.push(Number.parseInt(stringHex.slice(i, i + 2), 16));
+  }
+
+  try {
+    return new TextDecoder().decode(new Uint8Array(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function getRpcErrorReason(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return "Transaction simulation failed.";
+  }
+
+  const record = error as {
+    message?: unknown;
+    data?: unknown;
+  };
+
+  const decoded = decodeEvmErrorString(record.data);
+
+  if (decoded) {
+    return decoded;
+  }
+
+  if (typeof record.message === "string") {
+    return record.message;
+  }
+
+  return "Transaction simulation failed.";
+}
+
+async function simulateSwapTransaction(input: {
+  chainId: number;
+  from: string;
+  transaction: {
+    to: string;
+    data: string;
+    value?: string;
+    gas?: string;
+  };
+}): Promise<void> {
+  const rpcUrl = SWAP_RECEIPT_RPC_URLS[input.chainId];
+
+  if (!rpcUrl) {
+    throw new Error(`Simulation RPC is not configured for chain ${input.chainId}.`);
+  }
+
+  const callParams: Record<string, string> = {
+    from: input.from,
+    to: input.transaction.to,
+    data: input.transaction.data,
+    value: toRpcQuantity(input.transaction.value),
+  };
+
+  if (input.transaction.gas) {
+    callParams.gas = toRpcQuantity(input.transaction.gas);
+  }
+
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: Date.now(),
+      method: "eth_call",
+      params: [callParams, "latest"],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Swap simulation RPC failed with HTTP ${response.status}.`);
+  }
+
+  const payload = (await response.json()) as {
+    result?: string;
+    error?: unknown;
+  };
+
+  if (payload.error) {
+    const reason = getRpcErrorReason(payload.error);
+
+    throw new Error(
+      `This swap is likely to fail before broadcast. Reason: ${reason}. Try a smaller amount, higher slippage, or avoid this restricted token.`,
+    );
+  }
+}
+
+
 type SubmittedSwapStatus = "pending" | "confirmed" | "failed";
 
 const SLIPPAGE_STORAGE_KEY = "simple:swapSlippageBps";
@@ -1230,7 +1358,7 @@ setApprovalStatus("idle");
   }, [submitStatus, submittedTxHash, selectedChainId]);
 
   async function handleConfirmSwap() {
-    if (!quote) return;
+    if (!quote || !selectedAccount) return;
 
     if (hasZeroXAllowanceIssue(quote) && approvalStatus !== "approved") {
       setSubmitStatus("error");
@@ -1244,6 +1372,12 @@ setApprovalStatus("idle");
     setSubmittedExplorerUrl(null);
 
     try {
+      await simulateSwapTransaction({
+        chainId: selectedChainId,
+        from: selectedAccount.address,
+        transaction: quote.transaction,
+      });
+
       const result = await walletService.sendSelectedPreparedTransaction({
         transaction: quote.transaction,
       });
