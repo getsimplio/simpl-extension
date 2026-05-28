@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { walletService } from "../core/wallet/wallet.service";
 import type { WalletAccount } from "../core/accounts/account.types";
 import type { WalletRuntimeState } from "../core/wallet/wallet.types";
@@ -18,11 +18,9 @@ import { RevealSeedPage } from "./routes/RevealSeedPage";
 import { RevealPrivateKeyPage } from "./routes/RevealPrivateKeyPage";
 import { SettingsPage } from "./routes/SettingsPage";
 import { ReceivePage } from "./routes/ReceivePage";
-import { SwapPage } from "./routes/SwapPage";
-import { TransactionHistoryPage } from "./routes/TransactionHistoryPage";
 import { openSidePanel } from "./surface-actions";
+import { SwapPage } from "./routes/SwapPage";
 
-import SeedBackupVerificationPage from "./routes/SeedBackupVerificationPage";
 export type PopupRoute =
   | "welcome"
   | "create-wallet"
@@ -30,7 +28,6 @@ export type PopupRoute =
   | "unlock"
   | "home"
   | "receive"
-  | "history"
   | "send"
   | "swap"
   | "accounts"
@@ -38,7 +35,7 @@ export type PopupRoute =
   | "add-custom-token"
   | "reveal-seed"
   | "reveal-private-key"
-  | "settings"  | "verify-seed-backup";
+  | "settings";
 
 export type PopupViewState = {
   runtimeState: WalletRuntimeState;
@@ -71,8 +68,6 @@ export function App() {
   const [selectedAsset, setSelectedAsset] =
     useState<WalletAssetBalance | null>(null);
   const [loading, setLoading] = useState(true);
-  const lastActivityAtRef = useRef(Date.now());
-  const autoLockRunningRef = useRef(false);
 
   async function refresh() {
     const overview = await walletService.getOverview();
@@ -130,99 +125,6 @@ export function App() {
     });
   }, []);
 
-  // SIMPLE auto-lock engine.
-  // Locks wallet after configured inactivity timeout.
-  useEffect(() => {
-    if (!viewState || viewState.runtimeState.status !== "unlocked") {
-      return;
-    }
-
-    lastActivityAtRef.current = Date.now();
-
-    const markActivity = () => {
-      lastActivityAtRef.current = Date.now();
-    };
-
-    const activityEvents: Array<keyof WindowEventMap> = [
-      "pointerdown",
-      "keydown",
-      "wheel",
-      "touchstart",
-    ];
-
-    activityEvents.forEach((eventName) => {
-      window.addEventListener(eventName, markActivity, {
-        passive: true,
-      });
-    });
-
-    const intervalId = window.setInterval(async () => {
-      if (autoLockRunningRef.current) {
-        return;
-      }
-
-      const now = Date.now();
-      const overview = await walletService.getOverview();
-
-      if (overview.runtimeState.status !== "unlocked") {
-        return;
-      }
-
-      const autoLockMinutes =
-        overview.walletState?.settings.autoLockMinutes ??
-        viewState.walletState?.settings.autoLockMinutes ??
-        15;
-
-      if (!Number.isFinite(autoLockMinutes) || autoLockMinutes <= 0) {
-        return;
-      }
-
-      const timeoutMs = autoLockMinutes * 60 * 1000;
-      const idleMs = now - lastActivityAtRef.current;
-
-      if (idleMs < timeoutMs) {
-        return;
-      }
-
-      autoLockRunningRef.current = true;
-
-      try {
-        walletService.lockWallet();
-        setSelectedAsset(null);
-        setRoute("unlock");
-        await syncViewState();
-      } finally {
-        autoLockRunningRef.current = false;
-      }
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-
-      activityEvents.forEach((eventName) => {
-        window.removeEventListener(eventName, markActivity);
-      });
-    };
-  }, [
-    viewState?.runtimeState.status,
-    viewState?.walletState?.settings.autoLockMinutes,
-  ]);
-
-  useEffect(() => {
-    const handleWalletLock = () => {
-      walletService.lockWallet();
-      setSelectedAsset(null);
-      setRoute("unlock");
-      void syncViewState();
-    };
-
-    window.addEventListener("simple-wallet:lock", handleWalletLock);
-
-    return () => {
-      window.removeEventListener("simple-wallet:lock", handleWalletLock);
-    };
-  }, []);
-
   function getAddWatchWalletBackRoute(): PopupRoute {
     if (!viewState || viewState.runtimeState.status === "not_initialized") {
       return "welcome";
@@ -236,44 +138,19 @@ export function App() {
     setRoute("send");
   }
 
-  function goHome() {
-    setSelectedAsset(null);
-    setRoute("home");
-  }
-
   function renderRoute() {
     if (loading || !viewState) {
       return (
-        <div className="ext-popup" data-screen-label="00 Loading">
-          <div
-            className="screen-body"
-            style={{
-              display: "grid",
-              placeItems: "center",
-              padding: 24,
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-                justifyItems: "center",
-              }}
-            >
-              <div className="tok">S</div>
-
-              <div
-                style={{
-                  color: "var(--ink-3)",
-                  fontSize: 13,
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                Loading wallet…
-              </div>
+        <section className="simple-page simple-loading-page">
+          <div className="simple-card simple-loading-card">
+            <div className="simple-logo">
+              <span className="simple-logo__mark" aria-hidden="true" />
+              <span className="simple-logo__text">SIMPLE</span>
             </div>
+
+            <p className="simple-loading-text">Loading wallet...</p>
           </div>
-        </div>
+        </section>
       );
     }
 
@@ -292,7 +169,6 @@ export function App() {
           <CreateWalletPage
             onCreated={async () => {
               await refresh();
-              setRoute("verify-seed-backup");
             }}
             onBack={() => setRoute("welcome")}
           />
@@ -319,52 +195,40 @@ export function App() {
           />
         );
 
-            case "verify-seed-backup":
-        return (
-          <SeedBackupVerificationPage
-            allowBack={false}
-            onVerified={async () => {
-              await refresh();
-              setRoute("home");
-            }}
-          />
-        );
-
-case "home":
+      case "home":
         if (!viewState.walletState) {
           return null;
         }
 
         return (
-          <HomePage
-            selectedAccount={viewState.selectedAccount}
-            walletState={viewState.walletState}
-            onAccounts={() => setRoute("accounts")}
-            onReceive={() => setRoute("receive")}
-            onSwap={() => setRoute("swap")}
-            onHistory={() => setRoute("history")}
-            onRevealSeed={() => setRoute("reveal-seed")}
-            onRevealPrivateKey={() => setRoute("reveal-private-key")}
-            onSettings={() => setRoute("settings")}
-            onAddCustomToken={() => setRoute("add-custom-token")}
-            onSendAsset={openSendPage}
-            onRefresh={refresh}
-          />
-        );
+  <HomePage
+    selectedAccount={viewState.selectedAccount}
+    walletState={viewState.walletState}
+    onAccounts={() => setRoute("accounts")}
+    onReceive={() => setRoute("receive")}
+    onSwap={() => setRoute("swap")}
+    onRevealSeed={() => setRoute("reveal-seed")}
+    onRevealPrivateKey={() => setRoute("reveal-private-key")}
+    onSettings={() => setRoute("settings")}
+    onAddCustomToken={() => setRoute("add-custom-token")}
+    onSendAsset={openSendPage}
+    onRefresh={refresh}
+    onHistory={() => undefined}
+  />
+);
 
       case "swap":
-        if (!viewState.walletState) {
-          return null;
-        }
+  if (!viewState.walletState) {
+    return null;
+  }
 
-        return (
-          <SwapPage
-            selectedAccount={viewState.selectedAccount}
-            walletState={viewState.walletState}
-            onBack={() => setRoute("home")}
-            onSwapCompleted={refresh}
-          />
-        );
+  return (
+    <SwapPage
+      selectedAccount={viewState.selectedAccount}
+      walletState={viewState.walletState}
+      onBack={() => setRoute("home")}
+    />
+  );
 
       case "send":
         if (
@@ -372,7 +236,6 @@ case "home":
           !viewState.selectedAccount ||
           !selectedAsset
         ) {
-          goHome();
           return null;
         }
 
@@ -381,7 +244,10 @@ case "home":
             asset={selectedAsset}
             selectedAccount={viewState.selectedAccount}
             walletState={viewState.walletState}
-            onBack={goHome}
+            onBack={() => {
+              setSelectedAsset(null);
+              setRoute("home");
+            }}
             onSent={async () => {
               setSelectedAsset(null);
               await refresh();
@@ -396,19 +262,6 @@ case "home":
 
         return (
           <ReceivePage
-            selectedAccount={viewState.selectedAccount}
-            walletState={viewState.walletState}
-            onBack={() => setRoute("home")}
-          />
-        );
-
-      case "history":
-        if (!viewState.walletState) {
-          return null;
-        }
-
-        return (
-          <TransactionHistoryPage
             selectedAccount={viewState.selectedAccount}
             walletState={viewState.walletState}
             onBack={() => setRoute("home")}
@@ -489,16 +342,6 @@ case "home":
       <main className="popup-app-frame" data-route={route}>
         {renderRoute()}
       </main>
-
-      <button
-        type="button"
-        className="surface-mode-button"
-        onClick={() => void openSidePanel()}
-        aria-label="Open side panel"
-        title="Open side panel"
-      >
-        <SidePanelIcon />
-      </button>
     </div>
   );
 }

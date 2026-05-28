@@ -1301,7 +1301,7 @@ export default function WalletConnectPage({
                     background: "#ffffff",
                   }}
                 >
-                  <div style={{ fontWeight: 850 }}>Transaction preview</div>
+                  <div style={{ fontWeight: 850 }}>{pendingRequest.method === "personal_sign" ? "Message preview" : "Transaction preview"}</div>
                   <div>
                     <strong>From:</strong>{" "}
                     {getTransactionPreviewValue(pendingRequest.params, "from")}
