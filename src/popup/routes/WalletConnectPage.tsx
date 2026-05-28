@@ -1129,91 +1129,14 @@ export default function WalletConnectPage({
   }
 
   useEffect(() => {
-    let active = true;
-
-    void getClient()
-      .then((client) => {
-        if (!active) {
-          return;
-        }
-
-        const handleProposal = (event: WalletConnectProposal) => {
-          setProposal(event);
-          setError(null);
-          setStatus("Session proposal received.");
-        };
-
-        const handleRequest = async (event: any) => {
-          const topic = String(event.topic ?? "");
-          const id = Number(event.id ?? event.params?.request?.id);
-          const request = event.params?.request ?? event.request ?? {};
-          const method = String(request.method ?? "");
-          const params = request.params ?? [];
-
-          if (!topic || !Number.isFinite(id) || !method) {
-            return;
-          }
-
-          if (canAutoRespondToMethod(method)) {
-            try {
-              const snapshot = await readWalletSnapshot();
-              const result = getJsonRpcResult(method, snapshot);
-
-              await client.respondSessionRequest?.({
-                topic,
-                response: {
-                  id,
-                  jsonrpc: "2.0",
-                  result,
-                },
-              });
-
-              return;
-            } catch (requestError) {
-              await respondUnsupported(
-                client,
-                topic,
-                id,
-                requestError instanceof Error
-                  ? requestError.message
-                  : "WalletConnect request is not supported yet.",
-              );
-
-              return;
-            }
-          }
-
-          const pendingRequestPayload: WalletConnectPendingRequest = {
-            topic,
-            id,
-            method,
-            params,
-          };
-
-          await savePendingWalletConnectRequest(pendingRequestPayload);
-
-          setPendingRequest(pendingRequestPayload);
-          setError(null);
-          setStatus(`WalletConnect request received: ${method}`);
-          openWalletConnectApprovalWindow();
-        };
-
-        client.on?.("session_proposal", handleProposal);
-        client.on?.("session_request", handleRequest);
-
-        return () => {
-          client.off?.("session_proposal", handleProposal);
-          client.off?.("session_request", handleRequest);
-        };
-      })
-      .catch((nextError) => {
-        setError(nextError instanceof Error ? nextError.message : "WalletConnect initialization failed.");
-        setStatus("WalletConnect initialization failed.");
-      });
-
-    return () => {
-      active = false;
-    };
+    // WalletConnect runtime is owned by the offscreen engine.
+    // This page is only a UI bridge: pair URI, show pending approval,
+    // and send Confirm / Reject messages to the engine.
+    void sendWalletConnectEngineMessage({
+      type: "SIMPLE_WALLETCONNECT_ENGINE_PING",
+    }).catch((nextError) => {
+      console.warn("WalletConnect engine ping failed:", nextError);
+    });
   }, []);
 
   if (pendingRequest) {
