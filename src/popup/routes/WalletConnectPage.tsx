@@ -790,6 +790,7 @@ function canApprovePendingRequest(method: string): boolean {
     method === "wallet_switchEthereumChain" ||
     method === "eth_sendTransaction" ||
     method === "eth_signTypedData_v4" ||
+    method === "personal_sign" ||
     method === "wallet_watchAsset"
   );
 }
@@ -1035,7 +1036,7 @@ export default function WalletConnectPage({
     setStatus(`Approving ${pendingRequest.method}…`);
 
     try {
-      const needsPassword = ["eth_sendTransaction", "eth_signTypedData_v4"].includes(
+      const needsPassword = ["eth_sendTransaction", "eth_signTypedData_v4", "personal_sign"].includes(
         pendingRequest.method,
       );
 
@@ -1244,7 +1245,8 @@ export default function WalletConnectPage({
           >
             {pendingRequest.method === "eth_sendTransaction"
               ? "Confirm transaction"
-              : pendingRequest.method === "eth_signTypedData_v4"
+              : pendingRequest.method === "eth_signTypedData_v4" ||
+              pendingRequest.method === "personal_sign"
                 ? "Sign message"
                 : pendingRequest.method === "wallet_watchAsset"
                   ? "Add token"
@@ -1287,7 +1289,8 @@ export default function WalletConnectPage({
               </div>
 
               {pendingRequest.method === "eth_sendTransaction" ||
-          pendingRequest.method === "eth_signTypedData_v4" ? (
+          pendingRequest.method === "eth_signTypedData_v4" ||
+          pendingRequest.method === "personal_sign" ? (
                 <div
                   style={{
                     display: "grid",
@@ -1357,7 +1360,8 @@ export default function WalletConnectPage({
 
           {/* Approval password visible input */}
           {pendingRequest.method === "eth_sendTransaction" ||
-          pendingRequest.method === "eth_signTypedData_v4" ? (
+          pendingRequest.method === "eth_signTypedData_v4" ||
+          pendingRequest.method === "personal_sign" ? (
             <label
               style={{
                 display: "grid",
@@ -1471,7 +1475,7 @@ export default function WalletConnectPage({
                 className="btn primary lg full"
                 disabled={
                   isResponding ||
-                  (["eth_sendTransaction", "eth_signTypedData_v4"].includes(pendingRequest.method) &&
+                  (["eth_sendTransaction", "eth_signTypedData_v4", "personal_sign"].includes(pendingRequest.method) &&
                     !approvalPassword.trim())
                 }
                 onClick={() => void approvePendingRequest()}

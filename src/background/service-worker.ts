@@ -280,6 +280,28 @@ chrome.runtime.onMessage.addListener((message: any, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "SIMPLE_WALLETCONNECT_PERSONAL_SIGN") {
+    void walletService
+      .signSelectedPersonalMessage({
+        password: typeof message.password === "string" ? message.password : undefined,
+        params: message.params,
+      })
+      .then((result) => {
+        sendResponse({
+          ok: true,
+          result,
+        });
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: getErrorMessage(error),
+        });
+      });
+
+    return true;
+  }
+
   if (message?.type === "SIMPLE_WALLETCONNECT_SIGN_TYPED_DATA_V4") {
     void walletService
       .signSelectedTypedDataV4({

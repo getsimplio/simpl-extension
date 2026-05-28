@@ -582,6 +582,43 @@ async function approvePendingWalletConnectRequest(password?: string) {
     };
   }
 
+  if (pendingRequest.method === "personal_sign") {
+    const trimmedPassword = password?.trim();
+
+    if (!trimmedPassword) {
+      throw new Error("Password is required.");
+    }
+
+    const response = await sendServiceWorkerMessage<{
+      ok?: boolean;
+      error?: string;
+      result?: {
+        signature: string;
+      };
+    }>({
+      type: "SIMPLE_WALLETCONNECT_PERSONAL_SIGN",
+      password: trimmedPassword,
+      params: pendingRequest.params,
+    });
+
+    if (!response?.ok || !response.result?.signature) {
+      throw new Error(response?.error ?? "Message signing failed.");
+    }
+
+    await respondWalletConnectSuccess({
+      walletKit,
+      topic: pendingRequest.topic,
+      id: pendingRequest.id,
+      result: response.result.signature,
+    });
+
+    await clearPendingWalletConnectRequest();
+
+    return {
+      result: response.result.signature,
+    };
+  }
+
   if (pendingRequest.method === "eth_signTypedData_v4") {
     if (!password?.trim()) {
       throw new Error("Wallet password is required.");

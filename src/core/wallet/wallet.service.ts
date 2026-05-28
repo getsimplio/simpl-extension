@@ -7,6 +7,9 @@ import {
   formatUnits,
   type TypedDataDomain,
   type TypedDataField,
+  HDNodeWallet,
+  getBytes,
+  isHexString,
 } from "ethers";
 import { accountService } from "../accounts/account.service";
 import type {
@@ -658,6 +661,58 @@ export class WalletService {
     return {
       accountsState,
       walletState,
+    };
+  }
+
+  async signSelectedPersonalMessage(input: {
+    password?: string;
+    params: unknown;
+  }): Promise<{ signature: string }> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+    const selectedAddress = selectedAccount.address.toLowerCase();
+
+    const params = Array.isArray(input.params) ? input.params : [];
+    const stringParams = params.filter((item): item is string => {
+      return typeof item === "string" && item.length > 0;
+    });
+
+    if (stringParams.length === 0) {
+      throw new Error("personal_sign message is missing.");
+    }
+
+    const addressParam = stringParams.find((item) => {
+      return /^0x[a-fA-F0-9]{40}$/.test(item);
+    });
+
+    if (addressParam && addressParam.toLowerCase() !== selectedAddress) {
+      throw new Error("personal_sign address does not match selected account.");
+    }
+
+    const message =
+      stringParams.find((item) => item !== addressParam) ?? stringParams[0];
+
+    if (!message) {
+      throw new Error("personal_sign message is missing.");
+    }
+
+    const mnemonic = await this.getMnemonicForSensitiveOperation(input.password);
+    const derivationPath = (selectedAccount as { derivationPath?: string })
+      .derivationPath;
+
+    const signer = derivationPath
+      ? HDNodeWallet.fromPhrase(mnemonic, undefined, derivationPath)
+      : Wallet.fromPhrase(mnemonic);
+
+    if (signer.address.toLowerCase() !== selectedAddress) {
+      throw new Error("Derived signer does not match selected account.");
+    }
+
+    const normalizedMessage = isHexString(message) ? getBytes(message) : message;
+    const signature = await signer.signMessage(normalizedMessage);
+
+    return {
+      signature,
     };
   }
 
