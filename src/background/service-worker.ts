@@ -44,8 +44,8 @@ let walletConnectApprovalWindowId: number | null = null;
 async function openWalletConnectApprovalWindow() {
   const url = chrome.runtime.getURL("walletconnect-approval.html?surface=approval");
 
-  const popupWidth = 520;
-  const popupHeight = 800;
+  const popupWidth = 440;
+  const popupHeight = 760;
 
   let left: number | undefined;
   let top: number | undefined;
