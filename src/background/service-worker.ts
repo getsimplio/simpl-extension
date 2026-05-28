@@ -41,36 +41,44 @@ type SimpleRuntimeMessage = {
 
 let walletConnectApprovalWindowId: number | null = null;
 
-async function openWalletConnectApprovalWindow(): Promise<number | undefined> {
+async function openWalletConnectApprovalWindow() {
   const url = chrome.runtime.getURL("walletconnect-approval.html?surface=approval");
 
-  if (walletConnectApprovalWindowId !== null) {
-    try {
-      await chrome.windows.update(walletConnectApprovalWindowId, {
-        focused: true,
-      });
+  const popupWidth = 460;
+  const popupHeight = 820;
 
-      return walletConnectApprovalWindowId;
-    } catch {
-      walletConnectApprovalWindowId = null;
+  let left: number | undefined;
+  let top: number | undefined;
+
+  try {
+    const currentWindow = await chrome.windows.getLastFocused();
+
+    if (
+      typeof currentWindow.left === "number" &&
+      typeof currentWindow.top === "number" &&
+      typeof currentWindow.width === "number"
+    ) {
+      left = Math.max(
+        0,
+        currentWindow.left + currentWindow.width - popupWidth - 24,
+      );
+      top = Math.max(0, currentWindow.top + 72);
     }
+  } catch (error) {
+    console.warn("Failed to calculate approval window position:", error);
   }
 
   const createdWindow = await chrome.windows.create({
     url,
     type: "popup",
-    width: 520,
-    height: 820,
+    width: popupWidth,
+    height: popupHeight,
     focused: true,
+    ...(typeof left === "number" ? { left } : {}),
+    ...(typeof top === "number" ? { top } : {}),
   });
 
-  if (!createdWindow?.id) {
-    throw new Error("WalletConnect approval window was not created.");
-  }
-
-  walletConnectApprovalWindowId = createdWindow.id;
-
-  return createdWindow.id;
+  return createdWindow?.id;
 }
 
 chrome.windows?.onRemoved?.addListener((windowId) => {
