@@ -824,6 +824,71 @@ function formatRequestParams(params: unknown): string {
   }
 }
 
+function simpleDecodeHexUtf8(value: string) {
+  const hex = value.startsWith("0x") ? value.slice(2) : value;
+
+  if (!hex || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) {
+    return value;
+  }
+
+  try {
+    const bytes = new Uint8Array(
+      hex.match(/.{2}/g)?.map((part) => parseInt(part, 16)) ?? [],
+    );
+
+    return new TextDecoder("utf-8")
+      .decode(bytes)
+      .replace(/\u0000/g, "")
+      .trim();
+  } catch {
+    return value;
+  }
+}
+
+function getSimplePersonalSignPreview(params: unknown) {
+  const values = Array.isArray(params) ? params : [];
+
+  const hexMessage = values.find(
+    (value): value is string =>
+      typeof value === "string" &&
+      value.startsWith("0x") &&
+      value.length > 42 &&
+      !/^0x[a-fA-F0-9]{40}$/.test(value),
+  );
+
+  if (!hexMessage) {
+    return formatRequestParams(params);
+  }
+
+  const decoded = simpleDecodeHexUtf8(hexMessage);
+
+  return decoded || hexMessage;
+}
+
+function getSimpleWalletConnectPreview(method: string, params: unknown) {
+  if (method === "personal_sign") {
+    return getSimplePersonalSignPreview(params);
+  }
+
+  if (method === "eth_signTypedData_v4") {
+    const values = Array.isArray(params) ? params : [];
+    const candidate = values[1] ?? values[0] ?? params;
+
+    if (typeof candidate === "string") {
+      try {
+        return JSON.stringify(JSON.parse(candidate), null, 2);
+      } catch {
+        return candidate;
+      }
+    }
+
+    return formatRequestParams(candidate);
+  }
+
+  return formatRequestParams(params);
+}
+
+
 function decodeWcHexUtf8V2(value: string) {
   const hex = value.startsWith("0x") ? value.slice(2) : value;
 
@@ -1716,9 +1781,9 @@ export default function WalletConnectPage({
                   lineHeight: "18px",
                 }}
               >
-                {String(previewText).trim()
-                  ? String(previewText)
-                  : "No readable preview available. Expand Raw request data below."}
+                {String(
+                  getSimpleWalletConnectPreview(method, pendingRequest.params),
+                ).trim() || "No readable preview available."}
               </pre>
             </div>
 
