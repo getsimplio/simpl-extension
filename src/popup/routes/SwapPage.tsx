@@ -16,6 +16,12 @@ import {
   type ZeroXSwapPrice,
   type ZeroXSwapQuote,
 } from "../../core/swap/zeroXSwapService";
+import {
+  getPancakeV2SwapPrice,
+  getPancakeV2SwapQuote,
+  isPancakeV2SupportedChain,
+} from "../../core/swap/pancakeV2SwapService";
+
 import { transactionHistoryService } from "../../core/transactions/transaction-history.service";
 import { walletService } from "../../core/wallet/wallet.service";
 import "./SwapPage.css";
@@ -124,6 +130,68 @@ function getInitialSlippageBps(): number {
     return clampSlippageBps(Number(raw));
   } catch {
     return DEFAULT_SLIPPAGE_BPS;
+  }
+}
+
+
+type SwapPriceRequest = {
+  chainId: number;
+  sellToken: string;
+  buyToken: string;
+  sellAmount: string;
+  taker: string;
+};
+
+type SwapQuoteRequest = SwapPriceRequest & {
+  slippageBps?: number;
+  swapFeeRecipient?: string;
+  swapFeeBps?: number;
+  swapFeeToken?: string;
+};
+
+async function getSwapPriceWithFallback(
+  params: SwapPriceRequest,
+): Promise<ZeroXSwapPrice> {
+  try {
+    return await getZeroXSwapPrice(params);
+  } catch (zeroXError) {
+    if (!isPancakeV2SupportedChain(params.chainId)) {
+      throw zeroXError;
+    }
+
+    try {
+      return await getPancakeV2SwapPrice(params);
+    } catch (pancakeError) {
+      throw new Error(
+        `${normalizeSwapError(zeroXError, "quote")} PancakeSwap V2 fallback also failed: ${normalizeSwapError(
+          pancakeError,
+          "quote",
+        )}`,
+      );
+    }
+  }
+}
+
+async function getSwapQuoteWithFallback(
+  params: SwapQuoteRequest,
+): Promise<ZeroXSwapQuote> {
+  try {
+    return await getZeroXSwapQuote(params);
+  } catch (zeroXError) {
+    if (!isPancakeV2SupportedChain(params.chainId)) {
+      throw zeroXError;
+    }
+
+    try {
+      return await getPancakeV2SwapQuote(params);
+    } catch (pancakeError) {
+      throw new Error(
+        `${normalizeSwapError(zeroXError, "quote")} PancakeSwap V2 fallback also failed: ${normalizeSwapError(
+          pancakeError,
+          "quote",
+        )}`,
+      );
+    }
   }
 }
 
@@ -777,14 +845,14 @@ export function SwapPage({
 
     if (!fromToken.address || !toToken.address) {
       setPriceStatus("error");
-      setPriceError("Token address is missing for 0x quote.");
+      setPriceError("Token address is missing for swap quote.");
       return;
     }
 
     setPriceStatus("loading");
 
     const timeoutId = window.setTimeout(() => {
-      void getZeroXSwapPrice({
+      void getSwapPriceWithFallback({
         chainId: selectedChainId,
         sellToken: fromToken.address,
         buyToken: toToken.address,
@@ -972,7 +1040,7 @@ setApprovalStatus("idle");
     setQuoteError(null);
 
     try {
-      const nextQuote = await getZeroXSwapQuote({
+      const nextQuote = await getSwapQuoteWithFallback({
         chainId: selectedChainId,
         sellToken: fromToken.address,
         buyToken: toToken.address,
@@ -1034,7 +1102,7 @@ setApprovalStatus("idle");
 
       setApprovalTxHash(approvalResult.hash);
 
-      const refreshedQuote = await getZeroXSwapQuote({
+      const refreshedQuote = await getSwapQuoteWithFallback({
         chainId: selectedChainId,
         sellToken: fromToken.address,
         buyToken: toToken.address,
