@@ -60,7 +60,7 @@ async function openWalletConnectApprovalWindow(): Promise<number | undefined> {
     url,
     type: "popup",
     width: 520,
-    height: 760,
+    height: 820,
     focused: true,
   });
 

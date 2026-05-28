@@ -1170,7 +1170,7 @@ export default function WalletConnectPage({
           <div
             style={{
               width: "100%",
-              maxWidth: 680,
+              maxWidth: 460,
               height: "100%",
               margin: "0 auto",
               padding: "0 12px",
@@ -1216,7 +1216,7 @@ export default function WalletConnectPage({
             width: "100%",
             maxWidth: 460,
             margin: "0 auto",
-            padding: "24px 18px 88px",
+            padding: "22px 18px 28px",
             boxSizing: "border-box",
           }}
         >
@@ -1237,8 +1237,8 @@ export default function WalletConnectPage({
           <h1
             style={{
               margin: "18px 0 0",
-              fontSize: 28,
-              lineHeight: "32px",
+              fontSize: 30,
+              lineHeight: "33px",
               letterSpacing: "-0.055em",
               fontWeight: 900,
             }}
@@ -1268,8 +1268,9 @@ export default function WalletConnectPage({
             style={{
               marginTop: 20,
               border: "1px solid var(--border, #dedede)",
-              borderRadius: 20,
-              padding: 14,
+              borderRadius: 22,
+              padding: 16,
+              overflow: "hidden",
             }}
           >
             <div
@@ -1294,11 +1295,14 @@ export default function WalletConnectPage({
                 <div
                   style={{
                     display: "grid",
-                    gap: 7,
+                    gap: 8,
                     border: "1px solid var(--border, #dedede)",
-                    borderRadius: 14,
-                    padding: 10,
+                    borderRadius: 16,
+                    padding: 12,
                     background: "#ffffff",
+                    overflow: "hidden",
+                    wordBreak: "break-word",
+                    overflowWrap: "anywhere",
                   }}
                 >
                   <div style={{ fontWeight: 850 }}>{pendingRequest.method === "personal_sign" ? "Message preview" : "Transaction preview"}</div>
@@ -1339,10 +1343,11 @@ export default function WalletConnectPage({
                 <pre
                   style={{
                     margin: "10px 0 0",
-                    maxHeight: 220,
+                    maxHeight: 160,
                     overflow: "auto",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
+                    overflowWrap: "anywhere",
                     border: "1px solid var(--border, #dedede)",
                     borderRadius: 14,
                     padding: 12,
@@ -1409,6 +1414,7 @@ export default function WalletConnectPage({
                 }}
                 style={{
                   width: "100%",
+                  minWidth: 0,
                   minHeight: 48,
                   border: "1px solid var(--border, #dedede)",
                   borderRadius: 14,
@@ -1460,11 +1466,9 @@ export default function WalletConnectPage({
 
           <div
             style={{
-              position: "sticky",
-              bottom: 0,
               display: "grid",
               gap: 10,
-              marginTop: 18,
+              marginTop: 16,
               padding: "12px 0 0",
               background: "var(--bg, #ffffff)",
             }}
