@@ -5,6 +5,7 @@ import { WalletKit } from "@reown/walletkit";
 
 const PENDING_WALLETCONNECT_REQUEST_KEY = "pendingWalletConnectRequest";
 const CONNECTED_SITES_KEY = "connectedSites";
+const WATCHED_ASSETS_KEY = "watchedAssets";
 
 const DEFAULT_EIP155_CHAINS = ["eip155:1", "eip155:56", "eip155:8453", "eip155:11155111"];
 
@@ -33,6 +34,7 @@ type WalletConnectPendingRequest = {
   id: number;
   method: string;
   params: unknown;
+  chainId?: string;
   receivedAt: string;
 };
 
@@ -50,6 +52,20 @@ type ConnectedSite = {
   iconUrl?: string;
   connectedAt?: string;
   lastUsedAt?: string;
+};
+
+type WatchedAsset = {
+  id: string;
+  type: "ERC20";
+  chainId?: number;
+  chainNamespace?: string;
+  address: string;
+  symbol: string;
+  decimals: number;
+  image?: string;
+  name?: string;
+  addedAt: string;
+  updatedAt: string;
 };
 
 let walletKitPromise: Promise<Awaited<ReturnType<typeof WalletKit.init>>> | null = null;
@@ -145,6 +161,97 @@ function getFirstRequestParam(params: unknown): Record<string, unknown> {
   return asRecord(params);
 }
 
+function parseNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function parseEip155ChainId(chainId?: string): number | undefined {
+  if (!chainId?.startsWith("eip155:")) {
+    return undefined;
+  }
+
+  const parsed = Number(chainId.slice("eip155:".length));
+
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseWalletWatchAssetRequest(params: unknown, chainNamespace?: string): WatchedAsset {
+  const request = Array.isArray(params) ? asRecord(params[0]) : asRecord(params);
+  const type = getOptionalString(request, "type") ?? "ERC20";
+  const options = asRecord(request.options);
+
+  if (type.toUpperCase() !== "ERC20") {
+    throw new Error(`Only ERC20 watchAsset requests are supported. Received: ${type}`);
+  }
+
+  const address = getOptionalString(options, "address");
+  const symbol = getOptionalString(options, "symbol");
+  const decimals = parseNumber(options.decimals);
+  const image = getOptionalString(options, "image");
+  const name = getOptionalString(options, "name");
+
+  if (!address) {
+    throw new Error("Token address is missing.");
+  }
+
+  if (!symbol) {
+    throw new Error("Token symbol is missing.");
+  }
+
+  if (decimals === null || decimals < 0 || decimals > 255) {
+    throw new Error("Token decimals are invalid.");
+  }
+
+  const chainId = parseEip155ChainId(chainNamespace);
+  const now = new Date().toISOString();
+
+  return {
+    id: `${chainId ?? "unknown"}:${address.toLowerCase()}`,
+    type: "ERC20",
+    chainId,
+    chainNamespace,
+    address,
+    symbol,
+    decimals,
+    image,
+    name,
+    addedAt: now,
+    updatedAt: now,
+  };
+}
+
+async function saveWatchedAsset(asset: WatchedAsset): Promise<void> {
+  const stored = await chromeStorageGet(WATCHED_ASSETS_KEY);
+  const existing = Array.isArray(stored[WATCHED_ASSETS_KEY])
+    ? (stored[WATCHED_ASSETS_KEY] as WatchedAsset[])
+    : [];
+
+  const previous = existing.find((item) => item.id === asset.id);
+
+  const nextAsset: WatchedAsset = {
+    ...asset,
+    addedAt: previous?.addedAt ?? asset.addedAt,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await chromeStorageSet({
+    [WATCHED_ASSETS_KEY]: [
+      nextAsset,
+      ...existing.filter((item) => item.id !== asset.id),
+    ],
+  });
+}
+
 function normalizeWalletConnectTransaction(params: unknown) {
   const tx = getFirstRequestParam(params);
   const to = getOptionalString(tx, "to");
@@ -193,6 +300,7 @@ async function readPendingWalletConnectRequest(): Promise<WalletConnectPendingRe
     id,
     method,
     params: record.params,
+    chainId: typeof record.chainId === "string" ? record.chainId : undefined,
     receivedAt:
       typeof record.receivedAt === "string"
         ? record.receivedAt
@@ -513,6 +621,30 @@ async function approvePendingWalletConnectRequest(password?: string) {
     };
   }
 
+  if (pendingRequest.method === "wallet_watchAsset") {
+    const asset = parseWalletWatchAssetRequest(
+      pendingRequest.params,
+      pendingRequest.chainId,
+    );
+
+    await saveWatchedAsset(asset);
+
+    await (walletKit as any).respondSessionRequest?.({
+      topic: pendingRequest.topic,
+      response: {
+        id: pendingRequest.id,
+        jsonrpc: "2.0",
+        result: true,
+      },
+    });
+
+    await clearPendingWalletConnectRequest();
+
+    return {
+      result: true,
+    };
+  }
+
   if (pendingRequest.method === "wallet_switchEthereumChain") {
     await (walletKit as any).respondSessionRequest?.({
       topic: pendingRequest.topic,
@@ -538,6 +670,20 @@ async function rejectPendingWalletConnectRequest() {
   const pendingRequest = await readPendingWalletConnectRequest();
 
   if (!pendingRequest) {
+    return;
+  }
+
+  if (pendingRequest.method === "wallet_watchAsset") {
+    await (walletKit as any).respondSessionRequest?.({
+      topic: pendingRequest.topic,
+      response: {
+        id: pendingRequest.id,
+        jsonrpc: "2.0",
+        result: false,
+      },
+    });
+
+    await clearPendingWalletConnectRequest();
     return;
   }
 
@@ -634,6 +780,8 @@ async function getWalletKit() {
     const request = event.params?.request ?? event.request ?? {};
     const method = String(request.method ?? "");
     const params = request.params ?? [];
+    const chainId =
+      typeof event.params?.chainId === "string" ? event.params.chainId : undefined;
 
     if (!topic || !Number.isFinite(id) || !method) {
       return;
@@ -663,6 +811,7 @@ async function getWalletKit() {
       id,
       method,
       params,
+      chainId,
       receivedAt: new Date().toISOString(),
     };
 

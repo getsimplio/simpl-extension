@@ -767,6 +767,9 @@ function getApproveButtonLabel(method: string): string {
     case "eth_signTypedData_v4":
       return "Sign message";
 
+    case "wallet_watchAsset":
+      return "Add token";
+
     default:
       return "Approve";
   }
@@ -786,7 +789,8 @@ function canApprovePendingRequest(method: string): boolean {
   return (
     method === "wallet_switchEthereumChain" ||
     method === "eth_sendTransaction" ||
-    method === "eth_signTypedData_v4"
+    method === "eth_signTypedData_v4" ||
+    method === "wallet_watchAsset"
   );
 }
 
@@ -1242,7 +1246,9 @@ export default function WalletConnectPage({
               ? "Confirm transaction"
               : pendingRequest.method === "eth_signTypedData_v4"
                 ? "Sign message"
-                : "Confirm WalletConnect request"}
+                : pendingRequest.method === "wallet_watchAsset"
+                  ? "Add token"
+                  : "Confirm WalletConnect request"}
           </h1>
 
           <p
