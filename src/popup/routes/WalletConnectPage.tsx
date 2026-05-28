@@ -824,6 +824,35 @@ function formatRequestParams(params: unknown): string {
   }
 }
 
+function getWalletWatchAssetPreviewForUi(params: unknown) {
+  const direct = Array.isArray(params) ? params[0] : params;
+
+  if (!direct || typeof direct !== "object") {
+    return formatRequestParams(params);
+  }
+
+  const record = direct as Record<string, unknown>;
+  const options = record.options;
+
+  if (!options || typeof options !== "object") {
+    return formatRequestParams(params);
+  }
+
+  const optionsRecord = options as Record<string, unknown>;
+
+  return [
+    `Type: ${typeof record.type === "string" ? record.type : "ERC20"}`,
+    `Symbol: ${typeof optionsRecord.symbol === "string" ? optionsRecord.symbol : "—"}`,
+    `Address: ${typeof optionsRecord.address === "string" ? optionsRecord.address : "—"}`,
+    `Decimals: ${
+      typeof optionsRecord.decimals === "number" || typeof optionsRecord.decimals === "string"
+        ? String(optionsRecord.decimals)
+        : "18"
+    }`,
+  ].join("\\n");
+}
+
+
 function parseWalletConnectChainIdForUi(chainNamespace?: string) {
   if (!chainNamespace?.startsWith("eip155:")) {
     return null;
@@ -1078,7 +1107,7 @@ function getWalletConnectApprovalView(
         description: "A connected dApp is requesting to add a token to SIMPLE.",
         status: "Token add request",
         previewTitle: "Token preview",
-        previewText: formatRequestParams(params),
+        previewText: getWalletWatchAssetPreviewForUi(params),
         primaryLabel: "Add token",
         requiresPassword: false,
       };
