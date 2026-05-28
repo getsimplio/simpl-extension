@@ -1664,7 +1664,7 @@ export default function WalletConnectPage({
             flex: 1,
             minHeight: 0,
             overflowY: "auto",
-            padding: "14px 14px 142px",
+            padding: "14px 14px 164px",
             width: "100%",
             display: "grid",
             gap: 14,
@@ -1724,7 +1724,7 @@ export default function WalletConnectPage({
               width: "100%",
               display: "grid",
               gap: 14,
-              overflow: "hidden",
+              overflow: "visible",
               boxSizing: "border-box",
             }}
           >
@@ -1786,17 +1786,106 @@ export default function WalletConnectPage({
               </pre>
             </div>
 
-            <details className="wc-raw-details">
-              <summary className="wc-raw-summary">
+            <div
+              style={{
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div
+                style={{
+                  color: "#111111",
+                  fontSize: 13,
+                  fontWeight: 850,
+                }}
+              >
                 Raw request data
-              </summary>
-
-              <div className="wc-raw-box wc-scrollbar">
-                <pre className="wc-raw-pre">
-                  {formatRequestParams(pendingRequest.params)}
-                </pre>
               </div>
-            </details>
+
+              <div
+                style={{
+                  overflow: "hidden",
+                  border: "1px solid #d9d5cd",
+                  borderRadius: 16,
+                  background: "#ffffff",
+                  boxSizing: "border-box",
+                }}
+              >
+                <div
+                  style={{
+                    minHeight: 36,
+                    padding: "0 10px 0 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    borderBottom: "1px solid #e7e3db",
+                    background: "#f6f5f1",
+                    color: "#5f5c55",
+                    fontSize: 12,
+                    fontWeight: 850,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <span>Request body</span>
+
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+
+                      void navigator.clipboard?.writeText(
+                        formatRequestParams(pendingRequest.params),
+                      );
+                    }}
+                    style={{
+                      height: 26,
+                      minWidth: 58,
+                      padding: "0 10px",
+                      border: "1px solid #d6d2c9",
+                      borderRadius: 999,
+                      background: "#ffffff",
+                      color: "#111111",
+                      fontSize: 12,
+                      fontWeight: 850,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    height: 112,
+                    maxHeight: 112,
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    padding: 12,
+                    background: "#fbfaf7",
+                    boxSizing: "border-box",
+                    scrollbarWidth: "thin",
+                  }}
+                >
+                  <pre
+                    style={{
+                      margin: 0,
+                      color: "#37342f",
+                      fontFamily:
+                        'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                      fontSize: 11,
+                      lineHeight: "17px",
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {formatRequestParams(pendingRequest.params)}
+                  </pre>
+                </div>
+              </div>
+            </div>
           </div>
 
           {requiresPassword ? (
