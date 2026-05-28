@@ -1145,272 +1145,295 @@ export default function WalletConnectPage({
   }, []);
 
   if (pendingRequest) {
+    const method = pendingRequest.method;
+
+    const requiresPassword =
+      method === "eth_sendTransaction" ||
+      method === "eth_signTypedData_v4" ||
+      method === "personal_sign";
+
+    const canApprove =
+      !isResponding &&
+      (!requiresPassword || approvalPassword.trim().length > 0);
+
+    const requestTitle =
+      method === "personal_sign" || method === "eth_signTypedData_v4"
+        ? "Sign message"
+        : method === "wallet_watchAsset"
+          ? "Add token"
+          : method === "eth_sendTransaction"
+            ? "Confirm transaction"
+            : "Confirm request";
+
+    const approveLabel =
+      method === "personal_sign" || method === "eth_signTypedData_v4"
+        ? "Sign"
+        : method === "wallet_watchAsset"
+          ? "Add token"
+          : method === "eth_sendTransaction"
+            ? "Confirm"
+            : "Approve";
+
+    const statusLabel =
+      method === "personal_sign" || method === "eth_signTypedData_v4"
+        ? "Signature confirmation required"
+        : method === "wallet_watchAsset"
+          ? "Token approval required"
+          : method === "eth_sendTransaction"
+            ? "Transaction confirmation required"
+            : "Approval required";
+
+    const previewTitle =
+      method === "personal_sign" || method === "eth_signTypedData_v4"
+        ? "Message preview"
+        : method === "eth_sendTransaction"
+          ? "Transaction preview"
+          : "Request preview";
+
+    const previewText =
+      method === "eth_sendTransaction"
+        ? [
+            `From: ${getTransactionPreviewValue(pendingRequest.params, "from")}`,
+            `To: ${getTransactionPreviewValue(pendingRequest.params, "to")}`,
+            `Value: ${getTransactionPreviewValue(pendingRequest.params, "value")}`,
+            `Gas: ${getTransactionPreviewValue(pendingRequest.params, "gas")}`,
+            `Chain: ${
+              getWalletConnectTransactionChainId(pendingRequest.params) ??
+              "Selected network"
+            }`,
+          ].join("\\n")
+        : formatRequestParams(pendingRequest.params);
+
     return (
       <main
         style={{
           height: "100vh",
           minHeight: "100vh",
           width: "100%",
-          overflowY: "auto",
-          overflowX: "hidden",
-          background: "var(--bg, #ffffff)",
-          color: "var(--text-primary, #111111)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          background: "#f7f7f4",
+          color: "#111111",
+          boxSizing: "border-box",
         }}
       >
         <header
           style={{
-            position: "sticky",
-            top: 0,
-            zIndex: 20,
-            height: 52,
-            borderBottom: "1px solid var(--border, #e8e8e8)",
-            background: "var(--bg, #ffffff)",
+            height: 60,
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            padding: "0 20px",
+            borderBottom: "1px solid #e7e5df",
+            background: "#f7f7f4",
+            boxSizing: "border-box",
           }}
         >
-          <div
+          <button
+            type="button"
+            aria-label="Back"
+            onClick={onBack}
             style={{
-              width: "100%",
-              maxWidth: 420,
-              height: "100%",
-              margin: "0 auto",
-              padding: "0 12px",
-              boxSizing: "border-box",
-              display: "grid",
-              gridTemplateColumns: "40px 1fr 40px",
-              alignItems: "center",
+              width: 34,
+              height: 34,
+              border: "none",
+              borderRadius: 12,
+              background: "transparent",
+              color: "#111111",
+              cursor: "pointer",
+              fontSize: 28,
+              lineHeight: "30px",
+              padding: 0,
             }}
           >
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label="Back"
-              style={{
-                width: 36,
-                height: 36,
-                border: 0,
-                background: "transparent",
-                color: "var(--text-primary, #111111)",
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
-              <BackIcon />
-            </button>
+            ‹
+          </button>
 
-            <div
-              style={{
-                fontSize: 15,
-                lineHeight: "20px",
-                fontWeight: 800,
-              }}
-            >
-              Confirm request
-            </div>
-
-            <div />
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 800,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            Confirm request
           </div>
         </header>
 
         <section
           style={{
-            width: "100%",
-            maxWidth: 420,
-            margin: "0 auto",
-            padding: "16px 18px 20px",
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            padding: "22px 20px 18px",
+            display: "grid",
+            gap: 16,
+            alignContent: "start",
             boxSizing: "border-box",
           }}
         >
-          <div
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 999,
-              background: "var(--text-primary, #111111)",
-              color: "#ffffff",
-              display: "grid",
-              placeItems: "center",
-            }}
-          >
-            <LinkIcon />
+          <div style={{ display: "grid", gap: 14 }}>
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 18,
+                background: "#111111",
+                color: "#ffffff",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 24,
+                fontWeight: 800,
+              }}
+            >
+              ⛓
+            </div>
+
+            <div style={{ display: "grid", gap: 7 }}>
+              <h1
+                style={{
+                  margin: 0,
+                  fontSize: 30,
+                  lineHeight: "32px",
+                  letterSpacing: "-0.055em",
+                  fontWeight: 880,
+                }}
+              >
+                {requestTitle}
+              </h1>
+
+              <p
+                style={{
+                  margin: 0,
+                  color: "#6f6f68",
+                  fontSize: 15,
+                  lineHeight: "22px",
+                }}
+              >
+                A connected dApp is requesting an action from SIMPLE.
+              </p>
+            </div>
           </div>
 
-          <h1
+          <div
             style={{
-              margin: "14px 0 0",
-              fontSize: 28,
-              lineHeight: "31px",
-              letterSpacing: "-0.055em",
-              fontWeight: 900,
-            }}
-          >
-            {pendingRequest.method === "eth_sendTransaction"
-              ? "Confirm transaction"
-              : pendingRequest.method === "eth_signTypedData_v4" ||
-              pendingRequest.method === "personal_sign"
-                ? "Sign message"
-                : pendingRequest.method === "wallet_watchAsset"
-                  ? "Add token"
-                  : "Confirm WalletConnect request"}
-          </h1>
-
-          <p
-            style={{
-              margin: "8px 0 0",
-              color: "var(--text-secondary, #777777)",
-              fontSize: 13,
-              lineHeight: "19px",
-            }}
-          >
-            A connected dApp is requesting an action from SIMPLE.
-          </p>
-
-          <section
-            style={{
-              marginTop: 16,
-              border: "1px solid var(--border, #dedede)",
-              borderRadius: 20,
-              padding: 14,
+              border: "1px solid #dfddd6",
+              borderRadius: 22,
+              background: "#ffffff",
+              padding: 16,
+              display: "grid",
+              gap: 14,
               overflow: "hidden",
+              boxSizing: "border-box",
             }}
           >
             <div
               style={{
                 display: "grid",
-                gap: 10,
-                fontSize: 13,
-                lineHeight: "19px",
+                gap: 8,
+                fontSize: 14,
+                lineHeight: "20px",
               }}
             >
               <div>
-                <strong>Method:</strong> {pendingRequest.method}
+                <strong>Method:</strong> {method}
               </div>
-
               <div>
-                <strong>Status:</strong> {getPendingRequestActionLabel(pendingRequest.method)}
+                <strong>Status:</strong> {statusLabel}
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid #e5e3dc",
+                borderRadius: 18,
+                background: "#fbfbf8",
+                padding: 14,
+                display: "grid",
+                gap: 10,
+                overflow: "hidden",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 850,
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {previewTitle}
               </div>
 
-              {pendingRequest.method === "eth_sendTransaction" ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gap: 8,
-                    border: "1px solid var(--border, #dedede)",
-                    borderRadius: 16,
-                    padding: 12,
-                    background: "#ffffff",
-                    overflow: "hidden",
-                    wordBreak: "break-word",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  <div style={{ fontWeight: 850 }}>Transaction preview</div>
-                  <div>
-                    <strong>From:</strong>{" "}
-                    {getTransactionPreviewValue(pendingRequest.params, "from")}
-                  </div>
-                  <div>
-                    <strong>To:</strong>{" "}
-                    {getTransactionPreviewValue(pendingRequest.params, "to")}
-                  </div>
-                  <div>
-                    <strong>Value:</strong>{" "}
-                    {getTransactionPreviewValue(pendingRequest.params, "value")}
-                  </div>
-                  <div>
-                    <strong>Gas:</strong>{" "}
-                    {getTransactionPreviewValue(pendingRequest.params, "gas")}
-                  </div>
-                  <div>
-                    <strong>Chain:</strong>{" "}
-                    {getWalletConnectTransactionChainId(pendingRequest.params) ?? "Selected network"}
-                  </div>
-                </div>
-              ) : null}
-
-              {pendingRequest.method === "eth_signTypedData_v4" ||
-              pendingRequest.method === "personal_sign" ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gap: 8,
-                    border: "1px solid var(--border, #dedede)",
-                    borderRadius: 16,
-                    padding: 12,
-                    background: "#ffffff",
-                    overflow: "hidden",
-                    wordBreak: "break-word",
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  <div style={{ fontWeight: 850 }}>Message preview</div>
-                  <div
-                    style={{
-                      maxHeight: 88,
-                      overflow: "auto",
-                      color: "var(--text-secondary, #777777)",
-                      fontSize: 12,
-                      lineHeight: "17px",
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {formatRequestParams(pendingRequest.params)}
-                  </div>
-                </div>
-              ) : null}
-
-              <details>
-                <summary
-                  style={{
-                    cursor: "pointer",
-                    fontWeight: 800,
-                    marginTop: 4,
-                  }}
-                >
-                  Raw request data
-                </summary>
-
-                <pre
-                  style={{
-                    margin: "10px 0 0",
-                    maxHeight: 110,
-                    overflow: "auto",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    overflowWrap: "anywhere",
-                    border: "1px solid var(--border, #dedede)",
-                    borderRadius: 14,
-                    padding: 12,
-                    background: "#f7f7f4",
-                    color: "var(--text-secondary, #777777)",
-                    fontSize: 12,
-                    lineHeight: "17px",
-                  }}
-                >
-                  {formatRequestParams(pendingRequest.params)}
-                </pre>
-              </details>
+              <pre
+                style={{
+                  margin: 0,
+                  maxHeight: 138,
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                  fontFamily:
+                    'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                  color: "#5e5e57",
+                  fontSize: 13,
+                  lineHeight: "19px",
+                }}
+              >
+                {previewText}
+              </pre>
             </div>
-          </section>
 
-          {/* Approval password visible input */}
-          {pendingRequest.method === "eth_sendTransaction" ||
-          pendingRequest.method === "eth_signTypedData_v4" ||
-          pendingRequest.method === "personal_sign" ? (
+            <details>
+              <summary
+                style={{
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 800,
+                }}
+              >
+                Raw request data
+              </summary>
+
+              <pre
+                style={{
+                  margin: "12px 0 0",
+                  maxHeight: 160,
+                  overflowY: "auto",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                  borderRadius: 16,
+                  background: "#f1f0eb",
+                  padding: 12,
+                  fontFamily:
+                    'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                  color: "#5e5e57",
+                  fontSize: 12,
+                  lineHeight: "18px",
+                }}
+              >
+                {formatRequestParams(pendingRequest.params)}
+              </pre>
+            </details>
+          </div>
+
+          {requiresPassword ? (
             <label
               style={{
                 display: "grid",
                 gap: 8,
-                marginTop: 12,
               }}
             >
               <span
                 style={{
-                  color: "var(--text-primary, #111111)",
                   fontSize: 12,
-                  lineHeight: "16px",
                   letterSpacing: "0.16em",
                   textTransform: "uppercase",
-                  fontWeight: 800,
+                  fontWeight: 850,
+                  color: "#3a3a36",
                 }}
               >
                 Wallet password
@@ -1419,128 +1442,96 @@ export default function WalletConnectPage({
               <input
                 type="password"
                 value={approvalPassword}
+                onChange={(event) => setApprovalPassword(event.target.value)}
                 placeholder="Enter wallet password"
-                autoComplete="current-password"
                 autoFocus
-                onChange={(event) => {
-                  setApprovalPassword(event.target.value);
-
-                  if (
-                    error === "Wallet password is required." ||
-                    error === "Password is required."
-                  ) {
-                    setError(null);
-                  }
-                }}
                 onKeyDown={(event) => {
-                  if (
-                    event.key === "Enter" &&
-                    !isResponding &&
-                    approvalPassword.trim()
-                  ) {
+                  if (event.key === "Enter" && canApprove) {
+                    event.preventDefault();
                     void approvePendingRequest();
                   }
                 }}
                 style={{
                   width: "100%",
                   minWidth: 0,
-                  minHeight: 46,
-                  border: "1px solid var(--border, #dedede)",
-                  borderRadius: 14,
-                  background: "var(--bg, #ffffff)",
-                  color: "var(--text-primary, #111111)",
-                  padding: "0 14px",
-                  boxSizing: "border-box",
-                  font: "inherit",
-                  fontSize: 15,
+                  height: 52,
+                  borderRadius: 16,
+                  border: "1px solid #dad7cf",
+                  background: "#ffffff",
+                  padding: "0 16px",
+                  fontSize: 16,
                   outline: "none",
+                  boxSizing: "border-box",
                 }}
               />
             </label>
           ) : null}
 
-          {/* Approval status visible block */}
           <div
             style={{
-              marginTop: 12,
-              padding: 12,
-              borderRadius: 14,
-              background: "#f7f7f4",
-              color: "var(--text-secondary, #777777)",
-              fontSize: 12,
-              lineHeight: "17px",
-              wordBreak: "break-word",
+              borderRadius: 16,
+              background: "#efeee9",
+              color: "#6a6963",
+              padding: "13px 15px",
+              fontSize: 14,
+              lineHeight: "20px",
             }}
           >
-            {status}
-          </div>
-
-          {error ? (
-            <div
-              style={{
-                marginTop: 10,
-                padding: 12,
-                borderRadius: 14,
-                background: "#fff7f5",
-                color: "#a23b2d",
-                fontSize: 12,
-                lineHeight: "17px",
-                fontWeight: 750,
-                wordBreak: "break-word",
-              }}
-            >
-              {error}
-            </div>
-          ) : null}
-
-          <div
-            style={{
-              position: "sticky",
-              bottom: 0,
-              zIndex: 5,
-              display: "grid",
-              gap: 10,
-              marginTop: 12,
-              padding: "12px 0 2px",
-              background: "linear-gradient(to bottom, rgba(255,255,255,0), var(--bg, #ffffff) 18px, var(--bg, #ffffff))",
-            }}
-          >
-            {canApprovePendingRequest(pendingRequest.method) ? (
-              <button
-                type="button"
-                className="btn primary lg full"
-                disabled={
-                  isResponding ||
-                  (["eth_sendTransaction", "eth_signTypedData_v4", "personal_sign"].includes(pendingRequest.method) &&
-                    !approvalPassword.trim())
-                }
-                onClick={() => void approvePendingRequest()}
-              >
-                {isResponding
-                  ? "Confirming…"
-                  : getApproveButtonLabel(pendingRequest.method)}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn primary lg full"
-                disabled
-                title="This request type needs a dedicated approval screen."
-              >
-                Approval coming next
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="btn secondary lg full"
-              disabled={isResponding}
-              onClick={() => void rejectPendingRequest()}
-            >
-              {isResponding ? "Rejecting…" : "Reject"}
-            </button>
+            WalletConnect request received: {method}
           </div>
         </section>
+
+        <footer
+          style={{
+            flexShrink: 0,
+            borderTop: "1px solid #e7e5df",
+            background: "#f7f7f4",
+            padding: "14px 20px 20px",
+            display: "grid",
+            gap: 10,
+            boxSizing: "border-box",
+          }}
+        >
+          <button
+            type="button"
+            className="btn primary lg full"
+            onClick={() => void approvePendingRequest()}
+            disabled={!canApprove}
+            style={{
+              width: "100%",
+              height: 52,
+              borderRadius: 16,
+              border: "none",
+              background: canApprove ? "#111111" : "#c9c9c3",
+              color: "#ffffff",
+              fontSize: 16,
+              fontWeight: 850,
+              cursor: canApprove ? "pointer" : "default",
+            }}
+          >
+            {isResponding ? "Processing..." : approveLabel}
+          </button>
+
+          <button
+            type="button"
+            className="btn secondary lg full"
+            onClick={() => void rejectPendingRequest()}
+            disabled={isResponding}
+            style={{
+              width: "100%",
+              height: 52,
+              borderRadius: 16,
+              border: "1px solid #d6d3cb",
+              background: "#ffffff",
+              color: "#111111",
+              fontSize: 16,
+              fontWeight: 750,
+              cursor: isResponding ? "default" : "pointer",
+            }}
+          >
+            Reject
+          </button>
+        </footer>
       </main>
     );
   }

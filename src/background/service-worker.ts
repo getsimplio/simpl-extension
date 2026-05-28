@@ -44,8 +44,8 @@ let walletConnectApprovalWindowId: number | null = null;
 async function openWalletConnectApprovalWindow() {
   const url = chrome.runtime.getURL("walletconnect-approval.html?surface=approval");
 
-  const popupWidth = 460;
-  const popupHeight = 760;
+  const popupWidth = 560;
+  const popupHeight = 860;
 
   let left: number | undefined;
   let top: number | undefined;
@@ -65,7 +65,7 @@ async function openWalletConnectApprovalWindow() {
       top = Math.max(0, currentWindow.top + 72);
     }
   } catch (error) {
-    console.warn("Failed to calculate WalletConnect approval position:", error);
+    console.warn("Failed to calculate WalletConnect approval window position:", error);
   }
 
   const createdWindow = await chrome.windows.create({
