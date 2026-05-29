@@ -1,67 +1,47 @@
-
 /* =========================================================
-   SIMPL Instrument Icons — soft colored chips
-   Duplicated here because popup Home actions are bundled with App.css.
+   SIMPL Instrument Icons — semantic palette
+   Used by SimpleInstrumentIcon component.
    ========================================================= */
 
 :root {
   --simple-color-wallet-bg: #f1f1ee;
   --simple-color-wallet-fg: #2c2c29;
-
   --simple-color-send-bg: #eaf2ff;
   --simple-color-send-fg: #2563eb;
-
   --simple-color-receive-bg: #eaf8ef;
   --simple-color-receive-fg: #2f7d46;
-
   --simple-color-swap-bg: #f1eafe;
   --simple-color-swap-fg: #7c3aed;
-
   --simple-color-buy-bg: #e8f8f1;
   --simple-color-buy-fg: #059669;
-
   --simple-color-bank-bg: #eef2ff;
   --simple-color-bank-fg: #4f46e5;
-
   --simple-color-history-bg: #fff6df;
   --simple-color-history-fg: #b7791f;
-
   --simple-color-security-bg: #fff0f0;
   --simple-color-security-fg: #dc2626;
-
   --simple-color-address-bg: #e6f7f5;
   --simple-color-address-fg: #0f766e;
-
   --simple-color-network-bg: #e8f7fb;
   --simple-color-network-fg: #0891b2;
-
   --simple-color-settings-bg: #f1f1f1;
   --simple-color-settings-fg: #525252;
-
   --simple-color-portfolio-bg: #eef9df;
   --simple-color-portfolio-fg: #4d7c0f;
-
   --simple-color-multi-bg: #fff1e6;
   --simple-color-multi-fg: #ea580c;
-
   --simple-color-ledger-bg: #eef0f3;
   --simple-color-ledger-fg: #334155;
-
   --simple-color-dapps-bg: #f3e8ff;
   --simple-color-dapps-fg: #9333ea;
-
   --simple-color-ai-bg: #fdf2f8;
   --simple-color-ai-fg: #db2777;
-
   --simple-color-token-bg: #fff7ed;
   --simple-color-token-fg: #c2410c;
-
   --simple-color-activity-bg: #ecfeff;
   --simple-color-activity-fg: #0e7490;
-
   --simple-color-support-bg: #f0fdf4;
   --simple-color-support-fg: #15803d;
-
   --simple-color-developer-bg: #f5f3ff;
   --simple-color-developer-fg: #6d28d9;
 }
@@ -69,120 +49,77 @@
 [data-theme="dark"] {
   --simple-color-wallet-bg: #252522;
   --simple-color-wallet-fg: #f4f4ef;
-
   --simple-color-send-bg: #13233f;
   --simple-color-send-fg: #7db3ff;
-
   --simple-color-receive-bg: #102b1b;
   --simple-color-receive-fg: #7fd99a;
-
   --simple-color-swap-bg: #24153e;
   --simple-color-swap-fg: #c4a1ff;
-
   --simple-color-token-bg: #331a0a;
   --simple-color-token-fg: #fdba74;
-
   --simple-color-security-bg: #391313;
   --simple-color-security-fg: #ff8a8a;
-
   --simple-color-settings-bg: #242424;
   --simple-color-settings-fg: #d4d4d4;
 }
 
 .simple-instrument-icon {
-  width: 36px !important;
-  height: 36px !important;
-  min-width: 36px !important;
-  border-radius: 13px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-shrink: 0 !important;
-  color: currentColor;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .simple-instrument-icon svg {
   display: block;
-  color: currentColor !important;
-  stroke: currentColor !important;
+  color: currentColor;
+  stroke: currentColor;
 }
 
-.simple-instrument-icon--wallet {
-  background: var(--simple-color-wallet-bg) !important;
-  color: var(--simple-color-wallet-fg) !important;
-}
-
-.simple-instrument-icon--send {
-  background: var(--simple-color-send-bg) !important;
-  color: var(--simple-color-send-fg) !important;
-}
-
-.simple-instrument-icon--receive {
-  background: var(--simple-color-receive-bg) !important;
-  color: var(--simple-color-receive-fg) !important;
-}
-
-.simple-instrument-icon--swap {
-  background: var(--simple-color-swap-bg) !important;
-  color: var(--simple-color-swap-fg) !important;
-}
-
-.simple-instrument-icon--token {
-  background: var(--simple-color-token-bg) !important;
-  color: var(--simple-color-token-fg) !important;
-}
-
-.simple-instrument-icon--settings {
-  background: var(--simple-color-settings-bg) !important;
-  color: var(--simple-color-settings-fg) !important;
-}
-
-.simple-instrument-icon--security {
-  background: var(--simple-color-security-bg) !important;
-  color: var(--simple-color-security-fg) !important;
-}
-
-/* Home action buttons */
-.actions .simple-instrument-icon,
-.action .simple-instrument-icon,
-.simple-actions .simple-instrument-icon,
-.simple-action .simple-instrument-icon {
-  margin-bottom: 8px;
-}
+.simple-instrument-icon--wallet   { background: var(--simple-color-wallet-bg);   color: var(--simple-color-wallet-fg); }
+.simple-instrument-icon--send     { background: var(--simple-color-send-bg);     color: var(--simple-color-send-fg); }
+.simple-instrument-icon--receive  { background: var(--simple-color-receive-bg);  color: var(--simple-color-receive-fg); }
+.simple-instrument-icon--swap     { background: var(--simple-color-swap-bg);     color: var(--simple-color-swap-fg); }
+.simple-instrument-icon--token    { background: var(--simple-color-token-bg);    color: var(--simple-color-token-fg); }
+.simple-instrument-icon--settings { background: var(--simple-color-settings-bg); color: var(--simple-color-settings-fg); }
+.simple-instrument-icon--security { background: var(--simple-color-security-bg); color: var(--simple-color-security-fg); }
 
 
 /* =========================================================
-   SIMPL UI polish — action buttons, fullscreen frame, nav
+   Home action grid
    ========================================================= */
 
-/* Home action grid */
 .actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 0 12px;
   box-sizing: border-box;
 }
 
 .action {
-  min-height: 76px !important;
-  padding: 10px 6px 9px !important;
+  min-height: 76px;
+  padding: 10px 6px 9px;
   border-radius: 16px;
-  display: flex !important;
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  overflow: visible !important;
+  overflow: visible;
   box-sizing: border-box;
 }
 
 .action .simple-instrument-icon {
-  width: 34px !important;
-  height: 34px !important;
-  min-width: 34px !important;
-  border-radius: 12px !important;
-  margin: 0 !important;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 12px;
+  margin: 0;
 }
 
 .action .simple-instrument-icon svg {
@@ -197,300 +134,16 @@
   font-weight: 650;
   letter-spacing: -0.02em;
   white-space: nowrap;
-  overflow: visible;
-  text-overflow: clip;
-}
-
-/* Assets list polish */
-.asset-token-icon {
-  width: 40px !important;
-  height: 40px !important;
-  min-width: 40px !important;
-}
-
-.asset-token-icon__img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* Fullscreen should look like a centered wallet frame, not a broken popup */
-.app-root--fullscreen {
-  min-height: 100vh;
-  width: 100vw;
-  background: #f7f7f4;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 32px 16px;
-  box-sizing: border-box;
-}
-
-.app-root--fullscreen > * {
-  max-width: 440px;
-}
-
-/* Common fullscreen frame candidates */
-.app-root--fullscreen .wallet-app,
-.app-root--fullscreen .popup-app,
-.app-root--fullscreen .app,
-.app-root--fullscreen .shell,
-.app-root--fullscreen .simple-wallet,
-.app-root--fullscreen main {
-  width: min(100%, 440px);
-  max-width: 440px;
-  min-width: 0;
-  border-radius: 0;
-}
-
-/* If the root wallet panel has a border/shadow, make it cleaner in fullscreen */
-.app-root--fullscreen .wallet-app,
-.app-root--fullscreen .popup-app,
-.app-root--fullscreen .simple-wallet {
-  background: #ffffff;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  box-shadow: 0 18px 50px rgba(17, 17, 17, 0.08);
-}
-
-/* Bottom navigation polish */
-.bottom-nav,
-.nav,
-.tabs {
-  box-sizing: border-box;
-}
-
-.bottom-nav button,
-.nav button,
-.tabs button {
-  min-height: 34px;
-  line-height: 1.1;
-  white-space: nowrap;
 }
 
 
 /* =========================================================
-   SIMPL fullscreen layout fix
-   Goal: fullscreen wallet frame should fit content, not stretch
-   unlock/onboarding screens into a huge empty white panel.
-   ========================================================= */
-
-html:has(.app-root--fullscreen),
-body:has(.app-root--fullscreen),
-body:has(.app-root--fullscreen) #root {
-  width: 100%;
-  min-height: 100%;
-}
-
-body:has(.app-root--fullscreen) {
-  margin: 0;
-  background: #f7f7f4 !important;
-  overflow-y: auto;
-}
-
-.app-root--fullscreen {
-  width: 100vw !important;
-  min-height: 100vh !important;
-  background: #f7f7f4 !important;
-  display: flex !important;
-  align-items: flex-start !important;
-  justify-content: center !important;
-  padding: 32px 16px !important;
-  box-sizing: border-box !important;
-}
-
-/* Main wallet frame in fullscreen */
-.app-root--fullscreen .ext-popup,
-.app-root--fullscreen .wallet-app,
-.app-root--fullscreen .popup-app,
-.app-root--fullscreen .simple-wallet,
-.app-root--fullscreen .app,
-.app-root--fullscreen .shell {
-  width: min(100%, 440px) !important;
-  max-width: 440px !important;
-  min-width: 0 !important;
-
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-
-  background: #ffffff !important;
-  border: 1px solid rgba(17, 17, 17, 0.08) !important;
-  border-radius: 22px !important;
-  box-shadow: 0 18px 50px rgba(17, 17, 17, 0.08) !important;
-  overflow: hidden !important;
-}
-
-/* Prevent onboarding / unlock layouts from stretching vertically */
-.app-root--fullscreen .simple-onboarding-layout,
-.app-root--fullscreen .simple-onboarding-shell,
-.app-root--fullscreen .simple-onboarding-card,
-.app-root--fullscreen .simple-page,
-.app-root--fullscreen .simple-wallet-layout,
-.app-root--fullscreen .unlock-page,
-.app-root--fullscreen .welcome-page,
-.app-root--fullscreen .create-wallet-page,
-.app-root--fullscreen .import-wallet-page,
-.app-root--fullscreen main,
-.app-root--fullscreen section {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-}
-
-/* Onboarding screen should be compact inside the fullscreen frame */
-.app-root--fullscreen .simple-onboarding-layout {
-  display: block !important;
-  padding: 0 !important;
-  background: transparent !important;
-}
-
-.app-root--fullscreen .simple-onboarding-card {
-  width: 100% !important;
-  margin: 0 !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-}
-
-/* Avoid artificial empty bottom area on locked/fullscreen screens */
-.app-root--fullscreen [data-screen-label*="Unlock"],
-.app-root--fullscreen [data-screen-label*="Welcome"],
-.app-root--fullscreen [data-screen-label*="Create"],
-.app-root--fullscreen [data-screen-label*="Import"] {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-}
-
-/* Mobile fallback */
-@media (max-width: 520px) {
-  .app-root--fullscreen {
-    padding: 0 !important;
-    background: #ffffff !important;
-  }
-
-  .app-root--fullscreen .ext-popup,
-  .app-root--fullscreen .wallet-app,
-  .app-root--fullscreen .popup-app,
-  .app-root--fullscreen .simple-wallet,
-  .app-root--fullscreen .app,
-  .app-root--fullscreen .shell {
-    width: 100% !important;
-    max-width: none !important;
-    border-radius: 0 !important;
-    border: 0 !important;
-    box-shadow: none !important;
-  }
-}
-
-
-/* =========================================================
-   SIMPL fullscreen alignment hotfix
-   Fix: brand is centered but wallet card is stuck left.
-   ========================================================= */
-
-body:has(.app-root--fullscreen) {
-  margin: 0 !important;
-  background: #f7f7f4 !important;
-}
-
-body:has(.app-root--fullscreen) #root {
-  width: 100% !important;
-  min-height: 100vh !important;
-}
-
-.app-root--fullscreen {
-  width: 100vw !important;
-  min-height: 100vh !important;
-  box-sizing: border-box !important;
-
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-
-  padding: 56px 16px 32px !important;
-  background:
-    radial-gradient(circle at 50% 140px, rgba(17, 17, 17, 0.055), transparent 260px),
-    #f7f7f4 !important;
-}
-
-/* Center every direct child in fullscreen */
-.app-root--fullscreen > * {
-  margin-left: auto !important;
-  margin-right: auto !important;
-  align-self: center !important;
-}
-
-/* Brand header */
-.app-root--fullscreen .fullscreen-brand,
-.app-root--fullscreen .fullscreen-header,
-.app-root--fullscreen .app-fullscreen-brand {
-  position: static !important;
-  width: 100% !important;
-  max-width: 440px !important;
-  text-align: center !important;
-  margin: 0 auto 22px !important;
-}
-
-/* Actual wallet/popup frame */
-.app-root--fullscreen .ext-popup,
-.app-root--fullscreen .wallet-app,
-.app-root--fullscreen .popup-app,
-.app-root--fullscreen .simple-wallet,
-.app-root--fullscreen .app,
-.app-root--fullscreen .shell,
-.app-root--fullscreen main {
-  width: min(100%, 440px) !important;
-  max-width: 440px !important;
-  min-width: 0 !important;
-
-  margin-left: auto !important;
-  margin-right: auto !important;
-  align-self: center !important;
-
-  position: relative !important;
-  left: auto !important;
-  right: auto !important;
-  top: auto !important;
-  transform: none !important;
-}
-
-/* Wallet card visual frame */
-.app-root--fullscreen .ext-popup,
-.app-root--fullscreen .wallet-app,
-.app-root--fullscreen .popup-app,
-.app-root--fullscreen .simple-wallet {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-
-  background: #ffffff !important;
-  border: 1px solid rgba(17, 17, 17, 0.08) !important;
-  border-radius: 24px !important;
-  box-shadow: 0 24px 70px rgba(17, 17, 17, 0.10) !important;
-  overflow: hidden !important;
-}
-
-/* Compact unlock/onboarding */
-.app-root--fullscreen .simple-onboarding-layout,
-.app-root--fullscreen .simple-onboarding-shell,
-.app-root--fullscreen .simple-onboarding-card,
-.app-root--fullscreen .unlock-page,
-.app-root--fullscreen .welcome-page {
-  width: 100% !important;
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
-  align-self: center !important;
-}
-
-
-/* =========================================================
-   SIMPL fullscreen shell — structural layout
-   App.tsx now renders route content inside .fullscreen-shell.
+   Fullscreen shell — structural layout
+   App.tsx renders route content inside .fullscreen-wallet-frame.
+   NOTE: This file is currently NOT imported in main.tsx.
+   Import it alongside runtime-overrides.css if you want these
+   base styles to supplement the fullscreen overrides in
+   runtime-overrides.css.
    ========================================================= */
 
 html,
@@ -501,8 +154,8 @@ body,
 }
 
 body:has(.app-root--fullscreen) {
-  margin: 0 !important;
-  background: #f7f7f4 !important;
+  margin: 0;
+  background: #f7f7f4;
   overflow-y: auto;
 }
 
@@ -561,215 +214,128 @@ body:has(.app-root--fullscreen) {
   box-sizing: border-box;
 }
 
-/* Remove popup/card decoration from route content inside fullscreen frame */
 .fullscreen-wallet-frame > * {
-  width: 100% !important;
-  max-width: none !important;
-  min-width: 0 !important;
-  margin: 0 !important;
-  box-shadow: none !important;
-  border: 0 !important;
-  border-radius: 0 !important;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
 }
 
-/* Prevent unlock/onboarding from creating huge empty height */
 .fullscreen-wallet-frame .simple-onboarding-layout,
-.fullscreen-wallet-frame .simple-onboarding-shell,
 .fullscreen-wallet-frame .simple-onboarding-card,
 .fullscreen-wallet-frame .simple-page,
 .fullscreen-wallet-frame .unlock-page,
-.fullscreen-wallet-frame .welcome-page,
 .fullscreen-wallet-frame main,
 .fullscreen-wallet-frame section {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-}
-
-/* Keep onboarding compact inside the fullscreen card */
-.fullscreen-wallet-frame .simple-onboarding-layout {
-  display: block !important;
-  padding: 0 !important;
-  background: transparent !important;
+  height: auto;
+  min-height: 0;
+  max-height: none;
 }
 
 .fullscreen-wallet-frame .simple-onboarding-card {
-  width: 100% !important;
-  margin: 0 !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
 }
 
-/* Popup stays unchanged */
 .app-root--popup {
   width: 100%;
   min-height: 100%;
 }
 
-@media (max-width: 520px) {
-  .app-root--fullscreen {
-    padding: 0;
-    background: #ffffff;
-  }
-
-  .fullscreen-shell {
-    width: 100%;
-    gap: 0;
-  }
-
-  .fullscreen-brand {
-    display: none;
-  }
-
-  .fullscreen-wallet-frame {
-    max-width: none;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-}
-
 
 /* =========================================================
-   SIMPL fullscreen final override
-   Fix conflicting old runtime-overrides fullscreen styles.
+   Fullscreen high-specificity overrides
+   These use html[data-simple-surface] to beat any earlier rules.
    ========================================================= */
 
 html[data-simple-surface="fullscreen"],
 html[data-simple-surface="fullscreen"] body,
 html[data-simple-surface="fullscreen"] #root {
-  width: 100% !important;
-  min-height: 100% !important;
-  margin: 0 !important;
-  background: #f7f7f4 !important;
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: #f7f7f4;
 }
 
 html[data-simple-surface="fullscreen"] body {
-  overflow-y: auto !important;
+  overflow-y: auto;
 }
 
-/* Hide old pseudo fullscreen branding from runtime-overrides.css */
-html[data-simple-surface="fullscreen"] body::before,
-html[data-simple-surface="fullscreen"] #root::before,
-html[data-simple-surface="fullscreen"] .popup-app-shell::before,
-html[data-simple-surface="fullscreen"] .popup-app-frame::before,
-html[data-simple-surface="fullscreen"] .simple-onboarding-layout::before,
-html[data-simple-surface="fullscreen"] .simple-page::before {
-  content: none !important;
-  display: none !important;
-}
-
-/* The real fullscreen root from App.tsx */
 html[data-simple-surface="fullscreen"] .app-root--fullscreen {
-  width: 100vw !important;
-  min-height: 100vh !important;
-  padding: 64px 16px 40px !important;
-  box-sizing: border-box !important;
-
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-
+  width: 100vw;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 64px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   background:
     radial-gradient(circle at 50% 170px, rgba(17, 17, 17, 0.055), transparent 280px),
-    #f7f7f4 !important;
+    #f7f7f4;
 }
 
-/* Critical: shell must not span full viewport with left-aligned card */
 html[data-simple-surface="fullscreen"] .fullscreen-shell {
-  width: min(100%, 440px) !important;
-  max-width: 440px !important;
-  min-width: 0 !important;
-
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-  gap: 22px !important;
-
-  margin: 0 auto !important;
-  padding: 0 !important;
-  position: relative !important;
-  left: auto !important;
-  right: auto !important;
-  transform: none !important;
+  width: min(100%, 440px);
+  max-width: 440px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 22px;
+  margin: 0 auto;
 }
 
 html[data-simple-surface="fullscreen"] .fullscreen-brand {
-  width: 100% !important;
-  max-width: 440px !important;
-  text-align: center !important;
-  margin: 0 auto !important;
-  padding: 0 !important;
-  position: static !important;
-  left: auto !important;
-  transform: none !important;
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+  margin: 0 auto;
 }
 
 html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame {
-  width: 100% !important;
-  max-width: 440px !important;
-  min-width: 0 !important;
-
-  margin: 0 auto !important;
-  align-self: center !important;
-
-  position: relative !important;
-  left: auto !important;
-  right: auto !important;
-  top: auto !important;
-  transform: none !important;
-
-  background: #ffffff !important;
-  border: 1px solid rgba(17, 17, 17, 0.08) !important;
-  border-radius: 24px !important;
-  box-shadow: 0 24px 70px rgba(17, 17, 17, 0.10) !important;
-  overflow: hidden !important;
+  width: 100%;
+  max-width: 440px;
+  min-width: 0;
+  margin: 0 auto;
+  background: #ffffff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 24px 70px rgba(17, 17, 17, 0.10);
+  overflow: hidden;
 }
 
-/* Content inside frame should not have old popup positioning */
-html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame > *,
-html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame .simple-page,
-html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame .simple-onboarding-layout,
-html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame .simple-onboarding-shell,
-html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame .simple-onboarding-card {
-  width: 100% !important;
-  max-width: none !important;
-  min-width: 0 !important;
-
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-
-  margin: 0 !important;
-  position: static !important;
-  left: auto !important;
-  right: auto !important;
-  transform: none !important;
-
-  box-shadow: none !important;
-  border-radius: 0 !important;
-}
-
-/* Remove decoration from inner onboarding card because frame owns it */
-html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame .simple-onboarding-card {
-  border: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-}
-
-/* Popup mode stays controlled by old popup classes */
 html:not([data-simple-surface="fullscreen"]) .fullscreen-brand,
 html:not([data-simple-surface="fullscreen"]) .fullscreen-shell,
 html:not([data-simple-surface="fullscreen"]) .fullscreen-wallet-frame {
   all: unset;
 }
 
+@media (max-width: 520px) {
+  html[data-simple-surface="fullscreen"] .app-root--fullscreen {
+    padding: 0;
+    background: #ffffff;
+  }
 
-/* Home actions: only Send / Receive / Swap */
-.actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  html[data-simple-surface="fullscreen"] .fullscreen-shell {
+    width: 100%;
+    gap: 0;
+  }
+
+  html[data-simple-surface="fullscreen"] .fullscreen-brand {
+    display: none;
+  }
+
+  html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame {
+    max-width: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
 }
-
