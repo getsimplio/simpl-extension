@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { SimpleInstrumentIcon } from "../components/SimpleInstrumentIcon";
 import { AssetIcon } from "../components/AssetIcon";
 import { NetworkIcon } from "../components/NetworkIcon";
+import { PixelAvatar } from "../components/PixelAvatar";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
@@ -14,6 +15,11 @@ import {
 import { walletService } from "../../core/wallet/wallet.service";
 import { customTokenService } from "../../core/tokens/custom-token.service";
 import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
+import { getChainById } from "../../core/networks/chain-registry";
+import {
+  transactionHistoryService,
+  type TransactionHistoryItem,
+} from "../../core/transactions/transaction-history.service";
 
 type CachedPortfolio = {
   assets: WalletAssetBalance[];
@@ -152,6 +158,43 @@ function truncateAddress(address: string): string {
   return `${address.slice(0, 8)}...${address.slice(-6)}`;
 }
 
+function getExplorerBaseUrl(chainId: number): string | null {
+  return getChainById(chainId)?.blockExplorerUrl ?? null;
+}
+
+function formatAssetPrice(
+  asset: WalletAssetBalance,
+  nativeAsset: WalletAssetBalance | null,
+  nativeQuote: NativeAssetQuote | null,
+  usdToEurRate: number | null,
+  currency: ValuationCurrency,
+): string {
+  const priceUsd = getAssetUsdPrice(asset, nativeAsset, nativeQuote);
+  if (priceUsd === null) return "No price";
+  const formatted = formatValue(priceUsd, usdToEurRate, currency);
+  if (formatted === "—") return "No price";
+  return `${formatted} / ${asset.symbol}`;
+}
+
+function getActivityDisplayAmount(
+  item: TransactionHistoryItem,
+  asset: WalletAssetBalance,
+): string {
+  if (item.direction === "swap") {
+    if (
+      item.swapToSymbol?.toLowerCase() === asset.symbol.toLowerCase() &&
+      item.swapToAmount
+    ) {
+      return `+${item.swapToAmount} ${item.swapToSymbol}`;
+    }
+    if (item.swapFromAmount) {
+      return `-${item.swapFromAmount} ${item.swapFromSymbol ?? asset.symbol}`;
+    }
+    return `${item.amount} ${item.assetSymbol}`;
+  }
+  const sign = item.direction === "receive" ? "+" : "-";
+  return `${sign}${item.amount} ${item.assetSymbol}`;
+}
 
 function formatUpdatedAt(updatedAt: number | null): string {
   if (!updatedAt) return "Not synced yet";
@@ -406,6 +449,8 @@ export function HomePage(props: HomePageProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmHide, setConfirmHide] = useState(false);
   const [isAssetsManagerOpen, setIsAssetsManagerOpen] = useState(false);
+  const [assetHistory, setAssetHistory] = useState<TransactionHistoryItem[]>([]);
+  const [copied, setCopied] = useState(false);
   const [portfolioStatus, setPortfolioStatus] =
     useState<PortfolioStatus>("idle");
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
@@ -656,6 +701,36 @@ export function HomePage(props: HomePageProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isAssetsManagerOpen]);
 
+  useEffect(() => {
+    if (!assetDetails || !props.selectedAccount) {
+      setAssetHistory([]);
+      return;
+    }
+    const accountAddress = props.selectedAccount.address;
+    const allItems = transactionHistoryService.listByAccount(accountAddress);
+    const filtered = allItems
+      .filter((item) => item.chainId === assetDetails.chainId)
+      .filter((item) => {
+        if (assetDetails.type === "native") {
+          return (
+            item.assetType === "native" ||
+            item.swapFromSymbol?.toLowerCase() === assetDetails.symbol.toLowerCase() ||
+            item.swapToSymbol?.toLowerCase() === assetDetails.symbol.toLowerCase()
+          );
+        }
+        if (!assetDetails.contractAddress) return false;
+        const addr = assetDetails.contractAddress.toLowerCase();
+        return (
+          item.contractAddress?.toLowerCase() === addr ||
+          item.swapFromSymbol?.toLowerCase() === assetDetails.symbol.toLowerCase() ||
+          item.swapToSymbol?.toLowerCase() === assetDetails.symbol.toLowerCase()
+        );
+      })
+      .slice(0, 5);
+    setAssetHistory(filtered);
+    setCopied(false);
+  }, [assetDetails?.id, props.selectedAccount?.address]);
+
   function handleOpenAssetDetails(asset: WalletAssetBalance) {
     setAssetDetails(asset);
     setConfirmRemove(false);
@@ -666,6 +741,16 @@ export function HomePage(props: HomePageProps) {
     setAssetDetails(null);
     setConfirmRemove(false);
     setConfirmHide(false);
+  }
+
+  async function handleCopyAddress(address: string) {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard not available in this context
+    }
   }
 
   function handleSendFromDetails(asset: WalletAssetBalance) {
@@ -777,7 +862,12 @@ export function HomePage(props: HomePageProps) {
     <div className="ext-popup" data-screen-label="03 Home">
       <div className="bar-top">
         <button className="acct-chip" type="button" onClick={props.onAccounts}>
-          <span className="av" />
+          <PixelAvatar
+            seed={props.selectedAccount.address}
+            size={24}
+            label={props.selectedAccount.label}
+            variant={props.selectedAccount.type === "watch" ? "watch" : "signer"}
+          />
           {props.selectedAccount.label}
         </button>
 
@@ -1120,11 +1210,18 @@ export function HomePage(props: HomePageProps) {
               </div>
             ) : (
               <>
+                {/* Stats: Balance, Price, Value */}
                 <div className="asset-details-modal-stats">
                   <div className="asset-details-modal-stat">
                     <span className="asset-details-modal-stat-label">Balance</span>
                     <span className="asset-details-modal-stat-value">
                       {hideBalances ? "••••" : `${formatAssetBalance(assetDetails)} ${assetDetails.symbol}`}
+                    </span>
+                  </div>
+                  <div className="asset-details-modal-stat">
+                    <span className="asset-details-modal-stat-label">Price</span>
+                    <span className="asset-details-modal-stat-value">
+                      {formatAssetPrice(assetDetails, nativeAsset, nativeQuote, usdToEurRate, valuationCurrency)}
                     </span>
                   </div>
                   <div className="asset-details-modal-stat">
@@ -1139,16 +1236,59 @@ export function HomePage(props: HomePageProps) {
                           )}
                     </span>
                   </div>
-                  {assetDetails.contractAddress && (
-                    <div className="asset-details-modal-stat">
-                      <span className="asset-details-modal-stat-label">Contract</span>
-                      <span className="asset-details-modal-stat-value asset-details-modal-address">
-                        {truncateAddress(assetDetails.contractAddress)}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
+                {/* Contract / Explorer card */}
+                {isNativeAsset(assetDetails) ? (
+                  <div className="asset-details-info-card">
+                    <div className="asset-details-info-row">
+                      <span className="asset-details-info-label">Asset type</span>
+                      <span className="asset-details-info-value">Native network asset</span>
+                    </div>
+                    <p className="asset-details-info-note">
+                      Native assets do not have a token contract.
+                    </p>
+                    {selectedAddress && getExplorerBaseUrl(assetDetails.chainId) ? (
+                      <a
+                        className="asset-details-explorer-btn"
+                        href={`${getExplorerBaseUrl(assetDetails.chainId)}/address/${selectedAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View address ↗
+                      </a>
+                    ) : null}
+                  </div>
+                ) : assetDetails.contractAddress ? (
+                  <div className="asset-details-info-card">
+                    <div className="asset-details-info-row">
+                      <span className="asset-details-info-label">Contract</span>
+                      <span className="asset-details-info-value asset-details-info-address">
+                        {truncateAddress(assetDetails.contractAddress)}
+                      </span>
+                      <button
+                        type="button"
+                        className="asset-copy-btn"
+                        onClick={() => void handleCopyAddress(assetDetails.contractAddress!)}
+                        aria-label="Copy contract address"
+                      >
+                        {copied ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    {getExplorerBaseUrl(assetDetails.chainId) ? (
+                      <a
+                        className="asset-details-explorer-btn"
+                        href={`${getExplorerBaseUrl(assetDetails.chainId)}/token/${assetDetails.contractAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        View contract ↗
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {/* Primary actions */}
                 <div className="asset-details-modal-primary-actions">
                   <button
                     type="button"
@@ -1166,11 +1306,62 @@ export function HomePage(props: HomePageProps) {
                   </button>
                 </div>
 
-                {isNativeAsset(assetDetails) ? (
-                  <div className="asset-details-native-note">
-                    Native network asset cannot be removed.
-                  </div>
-                ) : (
+                {/* Activity */}
+                <div className="asset-details-activity">
+                  <div className="asset-details-activity-title">Activity</div>
+                  {assetHistory.length === 0 ? (
+                    <div className="asset-activity-empty">No activity for this asset yet.</div>
+                  ) : (
+                    <div className="asset-activity-list">
+                      {assetHistory.map((item) => (
+                        <div key={item.id} className="asset-activity-row">
+                          <span className="asset-activity-type">
+                            {item.direction === "swap"
+                              ? "Swap"
+                              : item.direction === "send"
+                                ? "Send"
+                                : "Receive"}
+                          </span>
+                          <span className="asset-activity-amount">
+                            {getActivityDisplayAmount(item, assetDetails)}
+                          </span>
+                          <span className={`asset-activity-status asset-activity-status--${item.status}`}>
+                            {item.status === "submitted"
+                              ? "Pending"
+                              : item.status === "confirmed"
+                                ? "Confirmed"
+                                : "Failed"}
+                          </span>
+                          {item.explorerUrl ? (
+                            <a
+                              className="asset-activity-link"
+                              href={item.explorerUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label="View transaction"
+                            >
+                              ↗
+                            </a>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="asset-activity-view-all"
+                    onClick={() => {
+                      handleCloseAssetDetails();
+                      props.onHistory();
+                    }}
+                  >
+                    View all activity ›
+                  </button>
+                </div>
+
+                {/* Hide / Remove — ERC-20 only */}
+                {!isNativeAsset(assetDetails) ? (
                   <>
                     <div className="asset-details-modal-secondary-actions">
                       <button
@@ -1194,7 +1385,7 @@ export function HomePage(props: HomePageProps) {
                       This only changes your wallet view. Your on-chain tokens are not moved or deleted.
                     </div>
                   </>
-                )}
+                ) : null}
               </>
             )}
           </div>
