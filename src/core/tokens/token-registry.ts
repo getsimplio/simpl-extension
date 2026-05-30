@@ -147,6 +147,20 @@ export const REGISTERED_TOKENS: RegisteredToken[] = [
     name: "PancakeSwap Token",
     decimals: 18,
   },
+  {
+    chainId: BNB_SMART_CHAIN_ID,
+    address: "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+    symbol: "BTCB",
+    name: "Binance-Peg BTCB Token",
+    decimals: 18,
+  },
+  {
+    chainId: BNB_SMART_CHAIN_ID,
+    address: "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
+    symbol: "ETH",
+    name: "Binance-Peg Ethereum Token",
+    decimals: 18,
+  },
 
   // Base
 
@@ -384,7 +398,7 @@ export class TokenRegistryService {
 
     if (contractCode === "0x") {
       throw new Error(
-        `No contract found at this address on ${chain.name}. Check the selected network or token address.`,
+        `No contract at this address on ${chain.name}. Make sure you're on the right network and the address is correct.`,
       );
     }
 
@@ -406,19 +420,19 @@ export class TokenRegistryService {
       decimals = Number(await stringContract.decimals());
     } catch {
       throw new Error(
-        "This contract does not look like a valid ERC-20/BEP-20 token: decimals() is missing.",
+        "Contract found, but token metadata could not be read. (decimals() missing — may not be ERC-20)",
       );
     }
 
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
-      throw new Error("Invalid token decimals value.");
+      throw new Error("Contract found, but decimals value is invalid.");
     }
 
     const symbol = await readTokenSymbol(stringContract, bytes32Contract);
 
     if (!symbol) {
       throw new Error(
-        "This contract does not expose symbol(). Check the token contract address.",
+        "Contract found, but token metadata could not be read. (symbol() missing)",
       );
     }
 
@@ -430,7 +444,7 @@ export class TokenRegistryService {
       balanceRaw = BigInt(await stringContract.balanceOf(input.ownerAddress));
     } catch {
       throw new Error(
-        "This contract does not look like a valid ERC-20/BEP-20 token: balanceOf() is missing.",
+        "Contract found, but token metadata could not be read. (balanceOf() missing — may not be ERC-20)",
       );
     }
 

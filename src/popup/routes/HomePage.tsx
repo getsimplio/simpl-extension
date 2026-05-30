@@ -12,6 +12,8 @@ import {
   type NativeAssetQuote,
 } from "../../core/prices/native-price.service";
 import { walletService } from "../../core/wallet/wallet.service";
+import { customTokenService } from "../../core/tokens/custom-token.service";
+import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
 
 type CachedPortfolio = {
   assets: WalletAssetBalance[];
@@ -26,14 +28,12 @@ type PortfolioStatus =
   | "stale"
   | "error";
 
-type ValuationCurrency = "USD" | "EUR" | "USDT" | "USDC" | "DAI";
+type ValuationCurrency = "USD" | "USDT" | "EUR";
 
 const CURRENCY_LABELS: Record<ValuationCurrency, string> = {
   USD: "US Dollar",
-  EUR: "Euro",
   USDT: "Tether USD",
-  USDC: "USD Coin",
-  DAI: "Dai Stablecoin",
+  EUR: "Euro",
 };
 
 type HomePageProps = {
@@ -54,13 +54,7 @@ type HomePageProps = {
 const DEFAULT_BALANCE_REFRESH_SECONDS = 30;
 const PORTFOLIO_RETRY_DELAYS_MS = [3000, 5000, 10000, 20000, 30000];
 
-const VALUATION_CURRENCIES: ValuationCurrency[] = [
-  "USD",
-  "EUR",
-  "USDT",
-  "USDC",
-  "DAI",
-];
+const VALUATION_CURRENCIES: ValuationCurrency[] = ["USD", "USDT", "EUR"];
 
 const VALUATION_STORAGE_KEY = "simple:nativeValuationCurrency";
 
@@ -85,13 +79,7 @@ function getPortfolioCacheKey(accountAddress: string, chainId: number): string {
 }
 
 function isValuationCurrency(value: string | null): value is ValuationCurrency {
-  return (
-    value === "USD" ||
-    value === "EUR" ||
-    value === "USDT" ||
-    value === "USDC" ||
-    value === "DAI"
-  );
+  return value === "USD" || value === "USDT" || value === "EUR";
 }
 
 function getInitialValuationCurrency(): ValuationCurrency {
@@ -146,6 +134,24 @@ function writeCachedPortfolio(
     // Cache is optional.
   }
 }
+
+function isNativeAsset(asset: WalletAssetBalance): boolean {
+  return asset.type === "native";
+}
+
+function getAssetKey(asset: WalletAssetBalance): string {
+  return (asset.contractAddress ?? "").toLowerCase();
+}
+
+function canRemoveAsset(asset: WalletAssetBalance): boolean {
+  return !isNativeAsset(asset) && asset.source === "custom";
+}
+
+function truncateAddress(address: string): string {
+  if (address.length <= 14) return address;
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
+
 
 function formatUpdatedAt(updatedAt: number | null): string {
   if (!updatedAt) return "Not synced yet";
@@ -356,6 +362,36 @@ function Icon({
   );
 }
 
+function CurrencyIcon({ currency }: { currency: ValuationCurrency }) {
+  const configs: Record<ValuationCurrency, { bg: string; color: string; symbol: string }> = {
+    USD:  { bg: "#FEF9C3", color: "#CA8A04", symbol: "$" },
+    USDT: { bg: "#DCFCE7", color: "#16A34A", symbol: "₮" },
+    EUR:  { bg: "#EEF2FF", color: "#4F46E5", symbol: "€" },
+  };
+  const { bg, color, symbol } = configs[currency];
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        background: bg,
+        color,
+        fontSize: 15,
+        fontWeight: 700,
+        lineHeight: 1,
+        flexShrink: 0,
+        userSelect: "none",
+      }}
+    >
+      {symbol}
+    </span>
+  );
+}
+
 export function HomePage(props: HomePageProps) {
   const [assets, setAssets] = useState<WalletAssetBalance[]>([]);
   const [nativeQuote, setNativeQuote] = useState<NativeAssetQuote | null>(null);
@@ -363,6 +399,13 @@ export function HomePage(props: HomePageProps) {
     useState<ValuationCurrency>(getInitialValuationCurrency);
   const [isValuationSelectorOpen, setIsValuationSelectorOpen] = useState(false);
   const [isNetworkSelectorOpen, setIsNetworkSelectorOpen] = useState(false);
+  const [hiddenAddresses, setHiddenAddresses] = useState<string[]>(() =>
+    hiddenAssetService.getHiddenAddresses(props.walletState.selectedChainId),
+  );
+  const [assetDetails, setAssetDetails] = useState<WalletAssetBalance | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmHide, setConfirmHide] = useState(false);
+  const [isAssetsManagerOpen, setIsAssetsManagerOpen] = useState(false);
   const [portfolioStatus, setPortfolioStatus] =
     useState<PortfolioStatus>("idle");
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
@@ -583,6 +626,89 @@ export function HomePage(props: HomePageProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isNetworkSelectorOpen]);
 
+  useEffect(() => {
+    setHiddenAddresses(hiddenAssetService.getHiddenAddresses(selectedChainId));
+  }, [selectedChainId]);
+
+  useEffect(() => {
+    if (!assetDetails) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (confirmHide) {
+          setConfirmHide(false);
+        } else if (confirmRemove) {
+          setConfirmRemove(false);
+        } else {
+          setAssetDetails(null);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [assetDetails, confirmRemove, confirmHide]);
+
+  useEffect(() => {
+    if (!isAssetsManagerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsAssetsManagerOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isAssetsManagerOpen]);
+
+  function handleOpenAssetDetails(asset: WalletAssetBalance) {
+    setAssetDetails(asset);
+    setConfirmRemove(false);
+    setConfirmHide(false);
+  }
+
+  function handleCloseAssetDetails() {
+    setAssetDetails(null);
+    setConfirmRemove(false);
+    setConfirmHide(false);
+  }
+
+  function handleSendFromDetails(asset: WalletAssetBalance) {
+    setAssetDetails(null);
+    setConfirmRemove(false);
+    setConfirmHide(false);
+    props.onSendAsset(asset);
+  }
+
+  function handleSwapFromDetails() {
+    setAssetDetails(null);
+    setConfirmRemove(false);
+    setConfirmHide(false);
+    props.onSwap();
+  }
+
+  function handleHideAsset(asset: WalletAssetBalance) {
+    if (!asset.contractAddress) return;
+    hiddenAssetService.hideAsset(asset.chainId, asset.contractAddress);
+    setHiddenAddresses(hiddenAssetService.getHiddenAddresses(selectedChainId));
+    setAssetDetails(null);
+    setConfirmRemove(false);
+    setConfirmHide(false);
+  }
+
+  function handleConfirmRemoveAsset(asset: WalletAssetBalance) {
+    if (!asset.contractAddress) return;
+    customTokenService.removeToken({ chainId: asset.chainId, address: asset.contractAddress });
+    hiddenAssetService.hideAsset(asset.chainId, asset.contractAddress);
+    setHiddenAddresses(hiddenAssetService.getHiddenAddresses(selectedChainId));
+    const nextAssets = assets.filter((a) => a.id !== asset.id);
+    updateAssets(nextAssets);
+    if (cacheKey) writeCachedPortfolio(cacheKey, nextAssets);
+    setAssetDetails(null);
+    setConfirmRemove(false);
+    setConfirmHide(false);
+  }
+
+  function handleRestoreAsset(address: string) {
+    hiddenAssetService.unhideAsset(selectedChainId, address);
+    setHiddenAddresses(hiddenAssetService.getHiddenAddresses(selectedChainId));
+  }
+
   async function handleSelectNetwork(chainId: number) {
     if (chainId === props.walletState.selectedChainId) {
       setIsNetworkSelectorOpen(false);
@@ -617,7 +743,10 @@ export function HomePage(props: HomePageProps) {
   }
 
   const hideBalances = props.walletState.settings.hideBalances;
-  const visibleAssets = assets.filter((asset) => asset.visible);
+  const hiddenAddressSet = new Set(hiddenAddresses);
+  const visibleAssets = assets
+    .filter((asset) => asset.visible)
+    .filter((asset) => isNativeAsset(asset) || !hiddenAddressSet.has(getAssetKey(asset)));
   const tokenAssets = visibleAssets.filter((asset) => asset.type === "erc20");
 
   const defaultSendAsset =
@@ -639,6 +768,10 @@ export function HomePage(props: HomePageProps) {
 
   const isSyncing =
     portfolioStatus === "loading" || portfolioStatus === "syncing";
+
+  const hiddenAssetObjects = assets.filter(
+    (a) => !isNativeAsset(a) && hiddenAddressSet.has(getAssetKey(a)),
+  );
 
   return (
     <div className="ext-popup" data-screen-label="03 Home">
@@ -664,24 +797,36 @@ export function HomePage(props: HomePageProps) {
         <div className="balance-block">
           <div className="lbl">Total balance</div>
 
-          <div className="val" style={{ fontSize: 34 }}>
-            {hideBalances ? "••••••" : totalValueText}
-          </div>
+          <button
+            type="button"
+            className="val val-clickable home-total-balance-trigger"
+            onClick={() => setIsValuationSelectorOpen(true)}
+            aria-label="Change valuation currency"
+            aria-haspopup="dialog"
+          >
+            <span className="home-total-balance-value">
+              {hideBalances ? "••••••" : totalValueText}
+            </span>
+            <svg
+              className="val-chevron home-total-balance-chevron"
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
 
           <div className="balance-toolbar">
             <div className="delta">
               {isSyncing ? "Syncing..." : formatUpdatedAt(updatedAt)}
             </div>
-
-            <button
-              type="button"
-              className="valuation-selector-pill"
-              onClick={() => setIsValuationSelectorOpen(true)}
-              aria-label={`Value in ${valuationCurrency}. Click to change.`}
-            >
-              <span>Value in</span>
-              <strong>{valuationCurrency}</strong>
-            </button>
           </div>
         </div>
 
@@ -739,7 +884,7 @@ export function HomePage(props: HomePageProps) {
             <button
               className="link"
               type="button"
-              onClick={props.onAddCustomToken}
+              onClick={() => setIsAssetsManagerOpen(true)}
             >
               + Token
             </button>
@@ -765,7 +910,7 @@ export function HomePage(props: HomePageProps) {
                 key={asset.id}
                 className="row"
                 type="button"
-                onClick={() => props.onSendAsset(asset)}
+                onClick={() => handleOpenAssetDetails(asset)}
                 style={{
                   width: "100%",
                   background: "transparent",
@@ -773,7 +918,13 @@ export function HomePage(props: HomePageProps) {
                   textAlign: "left",
                 }}
               >
-                <AssetIcon ticker={asset.symbol} logoURI={asset.logoUrl} size={44} />
+                <AssetIcon
+                  ticker={asset.symbol}
+                  logoURI={asset.logoUrl}
+                  address={asset.contractAddress}
+                  chainId={asset.chainId}
+                  size={44}
+                />
 
                 <div className="body">
                   <div className="nm">{asset.name}</div>
@@ -830,13 +981,16 @@ export function HomePage(props: HomePageProps) {
           onClick={() => setIsValuationSelectorOpen(false)}
         >
           <div
-            className="valuation-modal-panel"
+            className="valuation-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Select value currency"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="valuation-modal-header">
-              <div className="valuation-modal-header__text">
-                <span className="valuation-modal-title">Select value currency</span>
-                <span className="valuation-modal-subtitle">Choose how to display portfolio values.</span>
+              <div>
+                <div className="valuation-modal-title">Select value currency</div>
+                <div className="valuation-modal-subtitle">Choose how to display portfolio values.</div>
               </div>
               <button
                 type="button"
@@ -844,30 +998,301 @@ export function HomePage(props: HomePageProps) {
                 onClick={() => setIsValuationSelectorOpen(false)}
                 aria-label="Close"
               >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
-            {VALUATION_CURRENCIES.map((currency) => (
-              <button
-                key={currency}
-                type="button"
-                className={`valuation-modal-option${currency === valuationCurrency ? " valuation-modal-option--active" : ""}`}
-                onClick={() => {
-                  setValuationCurrency(currency);
-                  setIsValuationSelectorOpen(false);
-                }}
-              >
-                <span className="valuation-modal-option__check">
-                  {currency === valuationCurrency && (
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L19 7"/></svg>
-                  )}
-                </span>
-                <span className="valuation-modal-option__label">{currency}</span>
-                <span className="valuation-modal-option__desc">{CURRENCY_LABELS[currency]}</span>
-              </button>
-            ))}
+            <div className="valuation-option-list">
+              {VALUATION_CURRENCIES.map((currency) => (
+                <button
+                  key={currency}
+                  type="button"
+                  className={`valuation-option${currency === valuationCurrency ? " valuation-option--active" : ""}`}
+                  onClick={() => {
+                    setValuationCurrency(currency);
+                    setIsValuationSelectorOpen(false);
+                  }}
+                >
+                  <span className="valuation-option-icon">
+                    <CurrencyIcon currency={currency} />
+                  </span>
+                  <span className="valuation-option-body">
+                    <span className="valuation-option-code">{currency}</span>
+                    <span className="valuation-option-name">{CURRENCY_LABELS[currency]}</span>
+                  </span>
+                  <span className="valuation-option-check">
+                    {currency === valuationCurrency && (
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12l5 5L19 7" />
+                      </svg>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
+        </div>
+      )}
+
+      {assetDetails && (
+        <div
+          className="asset-modal-backdrop"
+          onClick={handleCloseAssetDetails}
+        >
+          <div
+            className="asset-details-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Asset details"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="asset-details-modal-header">
+              <AssetIcon
+                ticker={assetDetails.symbol}
+                logoURI={assetDetails.logoUrl}
+                address={assetDetails.contractAddress}
+                chainId={assetDetails.chainId}
+                size={48}
+              />
+              <div className="asset-details-modal-info">
+                <div className="asset-details-modal-name">{assetDetails.name}</div>
+                <div className="asset-details-modal-symbol">{assetDetails.symbol}</div>
+              </div>
+              <button
+                type="button"
+                className="valuation-modal-close"
+                onClick={handleCloseAssetDetails}
+                aria-label="Close"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {confirmHide ? (
+              <div className="asset-remove-confirm">
+                <div className="asset-remove-confirm-title">Hide asset?</div>
+                <div className="asset-remove-confirm-text">
+                  This hides the token from your wallet view. You can show it again later from Manage assets. Your on-chain tokens are not moved or deleted.
+                </div>
+                <div className="asset-remove-confirm-buttons">
+                  <button
+                    type="button"
+                    className="asset-remove-btn asset-remove-btn--cancel"
+                    onClick={() => setConfirmHide(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="asset-remove-btn asset-remove-btn--confirm"
+                    onClick={() => handleHideAsset(assetDetails)}
+                  >
+                    Hide asset
+                  </button>
+                </div>
+              </div>
+            ) : confirmRemove ? (
+              <div className="asset-remove-confirm">
+                <div className="asset-remove-confirm-title">Remove imported token?</div>
+                <div className="asset-remove-confirm-text">
+                  This removes the imported token record from this wallet. Your on-chain tokens are not moved or deleted. You can add the token again later by contract address.
+                </div>
+                <div className="asset-remove-confirm-buttons">
+                  <button
+                    type="button"
+                    className="asset-remove-btn asset-remove-btn--cancel"
+                    onClick={() => setConfirmRemove(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="asset-remove-btn asset-remove-btn--confirm"
+                    onClick={() => handleConfirmRemoveAsset(assetDetails)}
+                  >
+                    Remove token
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="asset-details-modal-stats">
+                  <div className="asset-details-modal-stat">
+                    <span className="asset-details-modal-stat-label">Balance</span>
+                    <span className="asset-details-modal-stat-value">
+                      {hideBalances ? "••••" : `${formatAssetBalance(assetDetails)} ${assetDetails.symbol}`}
+                    </span>
+                  </div>
+                  <div className="asset-details-modal-stat">
+                    <span className="asset-details-modal-stat-label">Value</span>
+                    <span className="asset-details-modal-stat-value">
+                      {hideBalances
+                        ? "••••••"
+                        : formatValue(
+                            getAssetUsdValue(assetDetails, nativeAsset, nativeValueUsd),
+                            usdToEurRate,
+                            valuationCurrency,
+                          )}
+                    </span>
+                  </div>
+                  {assetDetails.contractAddress && (
+                    <div className="asset-details-modal-stat">
+                      <span className="asset-details-modal-stat-label">Contract</span>
+                      <span className="asset-details-modal-stat-value asset-details-modal-address">
+                        {truncateAddress(assetDetails.contractAddress)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="asset-details-modal-primary-actions">
+                  <button
+                    type="button"
+                    className="asset-details-modal-btn asset-details-modal-btn--primary"
+                    onClick={() => handleSendFromDetails(assetDetails)}
+                  >
+                    Send
+                  </button>
+                  <button
+                    type="button"
+                    className="asset-details-modal-btn asset-details-modal-btn--secondary"
+                    onClick={handleSwapFromDetails}
+                  >
+                    Swap
+                  </button>
+                </div>
+
+                {isNativeAsset(assetDetails) ? (
+                  <div className="asset-details-native-note">
+                    Native network asset cannot be removed.
+                  </div>
+                ) : (
+                  <>
+                    <div className="asset-details-modal-secondary-actions">
+                      <button
+                        type="button"
+                        className="asset-details-modal-btn asset-details-modal-btn--ghost"
+                        onClick={() => setConfirmHide(true)}
+                      >
+                        Hide asset
+                      </button>
+                      {canRemoveAsset(assetDetails) && (
+                        <button
+                          type="button"
+                          className="asset-details-modal-btn asset-details-modal-btn--danger"
+                          onClick={() => setConfirmRemove(true)}
+                        >
+                          Remove imported token
+                        </button>
+                      )}
+                    </div>
+                    <div className="asset-details-view-note">
+                      This only changes your wallet view. Your on-chain tokens are not moved or deleted.
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isAssetsManagerOpen && (
+        <div className="network-sheet-backdrop">
+          <button
+            type="button"
+            className="network-sheet-scrim"
+            aria-label="Close"
+            onClick={() => setIsAssetsManagerOpen(false)}
+          />
+          <section className="network-sheet assets-mgr-sheet">
+            <div className="network-sheet-head">
+              <div>
+                <div className="network-sheet-title">Manage assets</div>
+                <div className="network-sheet-subtitle">Add tokens or restore hidden ones.</div>
+              </div>
+              <button
+                type="button"
+                className="icbtn"
+                onClick={() => setIsAssetsManagerOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="row-list">
+              <button
+                type="button"
+                className="row assets-mgr-add-row"
+                onClick={() => {
+                  setIsAssetsManagerOpen(false);
+                  props.onAddCustomToken();
+                }}
+                style={{ width: "100%", background: "transparent", border: 0, textAlign: "left" }}
+              >
+                <span className="assets-mgr-add-icon">+</span>
+                <div className="body">
+                  <div className="nm">Add custom token</div>
+                  <div className="sub">Import by contract address</div>
+                </div>
+                <div className="num">
+                  <div className="v">›</div>
+                </div>
+              </button>
+
+              {hiddenAssetObjects.length > 0 && (
+                <>
+                  <div className="assets-mgr-section-sep">Hidden assets</div>
+                  {hiddenAssetObjects.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className="row"
+                      style={{ cursor: "default" }}
+                    >
+                      <AssetIcon
+                        ticker={asset.symbol}
+                        logoURI={asset.logoUrl}
+                        address={asset.contractAddress}
+                        chainId={asset.chainId}
+                        size={36}
+                      />
+                      <div className="body" style={{ opacity: 0.55 }}>
+                        <div className="nm">{asset.name}</div>
+                        <div className="sub">
+                          {asset.symbol}
+                          {asset.contractAddress
+                            ? ` · ${truncateAddress(asset.contractAddress)}`
+                            : ""}
+                        </div>
+                      </div>
+                      <div className="num">
+                        <button
+                          type="button"
+                          className="assets-mgr-restore-btn"
+                          onClick={() => {
+                            if (asset.contractAddress)
+                              handleRestoreAsset(asset.contractAddress);
+                          }}
+                        >
+                          Show
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {hiddenAssetObjects.length === 0 && (
+                <div className="assets-mgr-empty">
+                  No hidden assets on this network.
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       )}
 

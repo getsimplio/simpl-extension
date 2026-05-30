@@ -21,9 +21,16 @@ import {
   getPancakeV2SwapQuote,
   isPancakeV2SupportedChain,
 } from "../../core/swap/pancakeV2SwapService";
-
 import { transactionHistoryService } from "../../core/transactions/transaction-history.service";
 import { walletService } from "../../core/wallet/wallet.service";
+import {
+  tokenRegistryService,
+  getRegisteredTokensByChainId,
+  type TokenPreview,
+  type CustomToken,
+  type RegisteredToken,
+} from "../../core/tokens/token-registry";
+import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
 import "./SwapPage.css";
 
 type SwapPageProps = {
@@ -49,6 +56,7 @@ type PriceStatus = "idle" | "loading" | "ready" | "error";
 type ReviewStatus = "idle" | "loading" | "ready" | "error";
 type SubmitStatus = "idle" | "submitting" | "submitted" | "error";
 type ApprovalStatus = "idle" | "approving" | "approved" | "error";
+type ImportStatus = "idle" | "fetching" | "ready" | "error";
 
 
 type SwapTransactionReceipt = {
@@ -234,6 +242,7 @@ type SubmittedSwapStatus = "pending" | "confirmed" | "failed";
 
 const SLIPPAGE_STORAGE_KEY = "simple:swapSlippageBps";
 const DEFAULT_SLIPPAGE_BPS = 50;
+const QUOTE_REFRESH_INTERVAL_S = 15;
 const MIN_SLIPPAGE_BPS = 1;
 const MAX_SLIPPAGE_BPS = 1000;
 const SIMPLE_SWAP_FEE_RECIPIENT = (import.meta.env.VITE_SIMPLE_SWAP_FEE_RECIPIENT ?? "").trim();
@@ -479,30 +488,54 @@ function parseDecimalUnits(value: string, decimals: number): string | null {
   }
 }
 
-function formatUnits(value: string | undefined, decimals: number): string {
-  if (!value) return "—";
+// Formats a raw integer token amount for swap display.
+// Never rounds a positive value to "0" — shows "<0.00000001" for sub-precision amounts.
+// Shows at most 8 decimal places; always 2 significant digits past any leading zeros.
+function formatSwapAmount(value: string | bigint | undefined, decimals: number): string {
+  if (value === undefined || value === null || value === "") return "—";
 
+  let raw: bigint;
   try {
-    const raw = BigInt(value);
-    const base = 10n ** BigInt(decimals);
-    const whole = raw / base;
-    const fraction = raw % base;
-
-    if (fraction === 0n) {
-      return whole.toLocaleString("en-US");
-    }
-
-    const fractionText = fraction
-      .toString()
-      .padStart(decimals, "0")
-      .slice(0, 6)
-      .replace(/0+$/, "");
-
-    return `${whole.toLocaleString("en-US")}.${fractionText}`;
+    raw = typeof value === "bigint" ? value : BigInt(value as string);
   } catch {
     return "—";
   }
+
+  if (raw === 0n) return "0";
+
+  const absRaw = raw < 0n ? -raw : raw;
+  const base = 10n ** BigInt(decimals);
+  const whole = absRaw / base;
+  const fraction = absRaw % base;
+
+  if (fraction === 0n) {
+    return whole.toLocaleString("en-US");
+  }
+
+  const fractionFull = fraction.toString().padStart(decimals, "0");
+  const firstNonZeroIdx = fractionFull.search(/[1-9]/);
+  const maxDisplay = Math.min(8, decimals);
+
+  // Value is below the smallest unit we display → show minimum threshold
+  if (firstNonZeroIdx < 0 || firstNonZeroIdx >= maxDisplay) {
+    return `<0.${"0".repeat(maxDisplay - 1)}1`;
+  }
+
+  // Show at least 6 decimal places OR enough to expose 2 significant digits
+  const displayPlaces = Math.min(
+    Math.max(firstNonZeroIdx + 2, Math.min(6, decimals)),
+    maxDisplay,
+  );
+
+  const displayFraction = fractionFull.slice(0, displayPlaces).replace(/0+$/, "");
+
+  if (!displayFraction) {
+    return `<0.${"0".repeat(maxDisplay - 1)}1`;
+  }
+
+  return `${whole === 0n ? "0" : whole.toLocaleString("en-US")}.${displayFraction}`;
 }
+
 
 function formatEstimatedReceive(
   price: ZeroXSwapPrice | null,
@@ -510,7 +543,7 @@ function formatEstimatedReceive(
 ): string {
   if (!price || !toToken) return "—";
 
-  return formatUnits(price.buyAmount, toToken.decimals);
+  return formatSwapAmount(price.buyAmount, toToken.decimals);
 }
 
 function getFeeTokenSymbol(
@@ -562,7 +595,7 @@ function formatSimpleFeeAmount(
 
   const decimals = getFeeTokenDecimals(fee.token, fromToken, toToken);
   const symbol = getFeeTokenSymbol(fee.token, fromToken, toToken);
-  const amount = formatUnits(fee.amount, decimals);
+  const amount = formatSwapAmount(fee.amount, decimals);
 
   if (amount === "—") {
     return "—";
@@ -577,31 +610,50 @@ function formatMinReceived(
 ): string {
   if (!price || !toToken) return "—";
 
-  const value = formatUnits(price.minBuyAmount, toToken.decimals);
+  const value = formatSwapAmount(price.minBuyAmount, toToken.decimals);
 
   if (value === "—") return value;
 
   return `${value} ${toToken.symbol}`;
 }
 
-function formatNetworkFee(price: ZeroXSwapPrice | null): string {
-  if (!price?.totalNetworkFee) return "—";
+function getNativeSymbol(chainId: number): string {
+  return chainId === 56 ? "BNB" : "ETH";
+}
 
-  try {
-    if (BigInt(price.totalNetworkFee) <= 0n) {
-      return "—";
+// Returns the estimated network fee in native token atomic units (wei / gwei base).
+// Prefers totalNetworkFee; falls back to gas × gasPrice if that field is absent.
+function getNetworkFeeRaw(price: ZeroXSwapPrice | null): bigint {
+  if (!price) return 0n;
+
+  if (price.totalNetworkFee) {
+    try {
+      const fee = BigInt(price.totalNetworkFee);
+      return fee < 0n ? -fee : fee;
+    } catch {
+      // fall through to gas × gasPrice
     }
-  } catch {
-    return "—";
   }
 
-  const value = formatUnits(price.totalNetworkFee, 18);
-
-  if (value === "—" || value.startsWith("-") || value === "0") {
-    return "—";
+  if (price.gas && price.gasPrice) {
+    try {
+      return BigInt(price.gas) * BigInt(price.gasPrice);
+    } catch {
+      return 0n;
+    }
   }
 
-  return `~${value}`;
+  return 0n;
+}
+
+function formatNetworkFee(price: ZeroXSwapPrice | null, chainId: number): string {
+  const fee = getNetworkFeeRaw(price);
+  if (fee === 0n) return "—";
+
+  const value = formatSwapAmount(fee.toString(), 18);
+  if (value === "—" || value === "0") return "—";
+
+  return `~${value} ${getNativeSymbol(chainId)}`;
 }
 
 function formatBps(bps: number): string {
@@ -617,22 +669,25 @@ function formatRate(
 ): string {
   if (!price || !fromToken || !toToken) return "—";
 
-  const sellAmount = Number(formatUnits(price.sellAmount, fromToken.decimals));
-  const buyAmount = Number(formatUnits(price.buyAmount, toToken.decimals));
-
-  if (
-    !Number.isFinite(sellAmount) ||
-    !Number.isFinite(buyAmount) ||
-    sellAmount <= 0
-  ) {
+  let sellRaw: bigint;
+  let buyRaw: bigint;
+  try {
+    sellRaw = BigInt(price.sellAmount ?? "0");
+    buyRaw = BigInt(price.buyAmount ?? "0");
+  } catch {
     return "—";
   }
 
-  const rate = buyAmount / sellAmount;
+  if (sellRaw <= 0n || buyRaw <= 0n) return "—";
 
-  return `1 ${fromToken.symbol} ≈ ${rate.toLocaleString("en-US", {
-    maximumFractionDigits: 6,
-  })} ${toToken.symbol}`;
+  // rateRaw = "how many buyToken atoms per 1 full sellToken unit"
+  // = buyRaw × 10^sellDecimals / sellRaw
+  const rateRaw = (buyRaw * 10n ** BigInt(fromToken.decimals)) / sellRaw;
+  const rateFormatted = formatSwapAmount(rateRaw, toToken.decimals);
+
+  if (rateFormatted === "—" || rateFormatted === "0") return "—";
+
+  return `1 ${fromToken.symbol} ≈ ${rateFormatted} ${toToken.symbol}`;
 }
 
 
@@ -818,6 +873,61 @@ function sortSwapTokens(tokens: SwapToken[]): SwapToken[] {
   });
 }
 
+function isEvmAddress(value: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(value.trim());
+}
+
+function registeredToSwapToken(token: RegisteredToken): SwapToken {
+  return {
+    id: `reg-${token.chainId}-${token.address.toLowerCase()}`,
+    symbol: token.symbol,
+    name: token.name,
+    balance: "0",
+    decimals: token.decimals,
+    type: "erc20",
+    address: token.address,
+    iconText: getTokenIconText(token.symbol),
+  };
+}
+
+function customToSwapToken(token: CustomToken): SwapToken {
+  return {
+    id: `custom-${token.chainId}-${token.address.toLowerCase()}`,
+    symbol: token.symbol,
+    name: token.name,
+    balance: "0",
+    decimals: token.decimals,
+    type: "erc20",
+    address: token.address,
+    iconText: getTokenIconText(token.symbol),
+  };
+}
+
+function truncatePickerAddress(address: string): string {
+  if (address.length <= 14) return address;
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+// Returns a known registered token whose hex address shares a common prefix with the input.
+// Used to suggest "Did you mean BTCB?" when a user pastes a typo'd address.
+function findSimilarRegisteredToken(
+  address: string,
+  tokens: RegisteredToken[],
+): RegisteredToken | null {
+  const normalized = address.toLowerCase().replace(/^0x/, "");
+  if (normalized.length !== 40) return null;
+
+  // Require the first 5 hex characters to match — enough to catch one-digit typos at char 6+
+  const prefix = normalized.slice(0, 5);
+
+  return (
+    tokens.find((t) => {
+      const tokenHex = t.address.toLowerCase().replace(/^0x/, "");
+      return tokenHex.startsWith(prefix) && tokenHex !== normalized;
+    }) ?? null
+  );
+}
+
 export function SwapPage({
   selectedAccount,
   walletState,
@@ -834,6 +944,17 @@ export function SwapPage({
   const [isLoadingTokens, setIsLoadingTokens] = useState(true);
   const [tokenError, setTokenError] = useState<string | null>(null);
 
+  // Token picker search + import
+  const [tokenPickerSearch, setTokenPickerSearch] = useState("");
+  const [importedCustomTokens, setImportedCustomTokens] = useState<CustomToken[]>([]);
+  const [tokenImportStatus, setTokenImportStatus] = useState<ImportStatus>("idle");
+  const [tokenImportPreview, setTokenImportPreview] = useState<TokenPreview | null>(null);
+  const [tokenImportError, setTokenImportError] = useState<string | null>(null);
+
+  // Post-swap toast
+  const [swapToastMessage, setSwapToastMessage] = useState<string | null>(null);
+  const hasAutoAddedRef = useRef(false);
+
   const [slippageBps, setSlippageBps] = useState<number>(
     getInitialSlippageBps,
   );
@@ -846,6 +967,8 @@ export function SwapPage({
   const [price, setPrice] = useState<ZeroXSwapPrice | null>(null);
   const [priceError, setPriceError] = useState<string | null>(null);
   const priceRequestIdRef = useRef(0);
+  const [quoteRefreshTick, setQuoteRefreshTick] = useState(0);
+  const [quoteCountdown, setQuoteCountdown] = useState<number | null>(null);
 
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus>("idle");
   const [quote, setQuote] = useState<ZeroXSwapQuote | null>(null);
@@ -951,6 +1074,47 @@ export function SwapPage({
     return parseDecimalUnits(amount, fromToken.decimals);
   }, [amount, fromToken]);
 
+  // Registered tokens for current chain (for picker "Popular" section)
+  const registeredTokensForChain = useMemo(() => {
+    return getRegisteredTokensByChainId(selectedChainId);
+  }, [selectedChainId]);
+
+  // Computed picker sections (wallet, popular, imported) filtered by search
+  const { pickerWallet, pickerPopular, pickerImported } = useMemo(() => {
+    const searchLower = tokenPickerSearch.toLowerCase().trim();
+    const walletAddresses = new Set(tokens.map((t) => t.address.toLowerCase()));
+
+    function matchesSearch(name: string, symbol: string, address: string): boolean {
+      if (!searchLower) return true;
+      return (
+        symbol.toLowerCase().includes(searchLower) ||
+        name.toLowerCase().includes(searchLower) ||
+        address.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return {
+      pickerWallet: tokens.filter((t) => matchesSearch(t.name, t.symbol, t.address)),
+      pickerPopular: registeredTokensForChain
+        .filter(
+          (r) =>
+            !walletAddresses.has(r.address.toLowerCase()) &&
+            matchesSearch(r.name, r.symbol, r.address),
+        )
+        .map(registeredToSwapToken),
+      pickerImported: importedCustomTokens
+        .filter(
+          (c) =>
+            !walletAddresses.has(c.address.toLowerCase()) &&
+            matchesSearch(c.name, c.symbol, c.address),
+        )
+        .map(customToSwapToken),
+    };
+  }, [tokenPickerSearch, tokens, registeredTokensForChain, importedCustomTokens]);
+
+  const pickerHasNoResults =
+    pickerWallet.length === 0 && pickerPopular.length === 0 && pickerImported.length === 0;
+
   useEffect(() => {
     priceRequestIdRef.current += 1;
 
@@ -963,7 +1127,7 @@ export function SwapPage({
       !selectedAccount ||
       !fromToken ||
       !toToken ||
-      fromToken.id === toToken.id ||
+      fromToken.address.toLowerCase() === toToken.address.toLowerCase() ||
       !sellAmountBaseUnits ||
       sellAmountBaseUnits === "0"
     ) {
@@ -1019,11 +1183,173 @@ export function SwapPage({
     };
   }, [
     fromToken,
+    quoteRefreshTick,
     selectedAccount,
     selectedChainId,
     sellAmountBaseUnits,
     toToken,
   ]);
+
+  // Auto-refresh countdown: counts down from QUOTE_REFRESH_INTERVAL_S when a quote is ready,
+  // then fires a tick that causes the price effect to re-fetch.
+  useEffect(() => {
+    if (priceStatus !== "ready") {
+      setQuoteCountdown(null);
+      return;
+    }
+
+    setQuoteCountdown(QUOTE_REFRESH_INTERVAL_S);
+
+    const intervalId = window.setInterval(() => {
+      setQuoteCountdown((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          setQuoteRefreshTick((t) => t + 1);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [priceStatus]);
+
+  // Reset import state when picker closes or chain changes; reload imported tokens when it opens
+  useEffect(() => {
+    if (!tokenPickerSide) {
+      setTokenPickerSearch("");
+      setTokenImportStatus("idle");
+      setTokenImportPreview(null);
+      setTokenImportError(null);
+    } else {
+      setImportedCustomTokens(tokenRegistryService.getTokensByChainId(selectedChainId));
+      setTokenImportStatus("idle");
+      setTokenImportPreview(null);
+      setTokenImportError(null);
+    }
+  }, [tokenPickerSide, selectedChainId]);
+
+  // Auto-trigger token import when user pastes a valid EVM address (debounced 400ms)
+  useEffect(() => {
+    if (!tokenPickerSide) return;
+    if (tokenImportStatus !== "idle") return;
+    if (!pickerHasNoResults) return;
+    if (!selectedAccount) return;
+
+    const trimmed = tokenPickerSearch.trim();
+    if (!isEvmAddress(trimmed)) return;
+
+    const chainId = selectedChainId;
+    const ownerAddress = selectedAccount.address;
+
+    const timerId = window.setTimeout(() => {
+      setTokenImportStatus("fetching");
+      setTokenImportError(null);
+      setTokenImportPreview(null);
+
+      tokenRegistryService
+        .loadTokenPreview({ chainId, tokenAddress: trimmed, ownerAddress })
+        .then((preview) => {
+          setTokenImportPreview(preview);
+          setTokenImportStatus("ready");
+        })
+        .catch((error) => {
+          setTokenImportError(error instanceof Error ? error.message : String(error));
+          setTokenImportStatus("error");
+        });
+    }, 400);
+
+    return () => window.clearTimeout(timerId);
+  }, [tokenPickerSearch, tokenPickerSide, tokenImportStatus, pickerHasNoResults, selectedAccount, selectedChainId]);
+
+  // Auto-add the bought token to assets after a confirmed swap
+  useEffect(() => {
+    if (submittedSwapStatus !== "confirmed" || !toToken || toToken.type === "native") {
+      return;
+    }
+    if (hasAutoAddedRef.current) return;
+
+    const contractAddress = toToken.address;
+    if (!contractAddress || contractAddress.toLowerCase() === ZERO_X_NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+      return;
+    }
+
+    hasAutoAddedRef.current = true;
+
+    // Always unhide
+    hiddenAssetService.unhideAsset(selectedChainId, contractAddress);
+
+    // Only add to custom tokens if not already in registry or custom list
+    const isRegistered = registeredTokensForChain.some(
+      (r) => r.address.toLowerCase() === contractAddress.toLowerCase(),
+    );
+    const existingCustom = tokenRegistryService.getTokensByChainId(selectedChainId);
+    const isCustom = existingCustom.some(
+      (c) => c.address.toLowerCase() === contractAddress.toLowerCase(),
+    );
+
+    if (!isRegistered && !isCustom) {
+      tokenRegistryService.addToken({
+        chainId: selectedChainId,
+        address: contractAddress as `0x${string}`,
+        symbol: toToken.symbol,
+        name: toToken.name,
+        decimals: toToken.decimals,
+        createdAt: new Date().toISOString(),
+      });
+
+      setSwapToastMessage("Token added to assets");
+      const timerId = window.setTimeout(() => setSwapToastMessage(null), 3500);
+      return () => window.clearTimeout(timerId);
+    }
+  }, [submittedSwapStatus, toToken, selectedChainId, registeredTokensForChain]);
+
+  const isZeroOutput = priceStatus === "ready" && price != null && (
+    !price.buyAmount || price.buyAmount === "0"
+  );
+
+  const nativeToken = useMemo(
+    () => tokens.find((t) => t.type === "native") ?? null,
+    [tokens],
+  );
+
+  const nativeBalanceRaw = useMemo((): bigint => {
+    if (!nativeToken) return 0n;
+    const raw = parseDecimalUnits(nativeToken.balance, nativeToken.decimals);
+    if (!raw) return 0n;
+    try {
+      return BigInt(raw);
+    } catch {
+      return 0n;
+    }
+  }, [nativeToken]);
+
+  const swapBalanceWarning = useMemo((): string | null => {
+    if (priceStatus !== "ready" || !fromToken || !price) return null;
+    const feeRaw = getNetworkFeeRaw(price);
+    if (feeRaw === 0n) return null;
+    const nativeSymbol = getNativeSymbol(selectedChainId);
+    const isSellingNative = fromToken.type === "native";
+    let sellRaw = 0n;
+    try {
+      sellRaw = sellAmountBaseUnits ? BigInt(sellAmountBaseUnits) : 0n;
+    } catch {
+      return null;
+    }
+    if (isSellingNative) {
+      if (sellRaw > 0n && feeRaw > sellRaw) {
+        return `Network fee is higher than your swap amount. This trade is not recommended.`;
+      }
+      if (nativeBalanceRaw > 0n && nativeBalanceRaw < sellRaw + feeRaw) {
+        return `Insufficient ${nativeSymbol} for swap amount and network fee.`;
+      }
+    } else {
+      if (nativeBalanceRaw > 0n && nativeBalanceRaw < feeRaw) {
+        return `Insufficient ${nativeSymbol} for network fee.`;
+      }
+    }
+    return null;
+  }, [priceStatus, fromToken, price, sellAmountBaseUnits, nativeBalanceRaw, selectedChainId]);
 
   const isReviewDisabled = useMemo(() => {
     const numericAmount = Number(amount);
@@ -1032,14 +1358,15 @@ export function SwapPage({
       !selectedAccount ||
       !fromToken ||
       !toToken ||
-      fromToken.id === toToken.id ||
+      fromToken.address.toLowerCase() === toToken.address.toLowerCase() ||
       !amount ||
       Number.isNaN(numericAmount) ||
       numericAmount <= 0 ||
       priceStatus !== "ready" ||
-      !price
+      !price ||
+      isZeroOutput
     );
-  }, [amount, fromToken, price, priceStatus, selectedAccount, toToken]);
+  }, [amount, fromToken, isZeroOutput, price, priceStatus, selectedAccount, toToken]);
 
   const estimatedReceive = useMemo(() => {
     if (!toToken) return "Select token";
@@ -1064,6 +1391,10 @@ export function SwapPage({
 
     if (priceStatus === "error") {
       return priceError ?? "Could not fetch quote.";
+    }
+
+    if (isZeroOutput) {
+      return "Quote returned zero output. Try a larger amount.";
     }
 
     if (hasZeroXAllowanceIssue(price)) {
@@ -1122,7 +1453,7 @@ setApprovalStatus("idle");
 
   function handleSelectToken(token: SwapToken) {
     if (tokenPickerSide === "from") {
-      if (toToken && token.id === toToken.id) {
+      if (toToken && token.address.toLowerCase() === toToken.address.toLowerCase()) {
         setToToken(fromToken);
       }
 
@@ -1131,7 +1462,7 @@ setApprovalStatus("idle");
     }
 
     if (tokenPickerSide === "to") {
-      if (fromToken && token.id === fromToken.id) {
+      if (fromToken && token.address.toLowerCase() === fromToken.address.toLowerCase()) {
         setFromToken(toToken);
       }
 
@@ -1409,7 +1740,7 @@ if (selectedAccount && fromToken && toToken) {
           swapToAmount: formatEstimatedReceive(quote, toToken),
           swapRoute: getZeroXRouteLabel(quote),
           swapSimpleFee: formatSimpleFeeAmount(quote, fromToken, toToken),
-          swapNetworkFee: formatNetworkFee(quote),
+          swapNetworkFee: formatNetworkFee(quote, selectedChainId),
           swapSlippage: formatSlippageBps(slippageBps),
           swapMinimumReceived: formatMinReceived(quote, toToken),
         });
@@ -1458,6 +1789,7 @@ if (selectedAccount && fromToken && toToken) {
   }
 
   function handleNewSwap() {
+    hasAutoAddedRef.current = false;
     setAmount("");
     setPrice(null);
     setPriceError(null);
@@ -1475,183 +1807,235 @@ if (selectedAccount && fromToken && toToken) {
     setIsReviewOpen(false);
   }
 
+  function handleConfirmImport() {
+    if (!tokenImportPreview) return;
+
+    const customToken: CustomToken = {
+      chainId: tokenImportPreview.chainId,
+      address: tokenImportPreview.address,
+      symbol: tokenImportPreview.symbol,
+      name: tokenImportPreview.name,
+      decimals: tokenImportPreview.decimals,
+      createdAt: tokenImportPreview.createdAt,
+    };
+
+    tokenRegistryService.addToken(customToken);
+    hiddenAssetService.unhideAsset(tokenImportPreview.chainId, tokenImportPreview.address);
+
+    handleSelectToken(customToSwapToken(customToken));
+  }
+
   const pickerTitle =
     tokenPickerSide === "from" ? "Select token to sell" : "Select token to buy";
 
+  const ctaLabel = (() => {
+    if (!amount || Number(amount) <= 0) return "Enter amount";
+    if (priceStatus === "loading") return "Getting quote…";
+    return "Review swap";
+  })();
+
   return (
     <div className="ext-popup" data-screen-label="Swap">
-      <div className="swap-page">
-        <header className="swap-header">
-          <button className="swap-icon-button" type="button" onClick={onBack}>
-            ←
-          </button>
+      {/* ── Top bar ── */}
+      <div className="bar-top">
+        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
 
-          <div className="swap-header-title">
-            <h1>Swap</h1>
-            <p>{getNetworkLabel(selectedChainId)}</p>
-          </div>
+        <div className="swap-page-title">
+          <div className="swap-page-title__name">Swap</div>
+          <div className="swap-page-title__network">{getNetworkLabel(selectedChainId)}</div>
+        </div>
 
-          <button
-            className="swap-icon-button"
-            type="button"
-            aria-label="Swap settings"
-            onClick={() => {
-              setCustomSlippagePercent(String(slippageBps / 100));
-              setIsSwapSettingsOpen(true);
-            }}
-          >
-            ⚙
-          </button>
-        </header>
+        <button
+          className="icbtn"
+          type="button"
+          aria-label={`Swap settings · slippage ${formatSlippageBps(slippageBps)}`}
+          onClick={() => {
+            setCustomSlippagePercent(String(slippageBps / 100));
+            setIsSwapSettingsOpen(true);
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8.6 8.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A8.6 8.6 0 0 0 7 6.5l-2.4-1-2 3.5 2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8.6 8.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a8.6 8.6 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5z" />
+          </svg>
+        </button>
+      </div>
 
+      {/* ── Scrollable body ── */}
+      <div
+        className="screen-body"
+        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+      >
         {tokenError ? (
-          <section className="swap-error">
-            Could not load tokens. {tokenError}
-          </section>
+          <div className="swap-error">Could not load tokens. {tokenError}</div>
         ) : null}
 
-        <section className="swap-card swap-token-card">
-          <div className="swap-card-top">
-            <span className="swap-label">From</span>
+        {/* Combined From / To card */}
+        <div className="swap-pair-card">
+          {/* FROM half */}
+          <div className="swap-half">
+            <div className="swap-half-top">
+              <span className="swap-half-label">From</span>
+              <button
+                className="swap-token-pill"
+                type="button"
+                onClick={() => setTokenPickerSide("from")}
+                disabled={isLoadingTokens && tokens.length === 0}
+              >
+                <span className="swap-token-pill__icon">{fromToken?.iconText ?? "?"}</span>
+                <span>{fromToken?.symbol ?? "Select"}</span>
+                <span className="swap-token-pill__chevron">▾</span>
+              </button>
+            </div>
 
-            <button
-              className="swap-token-button"
-              type="button"
-              onClick={() => setTokenPickerSide("from")}
-              disabled={isLoadingTokens || tokens.length === 0}
-            >
-              <span className="swap-token-icon">
-                {fromToken?.iconText ?? "?"}
-              </span>
-              <span>{fromToken?.symbol ?? "Select"}</span>
-              <span className="swap-token-chevron">⌄</span>
-            </button>
-          </div>
-
-          <div className="swap-amount-row">
             <input
               className="swap-amount-input"
               inputMode="decimal"
-              placeholder="0.00"
+              placeholder="0"
               value={amount}
               onChange={(event) => handleAmountChange(event.target.value)}
             />
 
+            <div className="swap-half-bottom">
+              <span>{fromToken?.name ?? "—"}</span>
+              <div className="swap-half-bottom__right">
+                {fromToken ? (
+                  <span>
+                    {hideBalances ? "••••" : formatTokenBalance(fromToken.balance)}{" "}
+                    {fromToken.symbol}
+                  </span>
+                ) : null}
+                <button
+                  className="swap-max-pill"
+                  type="button"
+                  onClick={handleMaxClick}
+                  disabled={!fromToken}
+                >
+                  MAX
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Switch divider */}
+          <div className="swap-divider">
             <button
-              className="swap-max-button"
+              className="swap-switch-btn"
               type="button"
-              onClick={handleMaxClick}
-              disabled={!fromToken}
+              onClick={handleSwitchTokens}
+              disabled={!fromToken || !toToken}
+              aria-label="Switch tokens"
             >
-              MAX
+              ↕
             </button>
           </div>
 
-          <div className="swap-balance-row">
-            <span>{fromToken?.name ?? "No token selected"}</span>
-            <span>
-              Balance:{" "}
-              {fromToken
-                ? `${hideBalances ? "••••" : formatTokenBalance(fromToken.balance)} ${fromToken.symbol}`
-                : "—"}
-            </span>
-          </div>
-        </section>
+          {/* TO half */}
+          <div className="swap-half">
+            <div className="swap-half-top">
+              <span className="swap-half-label">To</span>
+              <button
+                className="swap-token-pill"
+                type="button"
+                onClick={() => setTokenPickerSide("to")}
+                disabled={isLoadingTokens && tokens.length === 0}
+              >
+                <span className="swap-token-pill__icon">{toToken?.iconText ?? "?"}</span>
+                <span>{toToken?.symbol ?? "Select"}</span>
+                <span className="swap-token-pill__chevron">▾</span>
+              </button>
+            </div>
 
-        <div className="swap-switch-wrapper">
-          <button
-            className="swap-switch-button"
-            type="button"
-            onClick={handleSwitchTokens}
-            disabled={!fromToken || !toToken}
-          >
-            ↓↑
-          </button>
+            <div
+              className={`swap-estimated-display${
+                !amount || priceStatus === "idle" ? " swap-estimated-display--muted" : ""
+              }`}
+            >
+              {estimatedReceive}
+            </div>
+
+            <div className="swap-half-bottom">
+              <span>{toToken?.name ?? "—"}</span>
+              {toToken ? (
+                <span>
+                  {hideBalances ? "••••" : formatTokenBalance(toToken.balance)}{" "}
+                  {toToken.symbol}
+                </span>
+              ) : null}
+            </div>
+          </div>
         </div>
 
-        <section className="swap-card swap-token-card">
-          <div className="swap-card-top">
-            <span className="swap-label">To</span>
-
-            <button
-              className="swap-token-button"
-              type="button"
-              onClick={() => setTokenPickerSide("to")}
-              disabled={isLoadingTokens || tokens.length === 0}
-            >
-              <span className="swap-token-icon">{toToken?.iconText ?? "?"}</span>
-              <span>{toToken?.symbol ?? "Select"}</span>
-              <span className="swap-token-chevron">⌄</span>
-            </button>
+        {/* Quote details — only shown once a quote is being fetched or is ready */}
+        {priceStatus !== "idle" ? (
+          <div className="swap-quote-card">
+            <div className="swap-quote-row">
+              <span>Rate</span>
+              <strong>{formatRate(price, fromToken, toToken)}</strong>
+            </div>
+            <div className="swap-quote-row">
+              <span>Network fee</span>
+              <strong>{formatNetworkFee(price, selectedChainId)}</strong>
+            </div>
+            <div className="swap-quote-row">
+              <span>Route</span>
+              <strong>{priceStatus === "ready" ? getZeroXRouteLabel(price) : "—"}</strong>
+            </div>
+            <div className="swap-quote-row">
+              <span>Simple fee</span>
+              <strong>
+                {priceStatus === "ready"
+                  ? formatSimpleFeeAmount(price, fromToken, toToken)
+                  : simpleSwapFeeBps > 0
+                    ? `${formatBps(simpleSwapFeeBps)}%`
+                    : "—"}
+              </strong>
+            </div>
+            <div className="swap-quote-row">
+              <span>Minimum received</span>
+              <strong>{formatMinReceived(price, toToken)}</strong>
+            </div>
           </div>
+        ) : null}
 
-          <div className="swap-amount-row">
-            <div className="swap-estimated-amount">{estimatedReceive}</div>
-          </div>
-
-          <div className="swap-balance-row">
-            <span>{toToken?.name ?? "No token selected"}</span>
-            <span>
-              Balance:{" "}
-              {toToken
-                ? `${hideBalances ? "••••" : formatTokenBalance(toToken.balance)} ${toToken.symbol}`
-                : "—"}
-            </span>
-          </div>
-        </section>
-
-        <section className="swap-card swap-details-card">
-          <div className="swap-details-row">
-            <span>Rate</span>
-            <strong>{formatRate(price, fromToken, toToken)}</strong>
-          </div>
-
-          <div className="swap-details-row">
-            <span>Network fee</span>
-            <strong>{formatNetworkFee(price)}</strong>
-          </div>
-
-          <div className="swap-details-row">
-            <span>Route</span>
-            <strong>{priceStatus === "ready" ? getZeroXRouteLabel(price) : "—"}</strong>
-          </div>
-
-          <div className="swap-details-row">
-            <span>Simple fee</span>
-            <strong>
-              {priceStatus === "ready"
-                ? formatSimpleFeeAmount(price, fromToken, toToken)
-                : simpleSwapFeeBps > 0
-                  ? `${formatBps(simpleSwapFeeBps)}%`
-                  : "—"}
-            </strong>
-          </div>
-
-          <div className="swap-details-row">
-            <span>Minimum received</span>
-            <strong>{formatMinReceived(price, toToken)}</strong>
-          </div>
-        </section>
-
-        <section
-          className={
-            priceStatus === "error" ? "swap-error" : "swap-notice"
-          }
-        >
+        {/* Status notice */}
+        <div className={priceStatus === "error" ? "swap-error" : "swap-notice"}>
           {quoteNotice}
-        </section>
+        </div>
 
-        <footer className="swap-footer">
+        {/* Balance / gas warning */}
+        {swapBalanceWarning ? (
+          <div className="swap-warning">{swapBalanceWarning}</div>
+        ) : null}
+
+        {/* Auto-refresh countdown */}
+        {priceStatus === "ready" && quoteCountdown !== null ? (
+          <div className="swap-quote-refresh">
+            Quote refreshes in {quoteCountdown}s
+          </div>
+        ) : null}
+
+        {/* CTA — no fixed positioning, never overlays content */}
+        <div className="swap-actions">
           <button
-            className="swap-review-button"
+            className="btn primary lg full"
             type="button"
             disabled={isReviewDisabled}
             onClick={handleOpenReview}
           >
-            Review swap
+            {ctaLabel}
           </button>
-        </footer>
+        </div>
       </div>
+
+      {/* Post-swap toast */}
+      {swapToastMessage ? (
+        <div className="swap-toast">{swapToastMessage}</div>
+      ) : null}
 
       {submitStatus === "submitted" ? (
         <div className="swap-token-modal-backdrop">
@@ -1667,7 +2051,7 @@ if (selectedAccount && fromToken && toToken) {
               </div>
 
               <button
-                className="swap-icon-button"
+                className="icbtn"
                 type="button"
                 onClick={handleDoneAfterSubmittedSwap}
                 aria-label="Close submitted swap screen"
@@ -1727,7 +2111,7 @@ if (selectedAccount && fromToken && toToken) {
 
               <div className="swap-review-row">
                 <span>Network fee</span>
-                <strong>{quote ? formatNetworkFee(quote) : "—"}</strong>
+                <strong>{quote ? formatNetworkFee(quote, selectedChainId) : "—"}</strong>
               </div>
 
               <div className="swap-review-row">
@@ -1780,7 +2164,7 @@ if (selectedAccount && fromToken && toToken) {
               </div>
 
               <button
-                className="swap-icon-button"
+                className="icbtn"
                 type="button"
                 onClick={() => setIsSwapSettingsOpen(false)}
               >
@@ -1856,7 +2240,7 @@ if (selectedAccount && fromToken && toToken) {
               </div>
 
               <button
-                className="swap-icon-button"
+                className="icbtn"
                 type="button"
                 onClick={handleCloseReview}
               >
@@ -1904,9 +2288,12 @@ if (selectedAccount && fromToken && toToken) {
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Network fee</span>
-                    <strong>{formatNetworkFee(quote)}</strong>
+                    <span>Estimated network fee</span>
+                    <strong>{formatNetworkFee(quote, selectedChainId)}</strong>
                   </div>
+                  <p className="swap-review-fee-note">
+                    Network fee is paid to the network and may change before confirmation.
+                  </p>
 
                   <div className="swap-details-row">
                     <span>Route</span>
@@ -2005,6 +2392,7 @@ if (selectedAccount && fromToken && toToken) {
         </div>
       ) : null}
 
+      {/* ── Token picker modal with search + import ── */}
       {tokenPickerSide ? (
         <div className="swap-token-modal-backdrop">
           <div className="swap-token-modal" role="dialog" aria-modal="true">
@@ -2015,7 +2403,7 @@ if (selectedAccount && fromToken && toToken) {
               </div>
 
               <button
-                className="swap-icon-button"
+                className="icbtn"
                 type="button"
                 onClick={() => setTokenPickerSide(null)}
               >
@@ -2023,37 +2411,190 @@ if (selectedAccount && fromToken && toToken) {
               </button>
             </div>
 
-            <div className="swap-token-list">
-              {tokens.map((token) => (
-                <button
-                  key={token.id}
-                  className="swap-token-list-item"
-                  type="button"
-                  onClick={() => handleSelectToken(token)}
-                >
-                  <span className="swap-token-icon">{token.iconText}</span>
-
-                  <span className="swap-token-list-body">
-                    <strong>{token.symbol}</strong>
-                    <span>{token.name}</span>
-                  </span>
-
-                  <span className="swap-token-list-balance">
-                    {hideBalances ? "••••" : formatTokenBalance(token.balance)}
-                  </span>
-                </button>
-              ))}
-
-              {tokens.length === 0 && !isLoadingTokens ? (
-                <div className="swap-empty-state">
-                  No visible assets found. Add a custom token first.
-                </div>
-              ) : null}
-
-              {isLoadingTokens ? (
-                <div className="swap-empty-state">Loading tokens...</div>
-              ) : null}
+            {/* Search input */}
+            <div className="swap-picker-search">
+              <input
+                type="text"
+                placeholder="Search name, symbol, or paste address"
+                value={tokenPickerSearch}
+                autoFocus
+                onChange={(e) => {
+                  setTokenPickerSearch(e.target.value);
+                  setTokenImportStatus("idle");
+                  setTokenImportPreview(null);
+                  setTokenImportError(null);
+                }}
+              />
             </div>
+
+            {/* Import flow — replaces list when active */}
+            {tokenImportStatus !== "idle" ? (
+              <div className="swap-token-import-panel">
+                {tokenImportStatus === "fetching" ? (
+                  <div className="swap-empty-state">Looking up token on chain…</div>
+                ) : null}
+
+                {tokenImportStatus === "error" ? (() => {
+                  const similarToken = findSimilarRegisteredToken(
+                    tokenPickerSearch.trim(),
+                    registeredTokensForChain,
+                  );
+                  return (
+                    <>
+                      <div className="swap-error">{tokenImportError}</div>
+                      <div className="swap-import-error-hint">
+                        Try searching by token symbol, for example BTCB or USDC.
+                      </div>
+                      {similarToken ? (
+                        <button
+                          className="swap-import-did-you-mean"
+                          type="button"
+                          onClick={() => {
+                            setTokenPickerSearch(similarToken.symbol);
+                            setTokenImportStatus("idle");
+                            setTokenImportError(null);
+                            setTokenImportPreview(null);
+                          }}
+                        >
+                          Did you mean <strong>{similarToken.symbol}</strong>?
+                        </button>
+                      ) : null}
+                      <button
+                        className="swap-picker-back-btn"
+                        type="button"
+                        onClick={() => {
+                          setTokenImportStatus("idle");
+                          setTokenImportError(null);
+                        }}
+                      >
+                        ← Back to search
+                      </button>
+                    </>
+                  );
+                })() : null}
+
+                {tokenImportStatus === "ready" && tokenImportPreview ? (
+                  <>
+                    <div className="swap-token-import-card">
+                      <span className="swap-token-icon">
+                        {getTokenIconText(tokenImportPreview.symbol)}
+                      </span>
+                      <span className="swap-token-list-body">
+                        <strong>{tokenImportPreview.symbol}</strong>
+                        <span>
+                          {tokenImportPreview.name} · {truncatePickerAddress(tokenImportPreview.address)}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="swap-warning">
+                      ⚠ Anyone can create a token with any name or symbol. Only import if you trust this asset.
+                    </div>
+                    <button
+                      className="swap-review-button"
+                      type="button"
+                      onClick={handleConfirmImport}
+                    >
+                      Import and select
+                    </button>
+                    <button
+                      className="swap-picker-back-btn"
+                      type="button"
+                      onClick={() => {
+                        setTokenImportStatus("idle");
+                        setTokenImportPreview(null);
+                      }}
+                    >
+                      ← Back to search
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : (
+              <div className="swap-token-list">
+                {/* Your assets */}
+                {pickerWallet.length > 0 ? (
+                  <>
+                    {(pickerPopular.length > 0 || pickerImported.length > 0) ? (
+                      <div className="swap-token-section-label">Your assets</div>
+                    ) : null}
+                    {pickerWallet.map((token) => (
+                      <button
+                        key={token.id}
+                        className="swap-token-list-item"
+                        type="button"
+                        onClick={() => handleSelectToken(token)}
+                      >
+                        <span className="swap-token-icon">{token.iconText}</span>
+                        <span className="swap-token-list-body">
+                          <strong>{token.symbol}</strong>
+                          <span>{token.name}</span>
+                        </span>
+                        <span className="swap-token-list-balance">
+                          {hideBalances ? "••••" : formatTokenBalance(token.balance)}
+                        </span>
+                      </button>
+                    ))}
+                  </>
+                ) : null}
+
+                {/* Popular */}
+                {pickerPopular.length > 0 ? (
+                  <>
+                    <div className="swap-token-section-label">Popular</div>
+                    {pickerPopular.map((token) => (
+                      <button
+                        key={token.id}
+                        className="swap-token-list-item"
+                        type="button"
+                        onClick={() => handleSelectToken(token)}
+                      >
+                        <span className="swap-token-icon">{token.iconText}</span>
+                        <span className="swap-token-list-body">
+                          <strong>{token.symbol}</strong>
+                          <span>{token.name}</span>
+                        </span>
+                        <span className="swap-token-list-balance">—</span>
+                      </button>
+                    ))}
+                  </>
+                ) : null}
+
+                {/* Imported */}
+                {pickerImported.length > 0 ? (
+                  <>
+                    <div className="swap-token-section-label">Imported</div>
+                    {pickerImported.map((token) => (
+                      <button
+                        key={token.id}
+                        className="swap-token-list-item"
+                        type="button"
+                        onClick={() => handleSelectToken(token)}
+                      >
+                        <span className="swap-token-icon">{token.iconText}</span>
+                        <span className="swap-token-list-body">
+                          <strong>{token.symbol}</strong>
+                          <span>{token.name}</span>
+                        </span>
+                        <span className="swap-token-list-balance">—</span>
+                      </button>
+                    ))}
+                  </>
+                ) : null}
+
+                {/* Empty state — shows "Checking token…" during the 400ms debounce */}
+                {pickerHasNoResults ? (
+                  <div className="swap-empty-state">
+                    {isLoadingTokens
+                      ? "Loading tokens…"
+                      : isEvmAddress(tokenPickerSearch.trim()) && tokenImportStatus === "idle"
+                        ? "Checking token…"
+                        : tokenPickerSearch
+                          ? "No tokens found. Try pasting a contract address to import."
+                          : "No visible assets found. Add a custom token first."}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
