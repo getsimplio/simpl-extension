@@ -25,7 +25,7 @@ const ICON_FILE: Record<string, string> = {
   ethereum: "/network-icons/ethereum.svg",
   bnb: "/network-icons/bnb.svg",
   base: "/network-icons/base.svg",
-  sepolia: "/network-icons/ethereum.svg",
+  sepolia: "/network-icons/sepolia.svg",
   polygon: "/network-icons/polygon.svg",
   arbitrum: "/network-icons/arbitrum.svg",
   optimism: "/network-icons/optimism.svg",

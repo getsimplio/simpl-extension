@@ -11,6 +11,8 @@ import {
   type NativeAssetQuote,
 } from "../../core/prices/native-price.service";
 import { transactionHistoryService } from "../../core/transactions/transaction-history.service";
+import { AssetIcon } from "../components/AssetIcon";
+import { NetworkIcon } from "../components/NetworkIcon";
 
 type SendPageProps = {
   asset: WalletAssetBalance;
@@ -25,6 +27,14 @@ type SendStep = "form" | "review" | "success";
 type SentTransaction = {
   hash: string;
   explorerUrl: string | null;
+};
+
+// Conservative gas reserves by chainId (in native token units)
+const GAS_RESERVES: Record<number, number> = {
+  1: 0.001,
+  56: 0.001,
+  8453: 0.0005,
+  11155111: 0.01,
 };
 
 function shortAddress(address: string): string {
@@ -82,19 +92,6 @@ function getActiveSendChain(chainId: number): SendChainOption {
       nativeSymbol: "EVM",
       subtitle: `Chain ${chainId}`,
     }
-  );
-}
-
-function CrosshairIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" />
-      <path
-        d="M12 3v5M12 16v5M3 12h5M16 12h5"
-        fill="none"
-        stroke="currentColor"
-      />
-    </svg>
   );
 }
 
@@ -567,6 +564,11 @@ export function SendPage({
   const [sentTransaction, setSentTransaction] =
     useState<SentTransaction | null>(null);
 
+  // Search + validation touch state
+  const [assetSearch, setAssetSearch] = useState("");
+  const [toAddressTouched, setToAddressTouched] = useState(false);
+  const [amountTouched, setAmountTouched] = useState(false);
+
   const assetUsdPrice = getAssetUsdPrice(selectedAsset, nativeQuote);
   const transferAmount = convertAmountToAsset({
     amount,
@@ -578,8 +580,59 @@ export function SendPage({
   const amountIsValid = isPositiveAmount(normalizedAmount);
   const amountCanBeConverted = amountMode === "asset" || assetUsdPrice !== null;
   const isWatchOnly = selectedAccount.type === "watch";
+
+  const assetBalance = Number(selectedAsset.formatted);
+  const toAddressError =
+    toAddressTouched && toAddress.length > 0 && !recipientIsValid
+      ? "Enter a valid EVM address."
+      : null;
+  const hasInsufficientBalance =
+    amountIsValid && Number(normalizedAmount) > assetBalance;
+  const amountError =
+    amountTouched && hasInsufficientBalance
+      ? `Insufficient ${selectedAsset.symbol} balance.`
+      : null;
+
+  const fiatEstimate: string | null = (() => {
+    if (!assetUsdPrice || !amount) return null;
+    const raw = normalizeAmount(amount);
+    if (amountMode === "asset") {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      const usd = n * assetUsdPrice;
+      return `≈ $${usd < 0.01 ? usd.toFixed(6) : usd.toFixed(2)}`;
+    }
+    const equiv = convertUsdAmountToAsset({ amount: raw, usdPrice: assetUsdPrice });
+    const n = Number(equiv);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return `≈ ${trimDecimal(n.toFixed(8))} ${selectedAsset.symbol}`;
+  })();
+
+  const filteredAssets = availableAssets
+    .filter((item) => {
+      if (!assetSearch.trim()) return true;
+      const q = assetSearch.toLowerCase();
+      return (
+        item.symbol.toLowerCase().includes(q) ||
+        item.name.toLowerCase().includes(q) ||
+        (item.contractAddress?.toLowerCase().includes(q) ?? false)
+      );
+    })
+    .sort((a, b) => {
+      const balA = Number(a.formatted);
+      const balB = Number(b.formatted);
+      if (balA > 0 && balB <= 0) return -1;
+      if (balB > 0 && balA <= 0) return 1;
+      return balB - balA;
+    });
+
   const canContinue =
-    recipientIsValid && amountIsValid && amountCanBeConverted && !sending;
+    recipientIsValid &&
+    amountIsValid &&
+    amountCanBeConverted &&
+    !sending &&
+    !hasInsufficientBalance;
+
   const networkLabel = getNetworkLabel(currentChainId);
 
   useEffect(() => {
@@ -590,6 +643,9 @@ export function SendPage({
     setNativeQuote(null);
     setError(null);
     setStep("form");
+    setToAddressTouched(false);
+    setAmountTouched(false);
+    setAssetSearch("");
   }, [asset.id]);
 
   useEffect(() => {
@@ -734,6 +790,8 @@ export function SendPage({
       setToAddress("");
       setSentTransaction(null);
       setStep("form");
+      setToAddressTouched(false);
+      setAmountTouched(false);
     } catch (error) {
       const alreadyKnownHash = getAlreadyKnownTransactionHash(error);
 
@@ -760,21 +818,45 @@ export function SendPage({
     setNativeQuote(null);
     setError(null);
     setStep("form");
+    setAmountTouched(false);
   }
 
   function handleMaxAmount() {
+    setAmountTouched(false);
+    setError(null);
+    setAmountMode("asset");
+
     if (selectedAsset.type === "native") {
-      setError("For native assets, keep some balance for network gas.");
+      const balance = Number(selectedAsset.formatted);
+      const reserve = GAS_RESERVES[currentChainId] ?? 0.002;
+      const maxSend = balance - reserve;
+      if (maxSend <= 0) {
+        setError("Balance too low to cover gas fees.");
+        return;
+      }
+      setAmount(trimDecimal(maxSend.toFixed(8)));
       return;
     }
 
-    setError(null);
-    setAmountMode("asset");
     setAmount(selectedAsset.formatted);
+  }
+
+  async function handlePasteAddress() {
+    try {
+      const text = await navigator.clipboard.readText();
+      const trimmed = text.trim();
+      setToAddress(trimmed);
+      setToAddressTouched(true);
+      setError(null);
+    } catch {
+      // Clipboard unavailable in this context
+    }
   }
 
   function submitForm() {
     setError(null);
+    setToAddressTouched(true);
+    setAmountTouched(true);
 
     if (isWatchOnly) {
       setError("Watch-only account cannot send transactions.");
@@ -788,6 +870,11 @@ export function SendPage({
 
     if (!amountIsValid) {
       setError("Enter a valid amount.");
+      return;
+    }
+
+    if (hasInsufficientBalance) {
+      setError(`Insufficient ${selectedAsset.symbol} balance.`);
       return;
     }
 
@@ -868,7 +955,7 @@ export function SendPage({
           aria-label="Select network"
           title="Select network"
         >
-          <span className="dot network-pill-dot" />
+          <NetworkIcon chainId={currentChainId} size={16} showTestnetBadge={false} />
           {networkLabel}
         </button>
       </div>
@@ -880,6 +967,7 @@ export function SendPage({
           gap: 16,
         }}
       >
+        {/* Hero: asset icon + name + balance */}
         <section
           style={{
             display: "grid",
@@ -889,19 +977,13 @@ export function SendPage({
             paddingTop: 6,
           }}
         >
-          <div
-            className="tok"
-            style={{
-              width: 46,
-              height: 46,
-              minWidth: 46,
-              maxWidth: 46,
-              background: "var(--ink-1)",
-              color: "var(--ink-on-dark)",
-            }}
-          >
-            {selectedAsset.symbol.slice(0, 1).toUpperCase()}
-          </div>
+          <AssetIcon
+            ticker={selectedAsset.symbol}
+            logoURI={selectedAsset.logoUrl}
+            address={selectedAsset.contractAddress}
+            chainId={selectedAsset.chainId}
+            size={46}
+          />
 
           <div style={{ minWidth: 0 }}>
             <div className="t-h2" style={{ fontSize: 30 }}>
@@ -923,6 +1005,7 @@ export function SendPage({
           </div>
         </section>
 
+        {/* Asset selector card */}
         <section className="send-asset-compact">
           <div className="sect-head">
             <div className="lbl">Asset to send</div>
@@ -942,9 +1025,14 @@ export function SendPage({
             className="send-asset-card"
             onClick={() => setAssetSelectorOpen(true)}
           >
-            <span className="tok send-asset-card__icon">
-              {selectedAsset.symbol.slice(0, 1).toUpperCase()}
-            </span>
+            <AssetIcon
+              ticker={selectedAsset.symbol}
+              logoURI={selectedAsset.logoUrl}
+              address={selectedAsset.contractAddress}
+              chainId={selectedAsset.chainId}
+              size={42}
+              className="send-asset-card__icon"
+            />
 
             <span className="send-asset-card__body">
               <strong>{selectedAsset.symbol}</strong>
@@ -980,23 +1068,46 @@ export function SendPage({
               submitForm();
             }}
           >
-            <label style={{ display: "grid", gap: 6 }}>
+            {/* Recipient address */}
+            <div style={{ display: "grid", gap: 6 }}>
               <SectionLabel left="Recipient address" />
 
-              <input
-                className="input lg"
-                value={toAddress}
-                placeholder="0x..."
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => {
-                  setToAddress(event.target.value);
-                  setError(null);
-                }}
-              />
-            </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  className={`input lg${toAddressError ? " input--error" : ""}`}
+                  value={toAddress}
+                  placeholder="0x..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    setToAddress(event.target.value);
+                    setError(null);
+                    if (!toAddressTouched && event.target.value.length >= 4) {
+                      setToAddressTouched(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (toAddress.length > 0) setToAddressTouched(true);
+                  }}
+                  style={{ paddingRight: 72, width: "100%" }}
+                />
+                <button
+                  type="button"
+                  className="send-paste-btn"
+                  onClick={() => void handlePasteAddress()}
+                  aria-label="Paste address from clipboard"
+                >
+                  Paste
+                </button>
+              </div>
 
-            <label style={{ display: "grid", gap: 6 }}>
+              {toAddressError ? (
+                <div className="send-field-error">{toAddressError}</div>
+              ) : null}
+            </div>
+
+            {/* Amount */}
+            <div style={{ display: "grid", gap: 6 }}>
               <div
                 style={{
                   display: "flex",
@@ -1024,7 +1135,7 @@ export function SendPage({
 
               <div style={{ position: "relative" }}>
                 <input
-                  className="input lg"
+                  className={`input lg${amountError ? " input--error" : ""}`}
                   value={amount}
                   placeholder="0.00"
                   inputMode="decimal"
@@ -1032,6 +1143,12 @@ export function SendPage({
                   onChange={(event) => {
                     setAmount(event.target.value);
                     setError(null);
+                    if (!amountTouched && event.target.value.length >= 1) {
+                      setAmountTouched(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (amount.length > 0) setAmountTouched(true);
                   }}
                   style={{ paddingRight: 70 }}
                 />
@@ -1053,7 +1170,13 @@ export function SendPage({
                     : selectedAsset.symbol}
                 </button>
               </div>
-            </label>
+
+              {amountError ? (
+                <div className="send-field-error">{amountError}</div>
+              ) : fiatEstimate ? (
+                <div className="send-fiat-estimate">{fiatEstimate}</div>
+              ) : null}
+            </div>
 
             <section className="row-list">
               <MetaRow label="From" value={shortAddress(selectedAccount.address)} />
@@ -1077,6 +1200,51 @@ export function SendPage({
 
         {step === "review" ? (
           <section style={{ display: "grid", gap: 12 }}>
+            {/* Review header: asset icon + amount summary */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "4px 0 4px",
+              }}
+            >
+              <AssetIcon
+                ticker={selectedAsset.symbol}
+                logoURI={selectedAsset.logoUrl}
+                address={selectedAsset.contractAddress}
+                chainId={selectedAsset.chainId}
+                size={44}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 800,
+                    letterSpacing: "-0.03em",
+                    lineHeight: 1.1,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {normalizedAmount} {selectedAsset.symbol}
+                </div>
+                <div
+                  style={{
+                    marginTop: 3,
+                    color: "var(--ink-3)",
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  To {shortAddress(toAddress.trim())}
+                </div>
+              </div>
+            </div>
+
             <section style={{ display: "grid", gap: 8 }}>
               <SectionLabel left="Review transfer" />
 
@@ -1181,6 +1349,7 @@ export function SendPage({
         ) : null}
       </div>
 
+      {/* Network selector sheet */}
       {networkSelectorOpen ? (
         <div className="send-network-sheet-backdrop">
           <button
@@ -1226,9 +1395,12 @@ export function SendPage({
                       textAlign: "left",
                     }}
                   >
-                    <div className="tok">
-                      <CrosshairIcon />
-                    </div>
+                    <NetworkIcon
+                      chainId={chain.chainId}
+                      networkName={chain.name}
+                      size={36}
+                      showTestnetBadge={chain.chainId === 11155111}
+                    />
 
                     <div className="body">
                       <div className="nm">{chain.name}</div>
@@ -1251,81 +1423,114 @@ export function SendPage({
         </div>
       ) : null}
 
+      {/* Asset selector sheet */}
       {assetSelectorOpen ? (
         <div className="asset-sheet-backdrop">
           <button
             type="button"
             className="asset-sheet-scrim"
             aria-label="Close asset selector"
-            onClick={() => setAssetSelectorOpen(false)}
+            onClick={() => {
+              setAssetSelectorOpen(false);
+              setAssetSearch("");
+            }}
           />
 
           <section className="asset-sheet">
-            <div className="asset-sheet-head">
-              <div>
-                <div className="asset-sheet-title">Select asset</div>
-                <div className="asset-sheet-subtitle">
-                  Choose token to send on {networkLabel}.
+            {/* Sticky header + search */}
+            <div className="asset-sheet-sticky">
+              <div className="asset-sheet-head">
+                <div>
+                  <div className="asset-sheet-title">Select asset</div>
+                  <div className="asset-sheet-subtitle">
+                    Choose token to send on {networkLabel}.
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  className="icbtn"
+                  aria-label="Close asset selector"
+                  onClick={() => {
+                    setAssetSelectorOpen(false);
+                    setAssetSearch("");
+                  }}
+                >
+                  ×
+                </button>
               </div>
 
-              <button
-                type="button"
-                className="icbtn"
-                aria-label="Close asset selector"
-                onClick={() => setAssetSelectorOpen(false)}
-              >
-                ×
-              </button>
+              <div className="asset-sheet-search-wrap">
+                <input
+                  className="input asset-sheet-search"
+                  type="text"
+                  placeholder="Search symbol or address…"
+                  value={assetSearch}
+                  autoComplete="off"
+                  onChange={(e) => setAssetSearch(e.target.value)}
+                />
+              </div>
             </div>
 
-            <div className="row-list">
-              {availableAssets.map((item) => {
-                const active = item.id === selectedAsset.id;
+            {/* Scrollable asset list */}
+            <div className="asset-sheet-scroll-body">
+              <div className="row-list">
+                {filteredAssets.length === 0 ? (
+                  <div className="asset-sheet-empty">No assets found.</div>
+                ) : (
+                  filteredAssets.map((item) => {
+                    const active = item.id === selectedAsset.id;
 
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="row asset-sheet-row"
-                    onClick={() => {
-                      selectAsset(item);
-                      setAssetSelectorOpen(false);
-                    }}
-                    style={{
-                      width: "100%",
-                      border: 0,
-                      background: active ? "var(--bg-sunken)" : "transparent",
-                      textAlign: "left",
-                    }}
-                  >
-                    <div className="tok">
-                      {item.symbol.slice(0, 1).toUpperCase()}
-                    </div>
-
-                    <div className="body">
-                      <div className="nm">{item.symbol}</div>
-                      <div className="sub">{item.name}</div>
-                    </div>
-
-                    <div className="num">
-                      <div className="v">{hideBalances ? "••••" : formatAssetBalance(item)}</div>
-                      <div
-                        className="q"
-                        style={active ? { color: "var(--secure)" } : undefined}
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="row asset-sheet-row"
+                        onClick={() => {
+                          selectAsset(item);
+                          setAssetSelectorOpen(false);
+                          setAssetSearch("");
+                        }}
+                        style={{
+                          width: "100%",
+                          border: 0,
+                          background: active ? "var(--bg-sunken)" : "transparent",
+                          textAlign: "left",
+                        }}
                       >
-                        {active ? "Selected" : item.symbol}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+                        <AssetIcon
+                          ticker={item.symbol}
+                          logoURI={item.logoUrl}
+                          address={item.contractAddress}
+                          chainId={item.chainId}
+                          size={36}
+                        />
+
+                        <div className="body">
+                          <div className="nm">{item.symbol}</div>
+                          <div className="sub">{item.name}</div>
+                        </div>
+
+                        <div className="num">
+                          <div className="v">
+                            {hideBalances ? "••••" : formatAssetBalance(item)}
+                          </div>
+                          <div
+                            className="q"
+                            style={active ? { color: "var(--secure)" } : undefined}
+                          >
+                            {active ? "✓" : item.symbol}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </section>
         </div>
       ) : null}
-
-
     </div>
   );
 }

@@ -139,7 +139,16 @@ html[data-simple-surface="sidepanel"] .ext-popup {
 
 /* Balance */
 .balance-block {
-  padding: 12px 0 16px !important;
+  padding: 12px 0 8px !important;
+}
+
+@keyframes balance-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.home-total-balance-value--loading {
+  animation: balance-pulse 1.6s ease-in-out infinite !important;
 }
 
 .balance-block .lbl {
@@ -706,23 +715,6 @@ html[data-simple-surface="fullscreen"] .send-meta-value {
 }
 
 
-.balance-toolbar {
-  width: 100% !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  margin-top: 10px !important;
-}
-
-.balance-updated {
-  min-width: 0 !important;
-  color: var(--ink-3) !important;
-  font-family: var(--font-mono) !important;
-  font-size: 13px !important;
-  white-space: nowrap !important;
-}
-
 
 /* ============================================================
    Transaction history
@@ -1243,6 +1235,88 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.18) !important;
 }
 
+/* Asset sheet: sticky header + scrollable list body */
+.asset-sheet {
+  overflow: hidden !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.asset-sheet-sticky {
+  flex-shrink: 0 !important;
+  background: #ffffff !important;
+  padding: 14px 12px 0 !important;
+}
+
+.asset-sheet-search-wrap {
+  padding: 0 0 10px !important;
+}
+
+.asset-sheet-search {
+  width: 100% !important;
+  height: 40px !important;
+  font-size: 14px !important;
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+  box-sizing: border-box !important;
+}
+
+.asset-sheet-scroll-body {
+  flex: 1 1 auto !important;
+  overflow-y: auto !important;
+  padding: 4px 0 16px !important;
+  min-height: 0 !important;
+}
+
+.asset-sheet-empty {
+  padding: 28px 16px !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  text-align: center !important;
+}
+
+/* Send form: paste button + inline field feedback */
+.send-paste-btn {
+  position: absolute !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  height: 30px !important;
+  padding: 0 10px !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-2) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+}
+
+.send-paste-btn:hover {
+  background: var(--bg-sunken) !important;
+  color: var(--ink-1) !important;
+}
+
+.send-field-error {
+  color: var(--danger) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  padding: 0 2px !important;
+}
+
+.send-fiat-estimate {
+  color: var(--ink-3) !important;
+  font-size: 12px !important;
+  padding: 0 2px !important;
+}
+
+.input--error {
+  border-color: var(--danger) !important;
+}
+
 
 /* ============================================================
    Send page network selector
@@ -1317,10 +1391,14 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   min-height: 58px !important;
 }
 
-.send-network-sheet-row .tok svg {
-  width: 17px !important;
-  height: 17px !important;
-  stroke-width: 1.7 !important;
+/* NetworkIcon renders its own background — no dark box around it */
+.send-network-sheet .row .tok {
+  background: transparent !important;
+  border: none !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
 }
 
 html[data-simple-surface="fullscreen"] .send-network-sheet-backdrop {
@@ -3532,5 +3610,96 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 
 .asset-activity-view-all:hover {
   color: #374151 !important;
+}
+
+
+/* ============================================================
+   Unlock page
+   ============================================================ */
+
+.unlock-body {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 14px !important;
+  padding: 36px 20px 24px !important;
+}
+
+.unlock-hero {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  width: 100% !important;
+}
+
+.unlock-title {
+  margin-top: 14px !important;
+}
+
+.unlock-subtitle {
+  margin-top: 8px !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  max-width: 260px !important;
+}
+
+.unlock-notice {
+  width: 100% !important;
+  padding: 10px 12px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+
+.unlock-notice--error {
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+}
+
+.unlock-notice--info {
+  background: var(--warn-soft) !important;
+  color: var(--warn) !important;
+}
+
+.unlock-notice--success {
+  background: var(--secure-soft) !important;
+  color: var(--secure) !important;
+}
+
+.unlock-actions {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.unlock-password-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.unlock-security-card {
+  width: 100% !important;
+  padding: 12px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 10px !important;
+  background: var(--bg-surface) !important;
+}
+
+.unlock-security-card__title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--ink-1) !important;
+  margin-bottom: 4px !important;
+}
+
+.unlock-security-card__body {
+  font-size: 12px !important;
+  color: var(--ink-3) !important;
+  line-height: 1.45 !important;
 }
 

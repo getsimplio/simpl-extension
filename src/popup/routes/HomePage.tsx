@@ -196,20 +196,6 @@ function getActivityDisplayAmount(
   return `${sign}${item.amount} ${item.assetSymbol}`;
 }
 
-function formatUpdatedAt(updatedAt: number | null): string {
-  if (!updatedAt) return "Not synced yet";
-
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
-
-  if (diffSeconds < 10) return "Updated just now";
-  if (diffSeconds < 60) return `Updated ${diffSeconds}s ago`;
-
-  const diffMinutes = Math.floor(diffSeconds / 60);
-
-  if (diffMinutes < 60) return `Updated ${diffMinutes}m ago`;
-
-  return `Updated ${Math.floor(diffMinutes / 60)}h ago`;
-}
 
 function formatAssetBalance(asset: WalletAssetBalance): string {
   const value = Number(asset.formatted);
@@ -454,7 +440,7 @@ export function HomePage(props: HomePageProps) {
   const [portfolioStatus, setPortfolioStatus] =
     useState<PortfolioStatus>("idle");
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [, setUpdatedAt] = useState<number | null>(null);
 
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
@@ -894,7 +880,7 @@ export function HomePage(props: HomePageProps) {
             aria-label="Change valuation currency"
             aria-haspopup="dialog"
           >
-            <span className="home-total-balance-value">
+            <span className={`home-total-balance-value${isSyncing ? " home-total-balance-value--loading" : ""}`}>
               {hideBalances ? "••••••" : totalValueText}
             </span>
             <svg
@@ -913,11 +899,6 @@ export function HomePage(props: HomePageProps) {
             </svg>
           </button>
 
-          <div className="balance-toolbar">
-            <div className="delta">
-              {isSyncing ? "Syncing..." : formatUpdatedAt(updatedAt)}
-            </div>
-          </div>
         </div>
 
         <div className="actions">
@@ -946,7 +927,7 @@ export function HomePage(props: HomePageProps) {
           
         </div>
 
-        {portfolioStatus === "error" && portfolioError ? (
+        {(portfolioStatus === "error" || (portfolioStatus === "stale" && portfolioError !== null)) ? (
           <div
             style={{
               margin: "0 12px 12px",
@@ -956,9 +937,32 @@ export function HomePage(props: HomePageProps) {
               color: "var(--danger)",
               fontSize: 12,
               lineHeight: 1.45,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
             }}
           >
-            Could not load assets yet. SIMPLE will try again in the background.
+            <span>Couldn't refresh balances.</span>
+            <button
+              type="button"
+              onClick={() => void syncPortfolio()}
+              disabled={isSyncing}
+              style={{
+                flexShrink: 0,
+                background: "transparent",
+                border: "1px solid currentColor",
+                borderRadius: 5,
+                color: "inherit",
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "3px 8px",
+                cursor: "pointer",
+                opacity: isSyncing ? 0.5 : 1,
+              }}
+            >
+              Try again
+            </button>
           </div>
         ) : null}
 

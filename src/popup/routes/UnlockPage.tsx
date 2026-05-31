@@ -1,6 +1,6 @@
 // src/popup/routes/UnlockPage.tsx
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { WalletState } from "../../core/storage/storage.types";
 import { walletService } from "../../core/wallet/wallet.service";
@@ -21,11 +21,15 @@ type UnlockPageProps = {
 function decodeSecretFromBase64(secretBase64: string): string {
   const binaryString = window.atob(secretBase64);
   const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
-
   return new TextDecoder().decode(bytes);
 }
 
-function normalizeTouchIdError(error: unknown): UnlockNotice {
+type NormalizedTouchIdError = {
+  notice: UnlockNotice;
+  isCancellation: boolean;
+};
+
+function normalizeTouchIdError(error: unknown): NormalizedTouchIdError {
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
@@ -35,8 +39,11 @@ function normalizeTouchIdError(error: unknown): UnlockNotice {
     lowerMessage.includes("cancelled")
   ) {
     return {
-      type: "info",
-      message: "Touch ID was canceled. Try again or use password.",
+      isCancellation: true,
+      notice: {
+        type: "info",
+        message: "Touch ID was cancelled. Tap to try again or use password.",
+      },
     };
   }
 
@@ -46,14 +53,20 @@ function normalizeTouchIdError(error: unknown): UnlockNotice {
     lowerMessage.includes("not enabled")
   ) {
     return {
-      type: "info",
-      message: "Touch ID unlock is not enabled. Use password instead.",
+      isCancellation: false,
+      notice: {
+        type: "info",
+        message: "Touch ID is not set up for this wallet. Use password instead.",
+      },
     };
   }
 
   return {
-    type: "error",
-    message: "Touch ID is unavailable. Use your wallet password.",
+    isCancellation: false,
+    notice: {
+      type: "error",
+      message: "Touch ID failed. Use your wallet password to unlock.",
+    },
   };
 }
 
@@ -114,37 +127,22 @@ function UnlockIcon() {
   );
 }
 
-function getNoticeStyle(type: UnlockNotice["type"]) {
-  if (type === "error") {
-    return {
-      background: "var(--danger-soft)",
-      color: "var(--danger)",
-    };
-  }
-
-  if (type === "success") {
-    return {
-      background: "var(--secure-soft)",
-      color: "var(--secure)",
-    };
-  }
-
-  return {
-    background: "var(--warn-soft)",
-    color: "var(--warn)",
-  };
-}
-
 export function UnlockPage({
   walletState,
   onUnlocked,
   onRestoreFromSeed,
 }: UnlockPageProps) {
+  const biometricEnabled =
+    walletState?.settings.biometricUnlock.enabled === true;
+
   const [password, setPassword] = useState("");
-  const [showPasswordMode, setShowPasswordMode] = useState(false);
+  const [showPasswordMode, setShowPasswordMode] = useState(!biometricEnabled);
   const [notice, setNotice] = useState<UnlockNotice | null>(null);
   const [isTouchIdLoading, setIsTouchIdLoading] = useState(false);
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
+
+  // Prevents auto-biometric from firing more than once per page session
+  const hasAutoBiometricAttemptedRef = useRef(false);
 
   const canSubmitPassword = password.trim().length > 0 && !isPasswordLoading;
 
@@ -171,61 +169,71 @@ export function UnlockPage({
       const fallbackWalletId = getBiometricWalletId(walletState);
       const walletIds = Array.from(
         new Set(
-          [
-            biometricSettings.credentialId,
-            fallbackWalletId,
-          ].filter((value): value is string => Boolean(value)),
+          [biometricSettings.credentialId, fallbackWalletId].filter(
+            (value): value is string => Boolean(value),
+          ),
         ),
       );
 
-      let response: Awaited<ReturnType<typeof nativeMessagingClient.getVaultKey>> | null = null;
+      let response: Awaited<
+        ReturnType<typeof nativeMessagingClient.getVaultKey>
+      > | null = null;
       let lastTouchIdError: string | undefined;
 
       for (const walletId of walletIds) {
         const nextResponse = await nativeMessagingClient.getVaultKey(walletId);
-
         if (nextResponse.ok) {
           response = nextResponse;
           break;
         }
-
         lastTouchIdError = nextResponse.error;
       }
 
       if (!response?.ok) {
-        throw new Error(lastTouchIdError ?? "Touch ID vault key is unavailable.");
+        throw new Error(
+          lastTouchIdError ?? "Touch ID vault key is unavailable.",
+        );
       }
 
       const passwordFromKeychain = decodeSecretFromBase64(
         response.data.vaultKeyBase64,
       );
 
-      await walletService.unlockWallet({
-        password: passwordFromKeychain,
-      });
-
+      await walletService.unlockWallet({ password: passwordFromKeychain });
       await onUnlocked?.();
     } catch (error) {
-      setNotice(normalizeTouchIdError(error));
-      setShowPasswordMode(true);
+      const { notice: errorNotice, isCancellation } =
+        normalizeTouchIdError(error);
+      setNotice(errorNotice);
+      // Cancellation: keep Touch ID button visible so user can retry.
+      // Any other error: switch to password mode.
+      if (!isCancellation) {
+        setShowPasswordMode(true);
+      }
     } finally {
       setIsTouchIdLoading(false);
     }
   }
 
+  // Auto-trigger Touch ID once on mount if biometric unlock is enabled.
+  // The ref guard ensures this fires at most once per page session,
+  // even if the component re-renders or the effect fires again.
+  useEffect(() => {
+    if (!biometricEnabled) return;
+    if (hasAutoBiometricAttemptedRef.current) return;
+    hasAutoBiometricAttemptedRef.current = true;
+    void handleTouchIdUnlock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handlePasswordUnlock(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     if (!canSubmitPassword) return;
 
     try {
       setNotice(null);
       setIsPasswordLoading(true);
-
-      await walletService.unlockWallet({
-        password,
-      });
-
+      await walletService.unlockWallet({ password });
       await onUnlocked?.();
     } catch {
       setNotice({
@@ -239,152 +247,97 @@ export function UnlockPage({
 
   return (
     <div className="ext-popup" data-screen-label="02 Unlock">
-      <div
-        className="screen-body"
-        style={{
-          padding: "60px 24px 24px",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <LogoMark />
-
-        <div className="t-h2" style={{ marginTop: 12 }}>
-          Welcome back
+      <div className="screen-body unlock-body">
+        {/* Logo + title + subtitle */}
+        <div className="unlock-hero">
+          <LogoMark />
+          <div className="t-h2 unlock-title">Welcome back</div>
+          <div className="unlock-subtitle">
+            Unlock your wallet to manage assets and sign transactions.
+          </div>
         </div>
 
-        <div
-          style={{
-            color: "var(--ink-3)",
-            fontSize: 13,
-            textAlign: "center",
-            lineHeight: 1.45,
-            maxWidth: 260,
-          }}
-        >
-          Unlock your self-custody wallet to access accounts and sign
-          transactions.
-        </div>
-
+        {/* Inline notice (non-blocking) */}
         {notice ? (
-          <div
-            style={{
-              ...getNoticeStyle(notice.type),
-              width: "100%",
-              marginTop: 18,
-              padding: "10px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              lineHeight: 1.45,
-            }}
-          >
+          <div className={`unlock-notice unlock-notice--${notice.type}`}>
             {notice.message}
           </div>
         ) : null}
 
-        {showPasswordMode ? (
-          <form
-            onSubmit={handlePasswordUnlock}
-            style={{
-              width: "100%",
-              marginTop: 24,
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            <div>
-              <span className="field-label">Password</span>
-
-              <input
-                className="input lg"
-                type="password"
-                placeholder="Enter password"
-                value={password}
-                autoComplete="current-password"
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </div>
-
+        {/* Primary actions */}
+        <div className="unlock-actions">
+          {!showPasswordMode ? (
             <button
               className="btn primary lg full"
-              type="submit"
-              disabled={!canSubmitPassword}
+              type="button"
+              onClick={() => void handleTouchIdUnlock()}
+              disabled={isTouchIdLoading || isPasswordLoading}
             >
-              <UnlockIcon />
-              {isPasswordLoading ? "Unlocking…" : "Unlock"}
+              <TouchIdIcon />
+              {isTouchIdLoading
+                ? "Waiting for Touch ID…"
+                : "Unlock with Touch ID"}
             </button>
-          </form>
-        ) : (
-          <button
-            className="btn primary lg full"
-            type="button"
-            onClick={() => void handleTouchIdUnlock()}
-            disabled={isTouchIdLoading || isPasswordLoading}
-            style={{ marginTop: 32 }}
-          >
-            <TouchIdIcon />
-            {isTouchIdLoading ? "Waiting for Touch ID…" : "Unlock with Touch ID"}
-          </button>
-        )}
+          ) : (
+            <form
+              onSubmit={(e) => void handlePasswordUnlock(e)}
+              className="unlock-password-form"
+            >
+              <div>
+                <span className="field-label">Password</span>
+                <input
+                  className="input lg"
+                  type="password"
+                  placeholder="Enter password"
+                  value={password}
+                  autoComplete="current-password"
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
 
-        <button
-          className="btn secondary lg full"
-          type="button"
-          onClick={() => {
-            setShowPasswordMode((value) => !value);
-            setNotice(null);
-          }}
-          disabled={isTouchIdLoading || isPasswordLoading}
-          style={{ marginTop: 0 }}
-        >
-          {showPasswordMode ? "Hide password unlock" : "Use password instead"}
-        </button>
+              <button
+                className="btn primary lg full"
+                type="submit"
+                disabled={!canSubmitPassword}
+              >
+                <UnlockIcon />
+                {isPasswordLoading ? "Unlocking…" : "Unlock"}
+              </button>
+            </form>
+          )}
 
-        <div style={{ flex: 1 }} />
+          {/* Toggle only shown when biometric is configured */}
+          {biometricEnabled ? (
+            <button
+              className="btn secondary lg full"
+              type="button"
+              onClick={() => {
+                setShowPasswordMode((prev) => !prev);
+                setNotice(null);
+              }}
+              disabled={isTouchIdLoading || isPasswordLoading}
+            >
+              {showPasswordMode ? "Use Touch ID instead" : "Use password instead"}
+            </button>
+          ) : null}
+        </div>
 
-        <div
-          style={{
-            width: "100%",
-            padding: "12px",
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            background: "var(--bg-surface)",
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--ink-1)",
-              marginBottom: 4,
-            }}
-          >
+        {/* Security assurance card */}
+        <div className="unlock-security-card">
+          <div className="unlock-security-card__title">
             Seed phrase stays on your device.
           </div>
-
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--ink-3)",
-              lineHeight: 1.45,
-            }}
-          >
+          <div className="unlock-security-card__body">
             SIMPLE never stores or accesses it.
           </div>
         </div>
 
+        {/* Restore link */}
         <button
           className="btn ghost full"
           type="button"
           onClick={onRestoreFromSeed}
-          style={{
-            height: 34,
-            fontSize: 12,
-            color: "var(--ink-3)",
-          }}
+          style={{ height: 34, fontSize: 12, color: "var(--ink-3)" }}
         >
           Forgot password · restore from phrase
         </button>
