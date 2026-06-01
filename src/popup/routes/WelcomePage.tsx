@@ -1,33 +1,12 @@
 // src/popup/routes/WelcomePage.tsx
 
+import logoUrl from "../../assets/simpl-logo.png";
+
 type WelcomePageProps = {
   onCreateWallet: () => void;
   onImportWallet: () => void;
   onAddWatchWallet: () => void;
 };
-
-function LogoMark() {
-  return (
-    <span
-      style={{
-        width: 28,
-        height: 28,
-        borderRadius: 10,
-        background:
-          "linear-gradient(135deg, var(--ink-1) 0%, var(--ink-1) 100%)",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "var(--ink-on-dark)",
-        fontSize: 13,
-        fontWeight: 800,
-        letterSpacing: "-0.04em",
-      }}
-    >
-      S
-    </span>
-  );
-}
 
 function ArrowIcon() {
   return (
@@ -114,19 +93,11 @@ export function WelcomePage({
   return (
     <div className="ext-popup" data-screen-label="01 Welcome">
       <div className="bar-top">
-        <LogoMark />
-
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 800,
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            color: "var(--ink-1)",
-          }}
-        >
-          SIMPLE
-        </div>
+        <img
+          src={logoUrl}
+          alt="Simpl wallet"
+          style={{ height: 28, width: "auto", objectFit: "contain" }}
+        />
 
         <span style={{ flex: 1 }} />
 

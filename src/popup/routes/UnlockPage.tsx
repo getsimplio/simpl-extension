@@ -1,6 +1,7 @@
 // src/popup/routes/UnlockPage.tsx
 
 import { useEffect, useRef, useState } from "react";
+import logoUrl from "../../assets/simpl-logo.png";
 import type { FormEvent } from "react";
 import type { WalletState } from "../../core/storage/storage.types";
 import { walletService } from "../../core/wallet/wallet.service";
@@ -68,21 +69,6 @@ function normalizeTouchIdError(error: unknown): NormalizedTouchIdError {
       message: "Touch ID failed. Use your wallet password to unlock.",
     },
   };
-}
-
-function LogoMark() {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      width="40"
-      height="40"
-      aria-hidden="true"
-      style={{ color: "var(--ink-1)" }}
-    >
-      <path d="M0 6 L50 6 L50 38 L38 50 L0 50 Z" fill="currentColor" />
-      <rect x="10" y="26" width="22" height="4" fill="var(--bg-canvas)" />
-    </svg>
-  );
 }
 
 function TouchIdIcon() {
@@ -250,7 +236,11 @@ export function UnlockPage({
       <div className="screen-body unlock-body">
         {/* Logo + title + subtitle */}
         <div className="unlock-hero">
-          <LogoMark />
+          <img
+            src={logoUrl}
+            alt="Simpl wallet"
+            style={{ width: 160, height: "auto", objectFit: "contain" }}
+          />
           <div className="t-h2 unlock-title">Welcome back</div>
           <div className="unlock-subtitle">
             Unlock your wallet to manage assets and sign transactions.

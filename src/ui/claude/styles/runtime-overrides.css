@@ -1337,84 +1337,6 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   background: var(--bg-sunken) !important;
 }
 
-.send-network-sheet-backdrop {
-  position: absolute !important;
-  inset: 0 !important;
-  z-index: 95 !important;
-  display: grid !important;
-  align-items: end !important;
-  pointer-events: auto !important;
-}
-
-.send-network-sheet-scrim {
-  position: absolute !important;
-  inset: 0 !important;
-  border: 0 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
-  cursor: pointer !important;
-}
-
-.send-network-sheet {
-  position: relative !important;
-  z-index: 1 !important;
-  width: 100% !important;
-  max-height: 78% !important;
-  overflow: auto !important;
-  border-top: 1px solid var(--line) !important;
-  border-radius: 22px 22px 0 0 !important;
-  background: #ffffff !important;
-  padding: 14px 12px 16px !important;
-  box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
-}
-
-.send-network-sheet-head {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  padding: 2px 4px 12px !important;
-}
-
-.send-network-sheet-title {
-  color: var(--ink-1) !important;
-  font-size: 16px !important;
-  font-weight: 800 !important;
-}
-
-.send-network-sheet-subtitle {
-  margin-top: 3px !important;
-  color: var(--ink-3) !important;
-  font-size: 12px !important;
-}
-
-.send-network-sheet-row {
-  min-height: 58px !important;
-}
-
-/* NetworkIcon renders its own background — no dark box around it */
-.send-network-sheet .row .tok {
-  background: transparent !important;
-  border: none !important;
-  width: auto !important;
-  height: auto !important;
-  padding: 0 !important;
-  flex-shrink: 0 !important;
-}
-
-html[data-simple-surface="fullscreen"] .send-network-sheet-backdrop {
-  position: fixed !important;
-  align-items: center !important;
-  justify-items: center !important;
-}
-
-html[data-simple-surface="fullscreen"] .send-network-sheet {
-  width: min(430px, calc(100vw - 32px)) !important;
-  border: 1px solid var(--line) !important;
-  border-radius: 22px !important;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.18) !important;
-}
-
-
 /* ============================================================
    Send page network chip same as Home
    ============================================================ */
@@ -1535,9 +1457,8 @@ html[data-simple-surface="fullscreen"] .send-network-sheet {
   flex: 0 0 7px !important;
 }
 
-/* Send sheets */
-.asset-sheet-backdrop,
-.send-network-sheet-backdrop {
+/* Send asset selector sheet */
+.asset-sheet-backdrop {
   position: absolute !important;
   inset: 0 !important;
   z-index: 95 !important;
@@ -1546,8 +1467,7 @@ html[data-simple-surface="fullscreen"] .send-network-sheet {
   pointer-events: auto !important;
 }
 
-.asset-sheet-scrim,
-.send-network-sheet-scrim {
+.asset-sheet-scrim {
   position: absolute !important;
   inset: 0 !important;
   border: 0 !important;
@@ -1555,8 +1475,7 @@ html[data-simple-surface="fullscreen"] .send-network-sheet {
   cursor: pointer !important;
 }
 
-.asset-sheet,
-.send-network-sheet {
+.asset-sheet {
   position: relative !important;
   z-index: 1 !important;
   width: 100% !important;
@@ -1569,8 +1488,7 @@ html[data-simple-surface="fullscreen"] .send-network-sheet {
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
 }
 
-.asset-sheet-head,
-.send-network-sheet-head {
+.asset-sheet-head {
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
@@ -1578,29 +1496,25 @@ html[data-simple-surface="fullscreen"] .send-network-sheet {
   padding: 2px 4px 12px !important;
 }
 
-.asset-sheet-title,
-.send-network-sheet-title {
+.asset-sheet-title {
   color: var(--ink-1) !important;
   font-size: 16px !important;
   font-weight: 800 !important;
 }
 
-.asset-sheet-subtitle,
-.send-network-sheet-subtitle {
+.asset-sheet-subtitle {
   margin-top: 3px !important;
   color: var(--ink-3) !important;
   font-size: 12px !important;
 }
 
-html[data-simple-surface="fullscreen"] .asset-sheet-backdrop,
-html[data-simple-surface="fullscreen"] .send-network-sheet-backdrop {
+html[data-simple-surface="fullscreen"] .asset-sheet-backdrop {
   position: fixed !important;
   align-items: center !important;
   justify-items: center !important;
 }
 
-html[data-simple-surface="fullscreen"] .asset-sheet,
-html[data-simple-surface="fullscreen"] .send-network-sheet {
+html[data-simple-surface="fullscreen"] .asset-sheet {
   width: min(430px, calc(100vw - 32px)) !important;
   border: 1px solid var(--line) !important;
   border-radius: 22px !important;
@@ -3614,6 +3528,276 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 
 
 /* ============================================================
+   Asset Details — full wallet screen (replaces the modal).
+   Page-scoped; safe in popup and fullscreen (centered card).
+   ============================================================ */
+.asset-details-page {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--bg-canvas, #ffffff) !important;
+}
+
+.asset-details-header-title {
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  color: var(--ink-1) !important;
+}
+
+/* Subtle network pill on the right of the header */
+.asset-details-network-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 24px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-3) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+}
+
+/* Scrollable content column */
+.asset-details-page .asset-details-content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  padding: 16px 22px 16px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+}
+
+/* Hero */
+.asset-details-hero {
+  display: grid !important;
+  grid-template-columns: 48px 1fr !important;
+  gap: 12px !important;
+  align-items: center !important;
+}
+
+.asset-details-hero__text {
+  min-width: 0 !important;
+}
+
+.asset-details-hero__title {
+  font-size: 26px !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  letter-spacing: -0.03em !important;
+  color: var(--ink-1) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.asset-details-hero__sub {
+  margin-top: 2px !important;
+  font-size: 13px !important;
+  color: var(--ink-3) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Stats card */
+.asset-details-stats {
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  padding: 2px 14px !important;
+}
+
+/* Price chart card */
+.asset-chart-card {
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  padding: 12px 14px 8px !important;
+}
+
+.asset-chart-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.asset-chart-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--ink-1) !important;
+}
+
+.asset-chart-change {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.asset-chart-change--up {
+  color: #5d8f3f !important;
+}
+
+.asset-chart-change--down {
+  color: #a83939 !important;
+}
+
+.asset-chart-ranges {
+  margin-left: auto !important;
+  display: inline-flex !important;
+  gap: 4px !important;
+}
+
+.asset-chart-range {
+  height: 22px !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 999px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-3) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  font-family: inherit !important;
+}
+
+.asset-chart-range--active {
+  border-color: var(--ink-1, #111111) !important;
+  background: var(--ink-1, #111111) !important;
+  color: #ffffff !important;
+}
+
+.asset-chart-body {
+  margin-top: 8px !important;
+  height: 120px !important;
+}
+
+.asset-chart-body .price-sparkline {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Popup: keep the chart compact so the actions stay reachable. */
+@media (max-width: 420px), (max-height: 650px) {
+  .asset-chart-body {
+    height: 100px !important;
+  }
+}
+
+.asset-chart-loading {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 100% !important;
+  font-size: 12px !important;
+  color: var(--ink-3) !important;
+}
+
+.asset-details-stat {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  min-height: 38px !important;
+}
+
+.asset-details-stat + .asset-details-stat {
+  border-top: 1px solid var(--line) !important;
+}
+
+.asset-details-stat__label {
+  font-size: 13px !important;
+  color: var(--ink-3) !important;
+  flex: 0 0 auto !important;
+}
+
+.asset-details-stat__value {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: var(--ink-1) !important;
+  text-align: right !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Action row: Send / Receive / Swap */
+.asset-details-actions {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+}
+
+.asset-details-actions--single {
+  grid-template-columns: 1fr !important;
+}
+
+.asset-action-btn {
+  height: 48px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-1) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  font-family: inherit !important;
+}
+
+.asset-action-btn--primary {
+  border-color: var(--ink-1, #111111) !important;
+  background: var(--ink-1, #111111) !important;
+  color: #ffffff !important;
+}
+
+.asset-action-btn--outline:hover {
+  border-color: rgba(17, 17, 17, 0.35) !important;
+  background: rgba(17, 17, 17, 0.03) !important;
+}
+
+.asset-action-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
+/* Hide / Remove secondary actions */
+.asset-details-secondary-actions {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.asset-details-ghost-btn,
+.asset-details-danger-btn {
+  height: 42px !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-2) !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  cursor: pointer !important;
+  font-family: inherit !important;
+}
+
+.asset-details-ghost-btn:hover {
+  background: rgba(17, 17, 17, 0.03) !important;
+}
+
+.asset-details-danger-btn {
+  color: #a83939 !important;
+  border-color: rgba(168, 57, 57, 0.3) !important;
+}
+
+.asset-details-danger-btn:hover {
+  background: rgba(168, 57, 57, 0.06) !important;
+}
+
+
+/* ============================================================
    Unlock page
    ============================================================ */
 
@@ -3703,3 +3887,1293 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   line-height: 1.45 !important;
 }
 
+/* ============================================================
+   Watch-only UX
+   ============================================================ */
+
+/* Compact badge — shown in account chip (top bar) */
+.watch-only-badge {
+  flex-shrink: 0 !important;
+  padding: 2px 6px !important;
+  border-radius: 999px !important;
+  background: #f7f7f7 !important;
+  border: 1px solid #e5e5e5 !important;
+  color: #888888 !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.5 !important;
+  white-space: nowrap !important;
+}
+
+/* Info notice — replaces the action buttons row on HomePage */
+.watch-only-notice {
+  margin: 0 0 10px !important;
+  padding: 12px 14px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  background: var(--bg-surface) !important;
+}
+
+.watch-only-notice__title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--ink-2) !important;
+  margin-bottom: 4px !important;
+}
+
+.watch-only-notice__text {
+  font-size: 12px !important;
+  color: var(--ink-3) !important;
+  line-height: 1.35 !important;
+}
+
+/* Blocking guard — full-page state on Send / Swap / Receive */
+.watch-only-guard {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  padding: 32px 20px 24px !important;
+}
+
+.watch-only-guard__title {
+  font-size: 20px !important;
+  font-weight: 750 !important;
+  color: var(--ink-1) !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.2 !important;
+}
+
+.watch-only-guard__text {
+  font-size: 13px !important;
+  color: var(--ink-3) !important;
+  line-height: 1.5 !important;
+  margin-bottom: 4px !important;
+}
+
+/* ============================================================
+   Watch-only UX — acct-chip badge layout + asset modal note
+   Must be last to win over earlier acct-chip rules.
+   ============================================================ */
+
+/* Allow chip to flex internally so badge stays visible */
+.acct-chip {
+  max-width: 200px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  text-overflow: clip !important;
+}
+
+/* Account name: truncates when chip is constrained */
+.acct-chip-label {
+  flex: 1 1 0 !important;
+  min-width: 20px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Asset details modal — watch-only note where actions would be */
+.asset-details-watch-note {
+  padding: 10px 14px !important;
+  margin-bottom: 6px !important;
+  background: #f9fafb !important;
+  border: 1px solid #f3f4f6 !important;
+  border-radius: 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #6b7280 !important;
+  text-align: center !important;
+  line-height: 1.4 !important;
+}
+
+/* Watch-only: balance block sits directly above assets header with no actions row in between */
+.balance-block + .sect-head {
+  margin-top: 16px !important;
+}
+
+/* ============================================================
+   Send page — compact popup layout
+   Scoped to .send-page AND the small popup viewport only, so the
+   full-page / fullscreen surface (430x720) keeps its roomy spacing.
+   Kept at end of file so it wins over the earlier duplicate rules.
+   ============================================================ */
+@media (max-height: 650px), (max-width: 420px) {
+  /* Page-level spacing: tighter padding, modest vertical rhythm */
+  .send-page .screen-body {
+    padding: 12px 14px 14px !important;
+    gap: 12px !important;
+  }
+
+  /* Hero: compact icon + title + balance, ~72-80px tall */
+  .send-page .send-hero {
+    grid-template-columns: 48px 1fr !important;
+    gap: 12px !important;
+    padding-top: 0 !important;
+  }
+
+  .send-page .send-hero .t-h2 {
+    font-size: 30px !important;
+    line-height: 1.05 !important;
+    letter-spacing: -0.03em !important;
+  }
+
+  /* "Asset to send" card: align with form fields (no extra inset),
+     small gap under the label, ~66px card. */
+  .send-page .send-asset-compact {
+    display: grid !important;
+    gap: 8px !important;
+    padding: 0 !important;
+  }
+
+  .send-page .send-asset-card {
+    min-height: 66px !important;
+    padding: 10px 12px !important;
+    border-radius: 16px !important;
+  }
+
+  /* Form fields: comfortable inputs without huge gaps */
+  .send-page .send-field {
+    gap: 6px !important;
+  }
+
+  .send-page .input.lg {
+    height: 52px !important;
+    font-size: 15px !important;
+  }
+
+  .send-page .send-paste-btn {
+    height: 40px !important;
+    padding: 0 12px !important;
+    border-radius: 10px !important;
+  }
+
+  /* From / Network / Asset summary: compact 3-row block, thin dividers */
+  .send-page .send-summary .send-meta-row {
+    min-height: 34px !important;
+    padding: 6px 12px !important;
+  }
+
+  .send-page .send-summary .send-meta-label {
+    font-size: 13px !important;
+  }
+
+  .send-page .send-summary .send-meta-value {
+    font-size: 14px !important;
+  }
+
+  /* Submit button: visible at the bottom without scrolling */
+  .send-page .send-submit {
+    height: 54px !important;
+    margin-top: 2px !important;
+  }
+}
+
+/* ============================================================
+   Receive page — compact popup layout (matches Send / Home)
+   New, page-scoped classes; safe across popup + fullscreen.
+   ============================================================ */
+.receive-page .receive-hero__title {
+  font-size: 30px !important;
+  font-weight: 800 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.03em !important;
+  color: var(--ink-1) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.receive-page .receive-hero__sub {
+  margin-top: 3px !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+/* Subtle network warning — soft warm tint + border, small icon */
+.receive-page .receive-notice {
+  display: grid !important;
+  grid-template-columns: 20px 1fr !important;
+  gap: 10px !important;
+  align-items: start !important;
+  padding: 10px 12px !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(190, 130, 40, 0.28) !important;
+  background: rgba(190, 130, 40, 0.06) !important;
+}
+
+.receive-page .receive-notice__icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-top: 1px !important;
+  color: #8a5a13 !important;
+}
+
+.receive-page .receive-notice__icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.receive-page .receive-notice__title {
+  font-size: 13px !important;
+  font-weight: 750 !important;
+  color: #8a5a13 !important;
+  line-height: 1.2 !important;
+}
+
+.receive-page .receive-notice__text {
+  margin-top: 2px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  color: var(--ink-2) !important;
+}
+
+.receive-page .receive-notice__note {
+  color: var(--ink-3) !important;
+}
+
+/* Network / Account summary as one rounded card with thin row dividers */
+.receive-page .receive-summary {
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  background: var(--bg-surface) !important;
+  overflow: hidden !important;
+}
+
+.receive-page .receive-summary .send-meta-row {
+  padding: 0 14px !important;
+  min-height: 42px !important;
+}
+
+.receive-page .receive-address-card {
+  border: 1px solid var(--line) !important;
+  border-radius: 20px !important;
+  background: var(--bg-surface) !important;
+  padding: 18px !important;
+  display: grid !important;
+  gap: 12px !important;
+}
+
+.receive-page .receive-address-short {
+  font-family: var(--font-mono) !important;
+  font-size: 21px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--ink-1) !important;
+}
+
+/* Full address: monospace, wraps cleanly, never overflows the card */
+.receive-page .receive-address-full {
+  border-radius: 12px !important;
+  background: var(--bg-sunken) !important;
+  padding: 10px 12px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  color: var(--ink-2) !important;
+  word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+}
+
+.receive-page .receive-copy-btn {
+  height: 52px !important;
+  margin-top: 2px !important;
+  border-radius: 13px !important;
+  gap: 8px !important;
+  font-size: 15px !important;
+  font-weight: 750 !important;
+}
+
+/* Copied → brief green success state (green reserved for success only) */
+.receive-page .receive-copy-btn--copied {
+  background: var(--secure) !important;
+  border-color: var(--secure) !important;
+  color: #ffffff !important;
+}
+
+
+/* ============================================================
+   Receive page — interactive Account row + account selector sheet
+   ============================================================ */
+
+/* Clickable Account summary row (button styled like a meta row) */
+.receive-account-row {
+  appearance: none !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  background: transparent !important;
+  border: 0 !important;
+  font: inherit !important;
+  transition: background 120ms ease !important;
+}
+
+.receive-account-row:hover {
+  background: rgba(17, 17, 17, 0.03) !important;
+}
+
+.receive-account-row:active {
+  background: rgba(17, 17, 17, 0.06) !important;
+}
+
+.receive-account-row__value {
+  min-width: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 6px !important;
+}
+
+.receive-account-row__chevron {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  color: var(--ink-4) !important;
+}
+
+/* Hero inline account button */
+.receive-hero__account {
+  appearance: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  font: inherit !important;
+  color: var(--ink-2) !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  text-decoration: underline !important;
+  text-decoration-color: rgba(17, 17, 17, 0.22) !important;
+  text-underline-offset: 2px !important;
+}
+
+.receive-hero__account:hover {
+  color: var(--ink-1) !important;
+}
+
+.receive-watch-pill {
+  margin-left: 8px !important;
+  vertical-align: middle !important;
+}
+
+/* Clickable header network pill — small chevron hint */
+.receive-network-pill {
+  cursor: pointer !important;
+}
+
+.receive-network-pill__chevron {
+  flex: 0 0 auto !important;
+  margin-left: -2px !important;
+  font-size: 9px !important;
+  line-height: 1 !important;
+  color: var(--ink-3) !important;
+}
+
+/* Network switch error — compact danger notice */
+.receive-network-error {
+  border-radius: 12px !important;
+  border: 1px solid var(--danger-soft, rgba(190, 48, 48, 0.25)) !important;
+  background: var(--danger-soft, rgba(190, 48, 48, 0.08)) !important;
+  color: var(--danger, #be3030) !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+/* ============================================================
+   Select Receive Network — full wallet screen (no modal/sheet)
+   ============================================================ */
+.select-network-page {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--bg-canvas, #ffffff) !important;
+}
+
+.select-network-page .select-network-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  display: grid !important;
+  gap: 12px !important;
+  align-content: start !important;
+}
+
+.select-network-hint {
+  margin: 0 !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+/* Mainnet / Testnet groups */
+.select-network-group {
+  display: grid !important;
+  gap: 6px !important;
+}
+
+.select-network-group__label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-4, #9aa0a6) !important;
+  padding: 2px 2px 0 !important;
+}
+
+/* Amber/gray testnet pill on the row right */
+.select-network-testnet-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 20px !important;
+  padding: 0 8px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--warn-soft, rgba(180, 130, 20, 0.25)) !important;
+  background: var(--warn-soft, rgba(180, 130, 20, 0.10)) !important;
+  color: var(--warn, #9a6b00) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  white-space: nowrap !important;
+}
+
+/* Keep the testnet pill + check aligned on the right of the row */
+.select-network-row__end {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.select-network-list {
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  overflow: hidden !important;
+}
+
+.select-network-row {
+  width: 100% !important;
+  appearance: none !important;
+  border: 0 !important;
+  background: transparent !important;
+  text-align: left !important;
+  font: inherit !important;
+  cursor: pointer !important;
+  min-height: 66px !important;
+  transition: background 120ms ease !important;
+}
+
+.select-network-row:hover {
+  background: rgba(17, 17, 17, 0.03) !important;
+}
+
+.select-network-row:active {
+  background: rgba(17, 17, 17, 0.06) !important;
+}
+
+/* Selected — subtle sunken tint, green check sits in the end slot */
+.select-network-row--active {
+  background: var(--bg-sunken) !important;
+}
+
+.select-network-row--active:hover {
+  background: var(--bg-sunken) !important;
+}
+
+.select-network-row--disabled {
+  cursor: not-allowed !important;
+  opacity: 0.5 !important;
+}
+
+.select-network-row--disabled:hover,
+.select-network-row--disabled:active {
+  background: transparent !important;
+}
+
+.select-network-row__body {
+  min-width: 0 !important;
+}
+
+.select-network-row__name {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  color: var(--ink-1) !important;
+}
+
+.select-network-row__name-text {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.select-network-row__sub {
+  margin-top: 2px !important;
+  color: var(--ink-3) !important;
+  font-size: 12px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.select-network-check {
+  display: inline-flex !important;
+  color: var(--secure) !important;
+}
+
+.select-network-pending {
+  color: var(--ink-3) !important;
+  font-weight: 700 !important;
+}
+
+/* ============================================================
+   Add Watch Wallet page — compact popup layout (matches
+   Send / Receive / Home). Page-scoped; safe popup + fullscreen.
+   ============================================================ */
+.add-watch-page .awatch-header-title {
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  color: var(--ink-1) !important;
+}
+
+/* Subtle outlined "View-only" pill */
+.add-watch-page .awatch-viewonly-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 24px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-3) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+/* Hero: soft circular icon + compact title + one-line subtitle */
+.add-watch-page .awatch-hero {
+  display: grid !important;
+  grid-template-columns: 46px 1fr !important;
+  gap: 12px !important;
+  align-items: center !important;
+  padding-top: 2px !important;
+}
+
+.add-watch-page .awatch-hero__icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 46px !important;
+  height: 46px !important;
+  border-radius: 50% !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-sunken, #f4f2ec) !important;
+  color: var(--ink-2) !important;
+}
+
+.add-watch-page .awatch-hero__text {
+  min-width: 0 !important;
+}
+
+.add-watch-page .awatch-hero__title {
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.03em !important;
+  color: var(--ink-1) !important;
+}
+
+.add-watch-page .awatch-hero__sub {
+  margin-top: 3px !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  line-height: 1.3 !important;
+}
+
+/* Fields */
+.add-watch-page .awatch-field {
+  display: grid !important;
+  gap: 8px !important;
+}
+
+.add-watch-page .awatch-label {
+  font-size: 11px !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-3) !important;
+}
+
+/* Address input + inline valid check */
+.add-watch-page .awatch-input-wrap {
+  position: relative !important;
+}
+
+.add-watch-page .awatch-input-wrap .input.lg {
+  padding-right: 42px !important;
+}
+
+.add-watch-page .awatch-check {
+  position: absolute !important;
+  top: 50% !important;
+  right: 14px !important;
+  transform: translateY(-50%) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: var(--secure, #5d8f3f) !important;
+  pointer-events: none !important;
+}
+
+.add-watch-page .awatch-field-error {
+  margin-top: -2px !important;
+}
+
+/* Compact view-only notice — soft neutral, not a heavy block */
+.add-watch-page .awatch-notice {
+  display: grid !important;
+  grid-template-columns: 20px 1fr !important;
+  gap: 10px !important;
+  align-items: start !important;
+  padding: 10px 12px !important;
+  border-radius: 16px !important;
+  border: 1px solid var(--line) !important;
+  background: var(--bg-sunken, #f4f2ec) !important;
+}
+
+.add-watch-page .awatch-notice__icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-top: 1px !important;
+  color: var(--ink-3) !important;
+}
+
+.add-watch-page .awatch-notice__icon svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.add-watch-page .awatch-notice__title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--ink-1) !important;
+  line-height: 1.2 !important;
+}
+
+.add-watch-page .awatch-notice__text {
+  margin-top: 2px !important;
+  font-size: 12.5px !important;
+  line-height: 1.4 !important;
+  color: var(--ink-3) !important;
+}
+
+/* Account selector bottom sheet — anchored to the wallet card (.ext-popup is
+   position: relative), so it overlays correctly in popup AND fullscreen. */
+.account-sheet-backdrop {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 95 !important;
+  display: grid !important;
+  align-items: end !important;
+  pointer-events: auto !important;
+}
+
+.account-sheet-scrim {
+  position: absolute !important;
+  inset: 0 !important;
+  border: 0 !important;
+  background: rgba(17, 17, 17, 0.22) !important;
+  cursor: pointer !important;
+}
+
+.account-sheet {
+  position: relative !important;
+  z-index: 1 !important;
+  width: 100% !important;
+  max-height: 80% !important;
+  overflow: auto !important;
+  border-top: 1px solid var(--line) !important;
+  border-radius: 22px 22px 0 0 !important;
+  background: #ffffff !important;
+  padding: 14px 12px 16px !important;
+  box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
+}
+
+.account-sheet-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 2px 4px 12px !important;
+}
+
+.account-sheet-title {
+  color: var(--ink-1) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+.account-sheet-subtitle {
+  margin-top: 3px !important;
+  color: var(--ink-3) !important;
+  font-size: 12px !important;
+}
+
+.account-sheet-row {
+  min-height: 56px !important;
+}
+
+.account-sheet-name {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+
+.account-sheet-name-text {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.account-sheet-check {
+  display: inline-flex !important;
+  color: var(--secure) !important;
+}
+
+.account-sheet-pending {
+  color: var(--ink-3) !important;
+  font-weight: 700 !important;
+}
+
+/* Fullscreen: keep the sheet anchored to the wallet card, not the page */
+html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
+  position: absolute !important;
+}
+
+/* ============================================================
+   Import wallet (Accounts → Import) — full-screen flow
+   ============================================================ */
+.import-acct-page {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--bg-canvas, #ffffff) !important;
+}
+
+.import-acct-title {
+  flex: 1 !important;
+  text-align: center !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: var(--ink-1) !important;
+  letter-spacing: -0.01em !important;
+}
+
+.import-acct-page .import-acct-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  padding: 14px 16px 22px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+}
+
+.import-acct-hero {
+  margin-bottom: 2px !important;
+}
+
+.import-acct-hero__title {
+  font-size: 19px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--ink-1) !important;
+}
+
+.import-acct-hero__sub {
+  margin-top: 4px !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+  color: var(--ink-3) !important;
+}
+
+/* Compact hero (seed / key steps) — icon circle + title + subtitle row */
+.import-acct-hero2 {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 2px 0 !important;
+}
+
+.import-acct-hero2__icon {
+  flex: 0 0 auto !important;
+  width: 46px !important;
+  height: 46px !important;
+  border-radius: 999px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--bg-sunken, #f1f1ee) !important;
+  color: var(--ink-1) !important;
+}
+
+.import-acct-hero2__text {
+  min-width: 0 !important;
+}
+
+.import-acct-hero2__title {
+  font-size: 21px !important;
+  font-weight: 800 !important;
+  line-height: 1.15 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--ink-1) !important;
+}
+
+.import-acct-hero2__sub {
+  margin-top: 3px !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  color: var(--ink-3) !important;
+}
+
+/* Security notice card — warm, compact, clearly visible */
+.import-acct-notice {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  border-radius: 16px !important;
+  border: 1px solid var(--warn-soft, rgba(180, 130, 20, 0.25)) !important;
+  background: var(--warn-soft, rgba(180, 130, 20, 0.08)) !important;
+  padding: 12px 14px !important;
+}
+
+.import-acct-notice__icon {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  color: var(--warn, #9a6b1e) !important;
+  margin-top: 1px !important;
+}
+
+.import-acct-notice__title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--warn, #9a6b1e) !important;
+}
+
+.import-acct-notice__body {
+  margin-top: 2px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  color: var(--ink-2, #4a4a45) !important;
+}
+
+/* Field group + helper text */
+.import-acct-field {
+  display: grid !important;
+  gap: 6px !important;
+}
+
+.import-acct-label-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+.import-acct-help {
+  margin: 0 !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  color: var(--ink-3) !important;
+}
+
+/* Chooser option cards (reuse acct-action-card border/bg, lay out as button) */
+.import-acct-option {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  padding: 12px 14px !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  font: inherit !important;
+}
+
+.import-acct-option .body {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.import-acct-option .nm {
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  color: var(--ink-1) !important;
+}
+
+.import-acct-option .sub {
+  margin-top: 2px !important;
+  font-size: 12px !important;
+  color: var(--ink-3) !important;
+}
+
+/* Inputs */
+.import-acct-textarea,
+.import-acct-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  border: 1px solid var(--line, #e5e5e5) !important;
+  border-radius: 14px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-1) !important;
+  font-size: 15px !important;
+  font-family: inherit !important;
+  padding: 14px !important;
+  outline: none !important;
+  transition: border-color 120ms ease !important;
+}
+
+.import-acct-input {
+  border-radius: 16px !important;
+  height: 54px !important;
+}
+
+.import-acct-textarea {
+  resize: none !important;
+  line-height: 1.5 !important;
+  min-height: 120px !important;
+  border-radius: 16px !important;
+}
+
+.import-acct-textarea:focus,
+.import-acct-input:focus {
+  border-color: var(--ink-1, #111111) !important;
+}
+
+.import-acct-input--key {
+  font-family: var(--font-mono, monospace) !important;
+  letter-spacing: 0.01em !important;
+}
+
+.import-acct-key-wrap {
+  position: relative !important;
+}
+
+.import-acct-key-wrap .import-acct-input {
+  padding-right: 60px !important;
+}
+
+.import-acct-reveal {
+  position: absolute !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--ink-3) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  padding: 4px 6px !important;
+}
+
+.import-acct-wordcount {
+  font-weight: 700 !important;
+  color: var(--ink-2, #4a4a45) !important;
+}
+
+/* "Optional" tag next to a field label */
+.import-acct-optional {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-3) !important;
+}
+
+.import-acct-field-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-3) !important;
+  margin-top: 2px !important;
+}
+
+/* Address preview card — appears once the private key is valid */
+.import-acct-preview {
+  border-radius: 14px !important;
+  border: 1px solid rgba(42, 111, 78, 0.3) !important;
+  background: rgba(42, 111, 78, 0.05) !important;
+  padding: 10px 14px !important;
+}
+
+.import-acct-preview__label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-3) !important;
+}
+
+.import-acct-preview__value {
+  margin-top: 3px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--ink-1) !important;
+}
+
+.import-acct-preview__check {
+  color: var(--secure, #2a6f4e) !important;
+  font-weight: 700 !important;
+}
+
+/* Security warning — warm, visible but not a scary block */
+.import-acct-warning {
+  margin-top: 2px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--warn-soft, rgba(180, 130, 20, 0.25)) !important;
+  background: var(--warn-soft, rgba(180, 130, 20, 0.08)) !important;
+  color: var(--warn, #9a6b1e) !important;
+  padding: 10px 12px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+
+/* Success */
+.import-acct-success {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  text-align: center !important;
+  gap: 8px !important;
+  padding: 32px 12px 12px !important;
+}
+
+.import-acct-success__check {
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 999px !important;
+  background: var(--secure, #2a6f4e) !important;
+  color: #ffffff !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 28px !important;
+  font-weight: 700 !important;
+}
+
+.import-acct-success__title {
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: var(--ink-1) !important;
+}
+
+.import-acct-success__sub {
+  font-size: 13px !important;
+  color: var(--ink-3) !important;
+}
+
+/* ============================================================
+   Select Send Asset — full wallet screen (replaces sheet)
+   ============================================================ */
+.asset-select-page {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  background: var(--bg-canvas, #ffffff) !important;
+}
+
+.asset-select-titlebox {
+  flex: 1 !important;
+  min-width: 0 !important;
+  text-align: center !important;
+}
+
+.asset-select-title {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: var(--ink-1) !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.2 !important;
+}
+
+.asset-select-subtitle {
+  margin-top: 1px !important;
+  font-size: 11px !important;
+  color: var(--ink-3) !important;
+}
+
+.asset-select-page .asset-select-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  padding: 12px 14px 8px !important;
+  overflow: hidden !important;
+}
+
+/* Search */
+.asset-select-search-wrap {
+  position: relative !important;
+  flex: 0 0 auto !important;
+}
+
+.asset-select-search {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  height: 46px !important;
+  border: 1px solid var(--line, #e5e5e5) !important;
+  border-radius: 13px !important;
+  background: var(--bg-surface, #ffffff) !important;
+  color: var(--ink-1) !important;
+  font-size: 15px !important;
+  font-family: inherit !important;
+  padding: 0 40px 0 14px !important;
+  outline: none !important;
+  transition: border-color 120ms ease !important;
+}
+
+.asset-select-search:focus {
+  border-color: var(--ink-1, #111111) !important;
+}
+
+.asset-select-clear {
+  position: absolute !important;
+  right: 8px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 26px !important;
+  height: 26px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--bg-sunken, #f1f1ee) !important;
+  color: var(--ink-3) !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* List */
+.asset-select-list {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+.asset-select-empty {
+  padding: 24px 8px !important;
+  text-align: center !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+}
+
+/* Row */
+.asset-select-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-height: 60px !important;
+  padding: 9px 10px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: transparent !important;
+  text-align: left !important;
+  font: inherit !important;
+  cursor: pointer !important;
+  transition: background 100ms ease !important;
+}
+
+.asset-select-row:hover {
+  background: rgba(17, 17, 17, 0.03) !important;
+}
+
+.asset-select-row:active {
+  background: rgba(17, 17, 17, 0.06) !important;
+}
+
+.asset-select-row--active,
+.asset-select-row--active:hover {
+  background: var(--bg-sunken, #f1f1ee) !important;
+}
+
+.asset-select-row__body {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+.asset-select-row__name {
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  color: var(--ink-1) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.asset-select-row__sub {
+  margin-top: 2px !important;
+  font-size: 12px !important;
+  color: var(--ink-3) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.asset-select-row__num {
+  flex: 0 0 auto !important;
+  max-width: 44% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 2px !important;
+  text-align: right !important;
+}
+
+.asset-select-row__bal {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--ink-1) !important;
+  font-variant-numeric: tabular-nums !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  max-width: 100% !important;
+}
+
+.asset-select-row__fiat {
+  font-size: 12px !important;
+  color: var(--ink-3) !important;
+  font-variant-numeric: tabular-nums !important;
+  white-space: nowrap !important;
+}
+
+.asset-select-row__check {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  color: var(--secure, #2a6f4e) !important;
+  margin-left: 2px !important;
+}
