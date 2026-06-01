@@ -190,7 +190,11 @@ export type GetZeroXSwapPriceParams = {
   chainId: number;
   sellToken: string;
   buyToken: string;
+  // Exactly one of sellAmount / buyAmount drives the quote. sellAmount =
+  // "sell this much" (sell/exact-in mode); buyAmount = "receive this much"
+  // (buy/exact-out mode). When buyAmount is set and non-zero it wins.
   sellAmount: string;
+  buyAmount?: string;
   taker: string;
 };
 
@@ -277,9 +281,14 @@ export async function getZeroXSwapPrice(
     chainId: String(params.chainId),
     sellToken: params.sellToken,
     buyToken: params.buyToken,
-    sellAmount: params.sellAmount,
     taker: params.taker,
   });
+
+  if (params.buyAmount && params.buyAmount !== "0") {
+    searchParams.set("buyAmount", params.buyAmount);
+  } else {
+    searchParams.set("sellAmount", params.sellAmount);
+  }
 
   appendSimpleSwapFeeParams(searchParams, {
     sellToken: params.sellToken,
@@ -315,9 +324,14 @@ export async function getZeroXSwapQuote(
     chainId: String(params.chainId),
     sellToken: params.sellToken,
     buyToken: params.buyToken,
-    sellAmount: params.sellAmount,
     taker: params.taker,
   });
+
+  if (params.buyAmount && params.buyAmount !== "0") {
+    searchParams.set("buyAmount", params.buyAmount);
+  } else {
+    searchParams.set("sellAmount", params.sellAmount);
+  }
 
   appendSimpleSwapFeeParams(searchParams, {
     sellToken: params.sellToken,

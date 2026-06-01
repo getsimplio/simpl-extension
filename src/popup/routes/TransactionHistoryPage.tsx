@@ -14,356 +14,281 @@ type TransactionHistoryPageProps = {
   selectedAccount: WalletAccount | null;
   walletState: WalletState;
   onBack: () => void;
+  onViewTransaction: (item: TransactionHistoryItem) => void;
 };
+
+// ── Icons ──────────────────────────────────────────────────────────
 
 function BackIcon() {
   return <span style={{ fontSize: 22, lineHeight: 1 }}>‹</span>;
 }
 
-function ClockIcon() {
+function RefreshIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" />
-      <path d="M12 8v5l3 2" fill="none" stroke="currentColor" />
+    <svg
+      viewBox="0 0 24 24"
+      width="17"
+      height="17"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 12a8 8 0 1 0 2.3-5.7" />
+      <path d="M4 5v5h5" />
     </svg>
   );
 }
 
-function SendIcon() {
+function SendArrowIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 17L17 7" fill="none" stroke="currentColor" />
-      <path d="M9 7h8v8" fill="none" stroke="currentColor" />
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 17L17 7" />
+      <path d="M9 7h8v8" />
     </svg>
   );
 }
 
-function SwapIcon() {
+function ReceiveArrowIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 7h10l-3-3" fill="none" stroke="currentColor" />
-      <path d="M17 17H7l3 3" fill="none" stroke="currentColor" />
-      <path d="M17 7l-3 3" fill="none" stroke="currentColor" />
-      <path d="M7 17l3-3" fill="none" stroke="currentColor" />
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M17 7L7 17" />
+      <path d="M15 17H7V9" />
     </svg>
   );
 }
+
+function SwapArrowsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M7 7h10l-3-3" />
+      <path d="M17 17H7l3 3" />
+    </svg>
+  );
+}
+
+function FailedXIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8" />
+      <path d="M15 9l-6 6M9 9l6 6" />
+    </svg>
+  );
+}
+
+function ClockEmptyIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v5l3 2" />
+    </svg>
+  );
+}
+
+// ── Formatters ─────────────────────────────────────────────────────
 
 function shortAddress(address: string): string {
+  if (!address || address.length <= 12) return address || "—";
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+function formatTimestamp(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  const month = d.toLocaleString("en-US", { month: "short" });
+  const day = d.getDate();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${month} ${day}, ${hh}:${mm}`;
 }
 
-
-function formatHistoryShortHash(value: string | null | undefined): string {
-  if (!value) {
-    return "—";
-  }
-
-  if (value.length <= 18) {
-    return value;
-  }
-
-  return `${value.slice(0, 10)}…${value.slice(-8)}`;
+function formatAmount(value: string | null | undefined): string {
+  if (!value) return "—";
+  const n = Number(value.trim());
+  if (!Number.isFinite(n)) return value;
+  if (n === 0) return "0";
+  if (Math.abs(n) < 0.000001) return "<0.000001";
+  return n.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }
 
-function formatTransactionDetailValue(value: string | null | undefined): string {
-  return value && value.trim() ? value : "—";
-}
+// ── Row helpers ────────────────────────────────────────────────────
 
-function formatTransactionDetailRoute(value: string | null | undefined): string {
-  if (!value) {
-    return "—";
-  }
-
-  return value
-    .replace(/_CL$/u, "")
-    .replace(/_/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-}
-
-function getTransactionDetailTitle(item: TransactionHistoryItem): string {
-  if (item.swapFromSymbol && item.swapToSymbol) {
-    return `Swapped ${item.swapFromSymbol} → ${item.swapToSymbol}`;
-  }
-
-  return getTransactionTitle(item);
-}
-
-function getTransactionDetailAmount(item: TransactionHistoryItem): string {
-  if (
-    item.swapFromAmount &&
-    item.swapFromSymbol &&
-    item.swapToAmount &&
-    item.swapToSymbol
-  ) {
-    return `${item.swapFromAmount} ${item.swapFromSymbol} → ${item.swapToAmount} ${item.swapToSymbol}`;
-  }
-
-  return formatTransactionDetailValue(item.amount);
-}
-
-function formatTransactionDetailStatus(value: string | null | undefined): string {
-  if (!value) {
-    return "—";
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
-}
-
-function getTransactionDetailStatusClass(
-  value: string | null | undefined,
-): string {
-  const normalized = String(value ?? "").toLowerCase();
-
-  if (normalized.includes("confirm") || normalized.includes("success")) {
-    return "confirmed";
-  }
-
-  if (normalized.includes("fail") || normalized.includes("error")) {
-    return "failed";
-  }
-
-  return "pending";
-}
-
-function TransactionRow({ item }: { item: TransactionHistoryItem }) {
-  const content = (
-    <div className="row tx-row">
-      <div className="tok">
-        {item.direction === "swap" ? <SwapIcon /> : <SendIcon />}
-      </div>
-
-      <div className="body">
-        <div className="nm">{getTransactionTitle(item)}</div>
-
-        {item.direction === "swap" ? (
-          <>
-            <div className="sub tx-swap-amount">
-              {getTransactionAmountText(item)}
-            </div>
-
-            <div className="sub">
-              {shortAddress(item.fromAddress)} → {shortAddress(item.toAddress)}
-            </div>
-          </>
-        ) : (
-          <div className="sub">
-            {shortAddress(item.fromAddress)} → {shortAddress(item.toAddress)}
-          </div>
-        )}
-
-        <div className="tx-meta">
-          {item.chainName} · {getTransactionStatusText(item)} · {formatDate(item.createdAt)}
-        </div>
-        {hasSwapHistoryDetails(item) ? (
-          <div className="transaction-history-swap-details">
-            {item.swapRoute ? (
-              <span>
-                <strong>Route</strong>
-                {item.swapRoute}
-              </span>
-            ) : null}
-
-            {item.swapSimpleFee ? (
-              <span>
-                <strong>Fee</strong>
-                {item.swapSimpleFee}
-              </span>
-            ) : null}
-
-            {item.swapSlippage ? (
-              <span>
-                <strong>Slippage</strong>
-                {item.swapSlippage}
-              </span>
-            ) : null}
-
-            {item.swapMinimumReceived ? (
-              <span>
-                <strong>Min</strong>
-                {item.swapMinimumReceived}
-              </span>
-            ) : null}
-
-            {item.swapNetworkFee ? (
-              <span>
-                <strong>Network</strong>
-                {item.swapNetworkFee}
-              </span>
-            ) : null}
-
-            {item.explorerUrl ? (
-              <a
-                className="transaction-history-tx-link"
-                href={item.explorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <strong>Tx</strong>
-                {formatHistoryShortHash(item.hash)}
-              </a>
-            ) : (
-              <span>
-                <strong>Tx</strong>
-                {formatHistoryShortHash(item.hash)}
-              </span>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      <div
-        className="num tx-num"
-        style={{
-          minWidth: item.direction === "swap" ? 96 : undefined,
-          maxWidth: item.direction === "swap" ? 120 : undefined,
-        }}
-      >
-        <div className="v">
-          {item.direction === "swap"
-            ? getTransactionStatusText(item)
-            : getTransactionAmountText(item)}
-        </div>
-
-        <div className="q">
-          {item.direction === "swap" ? "Swap" : item.assetSymbol}
-        </div>
-      </div>
-    </div>
-  );
-
-  if (!item.explorerUrl) {
-    return content;
-  }
-
-  return (
-    <a
-      className="tx-link"
-      href={item.explorerUrl}
-      target="_blank"
-      rel="noreferrer"
-    >
-      {content}
-    </a>
-  );
-}
-
-
-function getTransactionTitle(item: TransactionHistoryItem): string {
+function getRowTitle(item: TransactionHistoryItem): string {
   if (item.direction === "swap") {
-    const fromSymbol = item.swapFromSymbol ?? "Token";
-    const toSymbol = item.swapToSymbol ?? "Token";
-
-    return `Swapped ${fromSymbol} → ${toSymbol}`;
+    return `Swapped ${item.swapFromSymbol ?? "Token"} → ${item.swapToSymbol ?? "Token"}`;
   }
-
-  if (item.direction === "receive") {
-    return `Received ${item.assetSymbol}`;
-  }
-
+  if (item.direction === "receive") return `Received ${item.assetSymbol}`;
   return `Sent ${item.assetSymbol}`;
 }
 
-function getTransactionStatusText(item: TransactionHistoryItem): string {
-  if (item.status === "confirmed") return "Confirmed";
-  if (item.status === "failed") return "Failed";
-  return "Submitted";
-}
-
-function formatHistoryAmount(value: string): string {
-  const normalized = value.trim();
-
-  if (!normalized) return value;
-
-  const numericValue = Number(normalized);
-
-  if (!Number.isFinite(numericValue)) {
-    return value;
-  }
-
-  if (numericValue === 0) return "0";
-
-  if (Math.abs(numericValue) < 0.000001) {
-    return "<0.000001";
-  }
-
-  return numericValue.toLocaleString("en-US", {
-    maximumFractionDigits: 6,
-  });
-}
-
-function getTransactionAmountText(item: TransactionHistoryItem): string {
+function getRowSecondary(item: TransactionHistoryItem): string {
+  const ts = formatTimestamp(item.createdAt);
+  const net = item.chainName || "";
   if (item.direction === "swap") {
-    const fromAmount = formatHistoryAmount(item.swapFromAmount ?? item.amount);
-    const fromSymbol = item.swapFromSymbol ?? "";
-    const toAmount = item.swapToAmount ? formatHistoryAmount(item.swapToAmount) : "";
-    const toSymbol = item.swapToSymbol ?? "";
-
-    if (toAmount && toSymbol) {
-      return `${fromAmount} ${fromSymbol} → ${toAmount} ${toSymbol}`.trim();
-    }
-
-    return `${fromAmount} ${fromSymbol}`.trim();
+    return [net, ts].filter(Boolean).join(" · ");
   }
+  if (item.direction === "receive") {
+    return [`From ${shortAddress(item.fromAddress)}`, net, ts].filter(Boolean).join(" · ");
+  }
+  return [`To ${shortAddress(item.toAddress)}`, net, ts].filter(Boolean).join(" · ");
+}
 
+function getRowAmount(item: TransactionHistoryItem): string {
+  if (item.direction === "swap") {
+    const from = formatAmount(item.swapFromAmount ?? item.amount);
+    const sym = item.swapFromSymbol ?? item.assetSymbol;
+    return `${from} ${sym}`;
+  }
   const sign = item.direction === "receive" ? "+" : "-";
-
   return `${sign}${item.amount}`;
 }
 
+function getIconVariant(item: TransactionHistoryItem): "send" | "receive" | "swap" | "failed" {
+  if (item.status === "failed") return "failed";
+  if (item.direction === "swap") return "swap";
+  if (item.direction === "receive") return "receive";
+  return "send";
+}
 
+function getStatusLabel(status: string): string {
+  if (status === "confirmed") return "Confirmed";
+  if (status === "failed") return "Failed";
+  return "Pending";
+}
 
+// ── Date grouping ──────────────────────────────────────────────────
 
-function hasSwapHistoryDetails(item: {
-  direction?: string;
-  assetType?: string;
-  swapRoute?: string;
-  swapSimpleFee?: string;
-  swapNetworkFee?: string;
-  swapSlippage?: string;
-  swapMinimumReceived?: string;
-  hash?: string | null;
-}): boolean {
+type DateGroup = { label: string; items: TransactionHistoryItem[] };
+
+function isSameDay(a: Date, b: Date): boolean {
   return (
-    item.direction === "swap" ||
-    item.assetType === "swap" ||
-    Boolean(
-      item.swapRoute ||
-        item.swapSimpleFee ||
-        item.swapNetworkFee ||
-        item.swapSlippage ||
-        item.swapMinimumReceived,
-    )
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
   );
 }
+
+function groupByDate(items: TransactionHistoryItem[]): DateGroup[] {
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const groups: DateGroup[] = [
+    { label: "Today", items: [] },
+    { label: "Yesterday", items: [] },
+    { label: "Earlier", items: [] },
+  ];
+
+  for (const item of items) {
+    const d = new Date(item.createdAt);
+    if (!Number.isNaN(d.getTime()) && isSameDay(d, now)) {
+      groups[0].items.push(item);
+    } else if (!Number.isNaN(d.getTime()) && isSameDay(d, yesterday)) {
+      groups[1].items.push(item);
+    } else {
+      groups[2].items.push(item);
+    }
+  }
+
+  return groups.filter((g) => g.items.length > 0);
+}
+
+// ── Sub-components ─────────────────────────────────────────────────
+
+function TxIcon({ variant }: { variant: "send" | "receive" | "swap" | "failed" }) {
+  return (
+    <div className={`activity-icon activity-icon--${variant}`}>
+      {variant === "send" && <SendArrowIcon />}
+      {variant === "receive" && <ReceiveArrowIcon />}
+      {variant === "swap" && <SwapArrowsIcon />}
+      {variant === "failed" && <FailedXIcon />}
+    </div>
+  );
+}
+
+function TxRow({
+  item,
+  onClick,
+}: {
+  item: TransactionHistoryItem;
+  onClick: (item: TransactionHistoryItem) => void;
+}) {
+  const variant = getIconVariant(item);
+
+  return (
+    <button type="button" className="activity-row" onClick={() => onClick(item)}>
+      <TxIcon variant={variant} />
+
+      <div className="activity-body">
+        <div className="activity-primary">{getRowTitle(item)}</div>
+        <div className="activity-secondary">{getRowSecondary(item)}</div>
+      </div>
+
+      <div className="activity-right">
+        <span
+          className={`activity-amount${item.direction === "receive" ? " activity-amount--receive" : ""}`}
+        >
+          {getRowAmount(item)}
+        </span>
+        <span className={`activity-badge activity-badge--${item.status}`}>
+          {getStatusLabel(item.status)}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────
 
 export function TransactionHistoryPage({
   selectedAccount,
   walletState,
   onBack,
+  onViewTransaction,
 }: TransactionHistoryPageProps) {
-  const [selectedTransaction, setSelectedTransaction] =
-    useState<TransactionHistoryItem | null>(null);
-
   const [items, setItems] = useState<TransactionHistoryItem[]>([]);
-  const [confirmClearHistoryOpen, setConfirmClearHistoryOpen] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   async function refresh() {
     if (!selectedAccount) {
@@ -374,26 +299,21 @@ export function TransactionHistoryPage({
     const currentItems = transactionHistoryService.listByAccount(
       selectedAccount.address,
     );
-
     setItems(currentItems);
 
-    const submittedItems = currentItems.filter((item) => {
-      return (
+    const submittedItems = currentItems.filter(
+      (item) =>
         item.chainId === walletState.selectedChainId &&
-        item.status === "submitted"
-      );
-    });
+        item.status === "submitted",
+    );
 
-    if (submittedItems.length === 0) {
-      return;
-    }
+    if (submittedItems.length === 0) return;
 
     await Promise.allSettled(
       submittedItems.map(async (item) => {
         const status = await walletService.getSelectedTransactionStatus({
           hash: item.hash,
         });
-
         if (status !== item.status) {
           transactionHistoryService.updateStatus({
             chainId: item.chainId,
@@ -411,340 +331,170 @@ export function TransactionHistoryPage({
     void refresh();
   }, [selectedAccount?.address, walletState.selectedChainId]);
 
-    function clearHistory() {
-    if (!selectedAccount) return;
-
-    setConfirmClearHistoryOpen(true);
-  }
-
   function executeClearHistory() {
     if (!selectedAccount) {
-      setConfirmClearHistoryOpen(false);
+      setConfirmClearOpen(false);
       return;
     }
-
     transactionHistoryService.clearByAccount(selectedAccount.address);
-    setConfirmClearHistoryOpen(false);
+    setConfirmClearOpen(false);
     void refresh();
   }
 
+  const groups = groupByDate(items);
+
   return (
     <div className="ext-popup" data-screen-label="09 Activity">
-      <div className="bar-top activity-topbar">
+      {/* Header */}
+      <div className="bar-top">
         <button
-          className="icbtn activity-topbar-back"
+          className="icbtn"
           type="button"
           onClick={onBack}
           aria-label="Back"
         >
           <BackIcon />
         </button>
-
-        <div className="activity-topbar-title">Activity</div>
-
+        <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
+          Activity
+        </div>
+        <span style={{ flex: 1 }} />
         <button
-          className="icbtn activity-topbar-refresh"
+          className="icbtn"
           type="button"
           onClick={() => void refresh()}
-          aria-label="Refresh transaction history"
+          aria-label="Refresh"
         >
-          <ClockIcon />
+          <RefreshIcon />
         </button>
       </div>
 
+      {/* Body */}
       <div className="screen-body">
-        <section style={{ padding: "18px 16px 12px" }}>
-          <div className="t-h2">
-            Transaction
-            <br />
-            history
+        <div className="activity-intro">
+          <div className="activity-intro-title">Transaction history</div>
+          <div className="activity-intro-subtitle">
+            Local history of wallet activity.
           </div>
+        </div>
 
-          <p
-            style={{
-              margin: "10px 0 0",
-              color: "var(--ink-3)",
-              fontSize: 13,
-              lineHeight: 1.45,
-            }}
-          >
-            Local history of transactions sent from SIMPLE.
-          </p>
-        </section>
-
-        <section style={{ padding: "0 12px 16px" }}>
-          {items.length > 0 ? (
-            <div className="row-list">
-              {items.map((item) => (
-                <div
-                  key={item.id}
-                  className="transaction-history-clickable-row"
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setSelectedTransaction(item);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setSelectedTransaction(item);
-                    }
-                  }}
-                >
-                  <TransactionRow item={item} />
-                </div>
-              ))}
+        {items.length === 0 ? (
+          <div className="activity-empty">
+            <div className="activity-empty-icon">
+              <ClockEmptyIcon />
             </div>
-          ) : (
-            <section className="tx-empty">
-              <div className="tok">
-                <ClockIcon />
+            <div className="activity-empty-title">No activity yet</div>
+            <div className="activity-empty-text">
+              Your sent transactions and swaps will appear here.
+            </div>
+            <button
+              type="button"
+              className="btn secondary lg"
+              onClick={onBack}
+            >
+              Back to wallet
+            </button>
+          </div>
+        ) : (
+          <>
+            {groups.map((group) => (
+              <div key={group.label}>
+                <div className="activity-date-label">{group.label}</div>
+                {group.items.map((item) => (
+                  <TxRow
+                    key={item.id}
+                    item={item}
+                    onClick={onViewTransaction}
+                  />
+                ))}
               </div>
+            ))}
 
-              <div>
-                <strong>No transactions yet</strong>
-                <span>
-                  Transactions sent from SIMPLE will appear here after
-                  submission.
-                </span>
-              </div>
-            </section>
-          )}
-
-          {items.length > 0 ? (
             <button
               type="button"
               className="btn secondary lg full"
-              onClick={clearHistory}
-              style={{ marginTop: 12 }}
+              onClick={() => setConfirmClearOpen(true)}
+              style={{ marginTop: 16 }}
             >
               Clear local history
             </button>
-          ) : null}
-        </section>
+          </>
+        )}
       </div>
 
-      {selectedTransaction ? (
+      {/* Confirm clear */}
+      {confirmClearOpen ? (
         <div
-          className="transaction-detail-backdrop"
           role="presentation"
-          onClick={() => setSelectedTransaction(null)}
+          onClick={() => setConfirmClearOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            display: "grid",
+            alignItems: "end",
+            background: "rgba(0, 0, 0, 0.24)",
+            padding: "0 12px 16px",
+            boxSizing: "border-box",
+          }}
         >
           <section
-            className="transaction-detail-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Transaction details"
-            onClick={(event) => event.stopPropagation()}
+            aria-label="Clear history confirmation"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="transaction-detail-header">
-              <div>
-                <p>Transaction details</p>
-                <h2>{getTransactionDetailTitle(selectedTransaction)}</h2>
-              </div>
-
-              <button
-                type="button"
-                className="transaction-detail-close"
-                onClick={() => setSelectedTransaction(null)}
-                aria-label="Close transaction details"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="transaction-detail-summary">
-              <div className="transaction-detail-icon">⇄</div>
-              <div>
-                <strong>{getTransactionDetailAmount(selectedTransaction)}</strong>
-                <p>
-                  {formatTransactionDetailValue(selectedTransaction.chainName)} ·{" "}
-                  {formatTransactionDetailStatus(selectedTransaction.status)}
-                </p>
-              </div>
-            </div>
-
-            <div className="transaction-detail-grid">
-              <div className="transaction-detail-row">
-                <span>Status</span>
-                <strong
-                  className={`transaction-detail-status transaction-detail-status--${getTransactionDetailStatusClass(
-                    selectedTransaction.status,
-                  )}`}
-                >
-                  {formatTransactionDetailStatus(selectedTransaction.status)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>Route</span>
-                <strong>
-                  {formatTransactionDetailRoute(selectedTransaction.swapRoute)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>Simple fee</span>
-                <strong>
-                  {formatTransactionDetailValue(selectedTransaction.swapSimpleFee)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>Network fee</span>
-                <strong>
-                  {formatTransactionDetailValue(selectedTransaction.swapNetworkFee)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>Slippage</span>
-                <strong>
-                  {formatTransactionDetailValue(selectedTransaction.swapSlippage)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>Minimum received</span>
-                <strong>
-                  {formatTransactionDetailValue(
-                    selectedTransaction.swapMinimumReceived,
-                  )}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>From</span>
-                <strong className="transaction-detail-mono">
-                  {formatHistoryShortHash(selectedTransaction.fromAddress)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>To</span>
-                <strong className="transaction-detail-mono">
-                  {formatHistoryShortHash(selectedTransaction.toAddress)}
-                </strong>
-              </div>
-
-              <div className="transaction-detail-row">
-                <span>Tx hash</span>
-                <strong className="transaction-detail-mono">
-                  {formatHistoryShortHash(selectedTransaction.hash)}
-                </strong>
-              </div>
-            </div>
-
-            <div className="transaction-detail-actions">
-              {selectedTransaction.explorerUrl ? (
-                <a
-                  className="transaction-detail-secondary"
-                  href={selectedTransaction.explorerUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View on explorer
-                </a>
-              ) : null}
-
-              <button
-                type="button"
-                className="transaction-detail-primary"
-                onClick={() => setSelectedTransaction(null)}
-              >
-                Done
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-        {confirmClearHistoryOpen ? (
-          <div
-            role="presentation"
-            onClick={() => setConfirmClearHistoryOpen(false)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 80,
-              display: "grid",
-              alignItems: "end",
-              background: "rgba(0, 0, 0, 0.24)",
-              padding: "0 0 16px",
-              boxSizing: "border-box",
-            }}
-          >
-            <section
-              role="dialog"
-              aria-modal="true"
-              aria-label="Clear transaction history confirmation"
-              onClick={(event) => event.stopPropagation()}
+            <div
               style={{
-                width: "100%",
-                maxWidth: 680,
-                margin: "0 auto",
-                padding: "0 12px",
-                boxSizing: "border-box",
+                border: "1px solid var(--line)",
+                borderRadius: 24,
+                background: "#fff",
+                boxShadow: "0 24px 80px rgba(0, 0, 0, 0.18)",
+                padding: 18,
               }}
             >
               <div
                 style={{
-                  border: "1px solid var(--border, #dedede)",
-                  borderRadius: 24,
-                  background: "var(--bg, #ffffff)",
-                  boxShadow: "0 24px 80px rgba(0, 0, 0, 0.18)",
-                  padding: 18,
+                  fontSize: 18,
+                  fontWeight: 850,
+                  letterSpacing: "-0.02em",
+                  color: "var(--ink-1)",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: 18,
-                    lineHeight: "24px",
-                    fontWeight: 850,
-                    letterSpacing: "-0.02em",
-                  }}
-                >
-                  Clear activity?
-                </div>
-
-                <p
-                  style={{
-                    margin: "8px 0 0",
-                    color: "var(--text-secondary, #777777)",
-                    fontSize: 13,
-                    lineHeight: "19px",
-                  }}
-                >
-                  This removes local transaction history for the selected account.
-                  On-chain transactions will still be visible in explorers.
-                </p>
-
-                <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
-                  <button
-                    type="button"
-                    className="btn primary lg full"
-                    onClick={executeClearHistory}
-                    style={{
-                      background: "#a23b2d",
-                      borderColor: "#a23b2d",
-                    }}
-                  >
-                    Clear activity
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn secondary lg full"
-                    onClick={() => setConfirmClearHistoryOpen(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                Clear activity?
               </div>
-            </section>
-          </div>
-        ) : null}
-
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  color: "var(--ink-3)",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                This removes local transaction history for the selected account.
+                On-chain transactions will still be visible in explorers.
+              </p>
+              <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
+                <button
+                  type="button"
+                  className="btn primary lg full"
+                  onClick={executeClearHistory}
+                  style={{ background: "#a23b2d", borderColor: "#a23b2d" }}
+                >
+                  Clear activity
+                </button>
+                <button
+                  type="button"
+                  className="btn secondary lg full"
+                  onClick={() => setConfirmClearOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

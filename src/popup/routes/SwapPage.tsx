@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WalletAccount } from "../../core/accounts/account.types";
+import { isWatchOnly } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
 import {
@@ -31,6 +32,9 @@ import {
   type RegisteredToken,
 } from "../../core/tokens/token-registry";
 import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
+import { getNetworkDisplayName } from "../../core/networks/chain-registry";
+import { AssetIcon } from "../components/AssetIcon";
+import { SelectNetworkPage } from "../components/SelectNetworkPage";
 import "./SwapPage.css";
 
 type SwapPageProps = {
@@ -38,6 +42,13 @@ type SwapPageProps = {
   walletState: WalletState;
   onBack: () => void;
   onSwapCompleted?: () => void | Promise<void>;
+  // Re-sync global view state after switching network so the selectedChainId
+  // prop updates and the token list / quote reload for the new chain.
+  onChanged?: () => void | Promise<void>;
+  // When opened from an asset details modal, this asset is preselected as the
+  // receive/TO token. The selected network is expected to already match the
+  // asset's chain (the caller aligns it before navigating).
+  initialToAsset?: WalletAssetBalance | null;
 };
 
 type SwapToken = {
@@ -52,6 +63,7 @@ type SwapToken = {
 };
 
 type TokenPickerSide = "from" | "to";
+type AmountMode = "sell" | "buy";
 type PriceStatus = "idle" | "loading" | "ready" | "error";
 type ReviewStatus = "idle" | "loading" | "ready" | "error";
 type SubmitStatus = "idle" | "submitting" | "submitted" | "error";
@@ -276,6 +288,9 @@ type SwapPriceRequest = {
   sellToken: string;
   buyToken: string;
   sellAmount: string;
+  // Set (non-zero) for buy/exact-out mode — "receive this much". The PancakeV2
+  // fallback is exact-in only, so buy-mode requests never fall back to it.
+  buyAmount?: string;
   taker: string;
 };
 
@@ -292,7 +307,12 @@ async function getSwapPriceWithFallback(
   try {
     return await getZeroXSwapPrice(params);
   } catch (zeroXError) {
-    if (!isPancakeV2SupportedChain(params.chainId)) {
+    // Buy/exact-out mode has no PancakeV2 equivalent (getAmountsOut is
+    // exact-in only), so surface the 0x error directly.
+    if (
+      !isPancakeV2SupportedChain(params.chainId) ||
+      (params.buyAmount && params.buyAmount !== "0")
+    ) {
       throw zeroXError;
     }
 
@@ -315,7 +335,10 @@ async function getSwapQuoteWithFallback(
   try {
     return await getZeroXSwapQuote(params);
   } catch (zeroXError) {
-    if (!isPancakeV2SupportedChain(params.chainId)) {
+    if (
+      !isPancakeV2SupportedChain(params.chainId) ||
+      (params.buyAmount && params.buyAmount !== "0")
+    ) {
       throw zeroXError;
     }
 
@@ -360,14 +383,8 @@ type AssetWithPossibleAddress = WalletAssetBalance & {
   contract?: string;
 };
 
-function getNetworkLabel(chainId: number): string {
-  if (chainId === 1) return "Ethereum";
-  if (chainId === 56) return "BNB Chain";
-  if (chainId === 8453) return "Base";
-  if (chainId === 11155111) return "Sepolia";
-
-  return `Chain ${chainId}`;
-}
+// Canonical network name from the chain registry (single source of truth).
+const getNetworkLabel = getNetworkDisplayName;
 
 function getTokenIconText(symbol: string): string {
   const normalized = symbol.trim().toUpperCase();
@@ -647,13 +664,66 @@ function getNetworkFeeRaw(price: ZeroXSwapPrice | null): bigint {
 }
 
 function formatNetworkFee(price: ZeroXSwapPrice | null, chainId: number): string {
+  // getNetworkFeeRaw already returns an absolute value, but strip any stray
+  // leading sign defensively so the fee is never shown as negative.
   const fee = getNetworkFeeRaw(price);
-  if (fee === 0n) return "—";
+  const absFee = fee < 0n ? -fee : fee;
+  if (absFee === 0n) return "—";
 
-  const value = formatSwapAmount(fee.toString(), 18);
+  const value = formatSwapAmount(absFee.toString(), 18).replace(/^-/, "");
   if (value === "—" || value === "0") return "—";
 
   return `~${value} ${getNativeSymbol(chainId)}`;
+}
+
+// Conservative native-gas reserves (wei) used when a live fee estimate is not
+// yet available, so MAX reserves gas without consuming the entire native
+// balance. Kept small so typical low balances still yield a positive amount;
+// once a quote loads, the live fee (×1.5) is used instead.
+const NATIVE_MAX_GAS_RESERVE_WEI: Record<number, bigint> = {
+  1: 300_000_000_000_000n, // ~0.0003 ETH
+  56: 100_000_000_000_000n, // ~0.0001 BNB
+  8453: 50_000_000_000_000n, // ~0.00005 ETH
+  11155111: 100_000_000_000_000n, // ~0.0001 ETH
+};
+
+const DEFAULT_NATIVE_MAX_GAS_RESERVE_WEI = 200_000_000_000_000n; // ~0.0002
+
+// Exact integer-units → decimal string (no rounding), suitable for an input value.
+function formatUnitsToDecimalString(value: bigint, decimals: number): string {
+  if (value <= 0n) return "0";
+
+  const base = 10n ** BigInt(decimals);
+  const whole = value / base;
+  const fraction = value % base;
+
+  if (fraction === 0n) {
+    return whole.toString();
+  }
+
+  const fractionStr = fraction
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/, "");
+
+  return `${whole.toString()}.${fractionStr}`;
+}
+
+// Responsive amount typography: shrink the font as the value grows so big
+// numbers never overflow or clip the From / To sections. Short values stay
+// large and readable; long values step down so they fit one line.
+function getAmountFontSize(text: string): number {
+  const len = text.trim().length;
+
+  if (len <= 8) return 36; // normal
+  if (len <= 12) return 28;
+  if (len <= 16) return 24; // long
+  return 22; // very long
+}
+
+// Tighten tracking for long values so they still fit on one line.
+function getAmountLetterSpacing(text: string): string {
+  return text.trim().length > 12 ? "-0.035em" : "-0.02em";
 }
 
 function formatBps(bps: number): string {
@@ -933,11 +1003,32 @@ export function SwapPage({
   walletState,
   onBack,
   onSwapCompleted,
+  onChanged,
+  initialToAsset,
 }: SwapPageProps) {
+  const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
   const [tokens, setTokens] = useState<SwapToken[]>([]);
   const [fromToken, setFromToken] = useState<SwapToken | null>(null);
   const [toToken, setToToken] = useState<SwapToken | null>(null);
+  // Preselected receive token from an asset details modal. Captured once at
+  // mount and applied on the first token load, after which normal
+  // preserve/default selection takes over.
+  const initialToAssetRef = useRef(initialToAsset ?? null);
+  const appliedInitialToAssetRef = useRef(false);
+  // FROM sell input (sell mode) and TO target receive input (buy mode).
   const [amount, setAmount] = useState("");
+  const [receiveAmount, setReceiveAmount] = useState("");
+  // "sell" = user drives FROM amount, TO is calculated. "buy" = user drives TO
+  // target receive amount, FROM is calculated from the quote.
+  const [amountMode, setAmountMode] = useState<AmountMode>("sell");
+  const [maxReserveNotice, setMaxReserveNotice] = useState<string | null>(null);
+  // Custom "spend X% of FROM balance" control in the FROM section.
+  // selectedPercent is the applied custom value (null = none). The pencil chip
+  // toggles inline editing.
+  const [selectedPercent, setSelectedPercent] = useState<number | null>(null);
+  const [isEditingCustom, setIsEditingCustom] = useState(false);
+  const [customPercentValue, setCustomPercentValue] = useState("");
+  const [customPercentInvalid, setCustomPercentInvalid] = useState(false);
   const hideBalances = readHideBalancesSetting();
   const [tokenPickerSide, setTokenPickerSide] =
     useState<TokenPickerSide | null>(null);
@@ -993,6 +1084,41 @@ export function SwapPage({
   const selectedChainId = walletState.selectedChainId;
   const simpleSwapFeeBps = getSimpleSwapFeeBps();
 
+  // Switch the active network from the shared selector. Clears all quote /
+  // approval / amount state (a quote is chain-specific and must not survive a
+  // chain change), then re-syncs global state so the selectedChainId prop
+  // updates — which reloads the token list and resets FROM/TO for the new
+  // chain (native FROM + default stablecoin TO via the token-load effect).
+  async function selectNetwork(chainId: number) {
+    setNetworkSelectorOpen(false);
+
+    if (chainId === selectedChainId) {
+      return;
+    }
+
+    // Clear the previous chain's quote / review / approval / amounts.
+    setAmount("");
+    setReceiveAmount("");
+    setAmountMode("sell");
+    setPrice(null);
+    setPriceStatus("idle");
+    setPriceError(null);
+    setQuote(null);
+    setQuoteError(null);
+    setReviewStatus("idle");
+    setIsReviewOpen(false);
+    setApprovalStatus("idle");
+    setApprovalError(null);
+    setApprovalTxHash(null);
+    setSubmitStatus("idle");
+    setSubmitError(null);
+
+    await walletService.setSelectedChainId(chainId);
+    // Re-sync global state: the selectedChainId prop updates and the token
+    // list / pair reload for the new chain.
+    await onChanged?.();
+  }
+
   useEffect(() => {
     try {
       window.localStorage.setItem(SLIPPAGE_STORAGE_KEY, String(slippageBps));
@@ -1000,6 +1126,61 @@ export function SwapPage({
       // localStorage is optional.
     }
   }, [slippageBps]);
+
+  // Seed the token pair from an asset opened via "Swap" in the details modal:
+  // the asset becomes the TO token, FROM defaults to the chain's native token.
+  // If the asset is itself native, FROM falls back to a stablecoin / other
+  // token so FROM and TO are never identical.
+  function applyInitialToAssetSelection(
+    asset: WalletAssetBalance,
+    list: SwapToken[],
+  ) {
+    const wanted =
+      list.find((token) => token.id === asset.id) ?? assetToSwapToken(asset);
+
+    const findStable = (excludeId: string) =>
+      list.find((token) => {
+        const symbol = token.symbol.toUpperCase();
+        return (
+          (symbol === "USDC" || symbol === "USDT" || symbol === "DAI") &&
+          token.id !== excludeId
+        );
+      });
+
+    if (wanted.type === "native") {
+      // Buying the native token: TO = native, FROM = stablecoin / any non-native.
+      const from =
+        findStable(wanted.id) ??
+        list.find(
+          (token) => token.type !== "native" && token.id !== wanted.id,
+        ) ??
+        null;
+
+      if (from) {
+        setToToken(wanted);
+        setFromToken(from);
+        return;
+      }
+
+      // No alternative token on this chain — fall back to native FROM and the
+      // best available non-native TO so the pair is never duplicated.
+      setFromToken(wanted);
+      setToToken(
+        list.find((token) => token.type !== "native" && token.id !== wanted.id) ??
+          null,
+      );
+      return;
+    }
+
+    // Buying an ERC-20: TO = the asset, FROM = native (or any other token).
+    const from =
+      list.find((token) => token.type === "native") ??
+      list.find((token) => token.id !== wanted.id) ??
+      null;
+
+    setToToken(wanted);
+    setFromToken(from);
+  }
 
   useEffect(() => {
     let active = true;
@@ -1022,34 +1203,43 @@ export function SwapPage({
 
         setTokens(nextTokens);
 
-        setFromToken((current) => {
-          if (current && nextTokens.some((token) => token.id === current.id)) {
-            return current;
-          }
+        const pendingInitialAsset = appliedInitialToAssetRef.current
+          ? null
+          : initialToAssetRef.current;
+        appliedInitialToAssetRef.current = true;
 
-          return (
-            nextTokens.find((token) => token.type === "native") ??
-            nextTokens[0] ??
-            null
-          );
-        });
+        if (pendingInitialAsset) {
+          applyInitialToAssetSelection(pendingInitialAsset, nextTokens);
+        } else {
+          setFromToken((current) => {
+            if (current && nextTokens.some((token) => token.id === current.id)) {
+              return current;
+            }
 
-        setToToken((current) => {
-          if (current && nextTokens.some((token) => token.id === current.id)) {
-            return current;
-          }
-
-          const stableToken = nextTokens.find((token) => {
-            const symbol = token.symbol.toUpperCase();
-            return symbol === "USDC" || symbol === "USDT" || symbol === "DAI";
+            return (
+              nextTokens.find((token) => token.type === "native") ??
+              nextTokens[0] ??
+              null
+            );
           });
 
-          return (
-            stableToken ??
-            nextTokens.find((token) => token.type !== "native") ??
-            null
-          );
-        });
+          setToToken((current) => {
+            if (current && nextTokens.some((token) => token.id === current.id)) {
+              return current;
+            }
+
+            const stableToken = nextTokens.find((token) => {
+              const symbol = token.symbol.toUpperCase();
+              return symbol === "USDC" || symbol === "USDT" || symbol === "DAI";
+            });
+
+            return (
+              stableToken ??
+              nextTokens.find((token) => token.type !== "native") ??
+              null
+            );
+          });
+        }
       } catch (error) {
         if (!active) return;
 
@@ -1073,6 +1263,45 @@ export function SwapPage({
 
     return parseDecimalUnits(amount, fromToken.decimals);
   }, [amount, fromToken]);
+
+  // Target receive amount in base units (buy mode), from the TO token decimals.
+  const buyAmountBaseUnits = useMemo(() => {
+    if (!toToken) return null;
+
+    return parseDecimalUnits(receiveAmount, toToken.decimals);
+  }, [receiveAmount, toToken]);
+
+  // Reset the percent controls when the FROM token or network changes — a new
+  // balance makes a previously chosen percentage meaningless.
+  useEffect(() => {
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    setCustomPercentValue("");
+    setCustomPercentInvalid(false);
+  }, [fromToken?.id, selectedChainId]);
+
+  // Whether the FROM token has any balance to spend (chips disabled when not).
+  const fromBalanceIsZero = useMemo(() => {
+    if (!fromToken) return true;
+    const numeric = Number(fromToken.balance);
+    return !Number.isFinite(numeric) || numeric <= 0;
+  }, [fromToken]);
+
+  // Quote amount fields for the current mode (sell vs buy/exact-out), or null
+  // when the active input is empty/zero. Sell mode sends sellAmount; buy mode
+  // sends buyAmount (sellAmount left empty — 0x computes the required sell).
+  function getQuoteAmountFields(): {
+    sellAmount: string;
+    buyAmount?: string;
+  } | null {
+    if (amountMode === "buy") {
+      if (!buyAmountBaseUnits || buyAmountBaseUnits === "0") return null;
+      return { sellAmount: "", buyAmount: buyAmountBaseUnits };
+    }
+
+    if (!sellAmountBaseUnits || sellAmountBaseUnits === "0") return null;
+    return { sellAmount: sellAmountBaseUnits };
+  }
 
   // Registered tokens for current chain (for picker "Popular" section)
   const registeredTokensForChain = useMemo(() => {
@@ -1123,13 +1352,14 @@ export function SwapPage({
     setPrice(null);
     setPriceError(null);
 
+    const amountFields = getQuoteAmountFields();
+
     if (
       !selectedAccount ||
       !fromToken ||
       !toToken ||
       fromToken.address.toLowerCase() === toToken.address.toLowerCase() ||
-      !sellAmountBaseUnits ||
-      sellAmountBaseUnits === "0"
+      !amountFields
     ) {
       setPriceStatus("idle");
       return;
@@ -1148,7 +1378,7 @@ export function SwapPage({
         chainId: selectedChainId,
         sellToken: fromToken.address,
         buyToken: toToken.address,
-        sellAmount: sellAmountBaseUnits,
+        ...amountFields,
         taker: selectedAccount.address,
       })
         .then((nextPrice) => {
@@ -1182,6 +1412,8 @@ export function SwapPage({
       window.clearTimeout(timeoutId);
     };
   }, [
+    amountMode,
+    buyAmountBaseUnits,
     fromToken,
     quoteRefreshTick,
     selectedAccount,
@@ -1304,9 +1536,14 @@ export function SwapPage({
     }
   }, [submittedSwapStatus, toToken, selectedChainId, registeredTokensForChain]);
 
-  const isZeroOutput = priceStatus === "ready" && price != null && (
-    !price.buyAmount || price.buyAmount === "0"
-  );
+  // A degenerate quote: in sell mode there's nothing to receive; in buy mode
+  // there's no required sell amount.
+  const isZeroOutput =
+    priceStatus === "ready" &&
+    price != null &&
+    (amountMode === "buy"
+      ? !price.sellAmount || price.sellAmount === "0"
+      : !price.buyAmount || price.buyAmount === "0");
 
   const nativeToken = useMemo(
     () => tokens.find((t) => t.type === "native") ?? null,
@@ -1330,9 +1567,13 @@ export function SwapPage({
     if (feeRaw === 0n) return null;
     const nativeSymbol = getNativeSymbol(selectedChainId);
     const isSellingNative = fromToken.type === "native";
+    // In buy mode the sell side comes from the quote; in sell mode it's the
+    // user's typed FROM amount.
+    const sellRawSource =
+      amountMode === "buy" ? price.sellAmount : sellAmountBaseUnits;
     let sellRaw = 0n;
     try {
-      sellRaw = sellAmountBaseUnits ? BigInt(sellAmountBaseUnits) : 0n;
+      sellRaw = sellRawSource ? BigInt(sellRawSource) : 0n;
     } catch {
       return null;
     }
@@ -1349,24 +1590,52 @@ export function SwapPage({
       }
     }
     return null;
-  }, [priceStatus, fromToken, price, sellAmountBaseUnits, nativeBalanceRaw, selectedChainId]);
+  }, [amountMode, priceStatus, fromToken, price, sellAmountBaseUnits, nativeBalanceRaw, selectedChainId]);
+
+  // The text the user is actively driving (FROM in sell mode, TO in buy mode).
+  const activeAmountText = amountMode === "buy" ? receiveAmount : amount;
 
   const isReviewDisabled = useMemo(() => {
-    const numericAmount = Number(amount);
+    const numericAmount = Number(activeAmountText);
 
     return (
       !selectedAccount ||
       !fromToken ||
       !toToken ||
       fromToken.address.toLowerCase() === toToken.address.toLowerCase() ||
-      !amount ||
+      !activeAmountText ||
       Number.isNaN(numericAmount) ||
       numericAmount <= 0 ||
       priceStatus !== "ready" ||
       !price ||
       isZeroOutput
     );
-  }, [amount, fromToken, isZeroOutput, price, priceStatus, selectedAccount, toToken]);
+  }, [activeAmountText, fromToken, isZeroOutput, price, priceStatus, selectedAccount, toToken]);
+
+  // Derived display values for the calculated (non-active) side.
+  const fromDerivedAmount = useMemo(() => {
+    if (!fromToken || priceStatus !== "ready" || !price?.sellAmount) return "";
+    return formatSwapAmount(price.sellAmount, fromToken.decimals);
+  }, [fromToken, price, priceStatus]);
+
+  const toDerivedAmount = useMemo(() => {
+    if (!toToken || priceStatus !== "ready") return "";
+    const value = formatEstimatedReceive(price, toToken);
+    return value === "—" ? "" : value;
+  }, [price, priceStatus, toToken]);
+
+  // What each input shows: the active side echoes the user's text, the other
+  // shows the quote-derived value.
+  const fromInputValue = amountMode === "sell" ? amount : fromDerivedAmount;
+  const toInputValue = amountMode === "buy" ? receiveAmount : toDerivedAmount;
+
+  // FROM amount used in the review summary + history (derived in buy mode).
+  const reviewPayAmount =
+    amountMode === "buy"
+      ? fromToken && quote?.sellAmount
+        ? formatSwapAmount(quote.sellAmount, fromToken.decimals)
+        : ""
+      : amount;
 
   const estimatedReceive = useMemo(() => {
     if (!toToken) return "Select token";
@@ -1411,8 +1680,10 @@ export function SwapPage({
     hasZeroXAllowanceIssue(quote) &&
     approvalStatus !== "approved";
 
-  function handleAmountChange(value: string) {
-    setAmount(sanitizeAmountInput(value));
+  // Clear the transient quote/review/submit/approval state. Shared by the FROM
+  // (sell) and TO (buy) amount change paths so both behave identically.
+  function resetTransientQuoteState() {
+    setMaxReserveNotice(null);
     setQuote(null);
     setQuoteError(null);
     setReviewStatus("idle");
@@ -1420,11 +1691,61 @@ export function SwapPage({
     setSubmitError(null);
     setSubmittedTxHash(null);
     setSubmittedExplorerUrl(null);
-        setSubmittedSwapStatus("pending");
+    setSubmittedSwapStatus("pending");
     setSubmittedSwapError(null);
-setApprovalStatus("idle");
+    setApprovalStatus("idle");
     setApprovalError(null);
     setApprovalTxHash(null);
+  }
+
+  function handleAmountChange(value: string) {
+    setAmount(sanitizeAmountInput(value));
+    resetTransientQuoteState();
+  }
+
+  function handleReceiveChange(value: string) {
+    setReceiveAmount(sanitizeAmountInput(value));
+    resetTransientQuoteState();
+  }
+
+  // FROM input edited → sell mode. Seeds the FROM field from the derived value
+  // when leaving buy mode so the controlled value stays continuous.
+  function handleSellAmountInput(value: string) {
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    if (amountMode !== "sell") {
+      setAmountMode("sell");
+      setReceiveAmount("");
+    }
+    handleAmountChange(value);
+  }
+
+  function handleSellAmountFocus() {
+    if (amountMode === "sell") return;
+    setAmountMode("sell");
+    setReceiveAmount("");
+    setAmount(fromDerivedAmount);
+    resetTransientQuoteState();
+  }
+
+  // TO input edited → buy mode (target receive amount). Seeds from the derived
+  // estimate when leaving sell mode.
+  function handleReceiveAmountInput(value: string) {
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    if (amountMode !== "buy") {
+      setAmountMode("buy");
+      setAmount("");
+    }
+    handleReceiveChange(value);
+  }
+
+  function handleReceiveAmountFocus() {
+    if (amountMode === "buy") return;
+    setAmountMode("buy");
+    setAmount("");
+    setReceiveAmount(toDerivedAmount);
+    resetTransientQuoteState();
   }
 
   function handleSwitchTokens() {
@@ -1433,6 +1754,11 @@ setApprovalStatus("idle");
     setFromToken(toToken);
     setToToken(fromToken);
     setAmount("");
+    setReceiveAmount("");
+    setAmountMode("sell");
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    setMaxReserveNotice(null);
     setPrice(null);
     setPriceError(null);
     setPriceStatus("idle");
@@ -1445,10 +1771,153 @@ setApprovalStatus("idle");
     setApprovalTxHash(null);
   }
 
+  // Spendable FROM balance in base units. Native tokens reserve gas (live fee
+  // ×1.5 when known, else a conservative per-chain fallback) so swaps never
+  // consume the gas they need; ERC-20s spend the full balance. Returns null
+  // when the balance can't be parsed, or a value that may be <= 0 when the
+  // native balance is below the reserve (callers surface the warning).
+  function getSpendableFromBalanceRaw(): bigint | null {
+    if (!fromToken) return null;
+
+    const balanceRawString = parseDecimalUnits(
+      fromToken.balance,
+      fromToken.decimals,
+    );
+    if (!balanceRawString) return null;
+
+    let balanceRaw: bigint;
+    try {
+      balanceRaw = BigInt(balanceRawString);
+    } catch {
+      return null;
+    }
+
+    if (balanceRaw <= 0n) return 0n;
+
+    // ERC-20: native gas is paid separately, never subtracted from the token.
+    if (fromToken.type !== "native") return balanceRaw;
+
+    const feeRaw = getNetworkFeeRaw(price);
+    const fallbackReserve =
+      NATIVE_MAX_GAS_RESERVE_WEI[selectedChainId] ??
+      DEFAULT_NATIVE_MAX_GAS_RESERVE_WEI;
+    const reserve = feeRaw > 0n ? (feeRaw * 3n) / 2n : fallbackReserve;
+
+    return balanceRaw - reserve;
+  }
+
+  // MAX and percent chips always drive sell mode.
+  function ensureSellModeForChips() {
+    if (amountMode !== "sell") {
+      setAmountMode("sell");
+      setReceiveAmount("");
+    }
+  }
+
   function handleMaxClick() {
     if (!fromToken) return;
 
-    setAmount(fromToken.balance);
+    setMaxReserveNotice(null);
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    ensureSellModeForChips();
+
+    const spendable = getSpendableFromBalanceRaw();
+
+    if (spendable === null) {
+      handleAmountChange("");
+      return;
+    }
+
+    if (spendable <= 0n) {
+      handleAmountChange("");
+      setMaxReserveNotice(
+        `Not enough ${fromToken.symbol} to cover the network fee.`,
+      );
+      return;
+    }
+
+    handleAmountChange(formatUnitsToDecimalString(spendable, fromToken.decimals));
+  }
+
+  // Set the FROM amount to a percentage of the spendable balance. percent may
+  // be fractional (custom input, e.g. 12.5). Routed through handleAmountChange
+  // so the quote refetches exactly like manual entry; selectedPercent is set
+  // after so the chip highlights.
+  function applyPercent(percent: number) {
+    if (!fromToken) return;
+
+    setMaxReserveNotice(null);
+    ensureSellModeForChips();
+
+    const spendable = getSpendableFromBalanceRaw();
+
+    if (spendable === null || spendable <= 0n) {
+      handleAmountChange("");
+      if (
+        fromToken.type === "native" &&
+        spendable !== null &&
+        spendable <= 0n
+      ) {
+        setMaxReserveNotice(
+          `Not enough ${fromToken.symbol} to cover the network fee.`,
+        );
+      }
+      setSelectedPercent(percent);
+      return;
+    }
+
+    // amount = spendable * percent / 100, in base units to avoid float error.
+    // percent is taken to two decimals (hundredths), so divide by 10000.
+    const percentHundredths = BigInt(Math.round(percent * 100));
+    const portion = (spendable * percentHundredths) / 10000n;
+
+    if (portion <= 0n) {
+      handleAmountChange("");
+      setSelectedPercent(percent);
+      return;
+    }
+
+    handleAmountChange(formatUnitsToDecimalString(portion, fromToken.decimals));
+    setSelectedPercent(percent);
+  }
+
+  // Open the inline custom-percent editor, prefilled with the last value.
+  function handleStartCustomEdit() {
+    if (!fromToken || fromBalanceIsZero) return;
+    setCustomPercentInvalid(false);
+    setCustomPercentValue(selectedPercent !== null ? String(selectedPercent) : "");
+    setIsEditingCustom(true);
+  }
+
+  function handleCancelCustomEdit() {
+    setIsEditingCustom(false);
+    setCustomPercentInvalid(false);
+  }
+
+  // Validate + apply the inline custom percent. Accepts decimals and a comma
+  // decimal separator. Empty → just close; <=0 / >100 / NaN → subtle invalid
+  // border (no apply). Valid → applyPercent (same path as before: spendable
+  // balance, native gas reserve, quote refetch).
+  function handleApplyCustomPercent() {
+    const normalized = customPercentValue.trim().replace(",", ".");
+
+    if (normalized === "") {
+      setIsEditingCustom(false);
+      setCustomPercentInvalid(false);
+      return;
+    }
+
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100) {
+      setCustomPercentInvalid(true);
+      return;
+    }
+
+    setCustomPercentValue(String(parsed));
+    setCustomPercentInvalid(false);
+    setIsEditingCustom(false);
+    applyPercent(parsed);
   }
 
   function handleSelectToken(token: SwapToken) {
@@ -1469,6 +1938,13 @@ setApprovalStatus("idle");
       setToToken(token);
     }
 
+    // Token change invalidates any calculated amounts — reset to sell mode.
+    setAmount("");
+    setReceiveAmount("");
+    setAmountMode("sell");
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    setMaxReserveNotice(null);
     setPrice(null);
     setPriceError(null);
     setPriceStatus("idle");
@@ -1483,13 +1959,9 @@ setApprovalStatus("idle");
   }
 
   async function handleOpenReview() {
-    if (
-      !selectedAccount ||
-      !fromToken ||
-      !toToken ||
-      !sellAmountBaseUnits ||
-      sellAmountBaseUnits === "0"
-    ) {
+    const amountFields = getQuoteAmountFields();
+
+    if (!selectedAccount || !fromToken || !toToken || !amountFields) {
       return;
     }
 
@@ -1503,7 +1975,7 @@ setApprovalStatus("idle");
         chainId: selectedChainId,
         sellToken: fromToken.address,
         buyToken: toToken.address,
-        sellAmount: sellAmountBaseUnits,
+        ...amountFields,
         taker: selectedAccount.address,
         slippageBps,
         swapFeeRecipient: SIMPLE_SWAP_FEE_RECIPIENT || undefined,
@@ -1520,7 +1992,18 @@ setApprovalStatus("idle");
   }
 
   async function handleApproveToken() {
-    if (!quote || !fromToken || !toToken || !sellAmountBaseUnits) {
+    if (!quote || !fromToken || !toToken) {
+      return;
+    }
+
+    // Amount to approve: the quote's sell amount (authoritative in both modes;
+    // it's the only sell figure available in buy/exact-out mode).
+    const approvalAmount =
+      quote.sellAmount && quote.sellAmount !== "0"
+        ? quote.sellAmount
+        : sellAmountBaseUnits;
+
+    if (!approvalAmount) {
       return;
     }
 
@@ -1548,7 +2031,7 @@ setApprovalStatus("idle");
     setApprovalTxHash(null);
 
     try {
-      const approvalData = encodeErc20ApproveData(spender, sellAmountBaseUnits);
+      const approvalData = encodeErc20ApproveData(spender, approvalAmount);
 
       const approvalResult = await walletService.sendSelectedPreparedTransaction({
         transaction: {
@@ -1561,11 +2044,15 @@ setApprovalStatus("idle");
 
       setApprovalTxHash(approvalResult.hash);
 
+      const refreshedAmountFields = getQuoteAmountFields() ?? {
+        sellAmount: approvalAmount,
+      };
+
       const refreshedQuote = await getSwapQuoteWithFallback({
         chainId: selectedChainId,
         sellToken: fromToken.address,
         buyToken: toToken.address,
-        sellAmount: sellAmountBaseUnits,
+        ...refreshedAmountFields,
         taker: selectedAccount?.address ?? "",
         slippageBps,
         swapFeeRecipient: SIMPLE_SWAP_FEE_RECIPIENT || undefined,
@@ -1729,13 +2216,13 @@ if (selectedAccount && fromToken && toToken) {
           assetSymbol: `${fromToken.symbol} → ${toToken.symbol}`,
           assetName: `${fromToken.name} to ${toToken.name}`,
           contractAddress: null,
-          amount: `${amount} → ${formatEstimatedReceive(quote, toToken)}`,
+          amount: `${reviewPayAmount} → ${formatEstimatedReceive(quote, toToken)}`,
           fromAddress: selectedAccount.address,
           toAddress: quote.transaction.to,
           explorerUrl: result.explorerUrl,
           createdAt: new Date().toISOString(),
           swapFromSymbol: fromToken.symbol,
-          swapFromAmount: amount,
+          swapFromAmount: reviewPayAmount,
           swapToSymbol: toToken.symbol,
           swapToAmount: formatEstimatedReceive(quote, toToken),
           swapRoute: getZeroXRouteLabel(quote),
@@ -1768,6 +2255,21 @@ if (selectedAccount && fromToken && toToken) {
     handleNewSwap();
   }
 
+  function handleBackToWalletAfterSubmit() {
+    setSubmitStatus("idle");
+    setIsReviewOpen(false);
+    void onSwapCompleted?.();
+    onBack();
+  }
+
+  // Failed → back to the swap editor with From/To tokens and amount intact so
+  // the user can adjust and retry. Closes the status screen and the review
+  // panel without clearing the quote inputs (no handleNewSwap reset).
+  function handleTryAgainAfterFailedSwap() {
+    setSubmitStatus("idle");
+    setIsReviewOpen(false);
+  }
+
   function handlePresetSlippage(nextSlippageBps: number) {
     const normalizedSlippageBps = clampSlippageBps(nextSlippageBps);
 
@@ -1791,6 +2293,12 @@ if (selectedAccount && fromToken && toToken) {
   function handleNewSwap() {
     hasAutoAddedRef.current = false;
     setAmount("");
+    setReceiveAmount("");
+    setAmountMode("sell");
+    setSelectedPercent(null);
+    setIsEditingCustom(false);
+    setCustomPercentValue("");
+    setCustomPercentInvalid(false);
     setPrice(null);
     setPriceError(null);
     setPriceStatus("idle");
@@ -1834,8 +2342,48 @@ if (selectedAccount && fromToken && toToken) {
     return "Review swap";
   })();
 
+  // Network selection — the shared full-screen selector (no modal/sheet).
+  // Back returns to Swap unchanged; selecting switches the network and resets
+  // the quote/token pair for the new chain.
+  if (networkSelectorOpen) {
+    return (
+      <SelectNetworkPage
+        purpose="swap"
+        selectedChainId={selectedChainId}
+        onSelect={(chainId) => void selectNetwork(chainId)}
+        onBack={() => setNetworkSelectorOpen(false)}
+      />
+    );
+  }
+
+  if (isWatchOnly(selectedAccount)) {
+    return (
+      <div className="ext-popup swap-page" data-screen-label="Swap – Watch-only">
+        <div className="bar-top">
+          <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
+            Swap
+          </div>
+        </div>
+        <div className="screen-body watch-only-guard">
+          <div className="watch-only-guard__title">Watch-only account</div>
+          <div className="watch-only-guard__text">
+            This account cannot swap assets because it cannot sign transactions.
+          </div>
+          <button className="btn secondary lg full" type="button" onClick={onBack}>
+            Back to wallet
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="ext-popup" data-screen-label="Swap">
+    <div className="ext-popup swap-page" data-screen-label="Swap">
       {/* ── Top bar ── */}
       <div className="bar-top">
         <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
@@ -1844,10 +2392,18 @@ if (selectedAccount && fromToken && toToken) {
           </svg>
         </button>
 
-        <div className="swap-page-title">
+        <button
+          type="button"
+          className="swap-page-title swap-page-title--button"
+          onClick={() => setNetworkSelectorOpen(true)}
+          aria-label={`Select network. Current: ${getNetworkLabel(selectedChainId)}`}
+        >
           <div className="swap-page-title__name">Swap</div>
-          <div className="swap-page-title__network">{getNetworkLabel(selectedChainId)}</div>
-        </div>
+          <div className="swap-page-title__network">
+            {getNetworkLabel(selectedChainId)}
+            <span className="swap-page-title__chevron" aria-hidden="true">▾</span>
+          </div>
+        </button>
 
         <button
           className="icbtn"
@@ -1877,7 +2433,7 @@ if (selectedAccount && fromToken && toToken) {
         {/* Combined From / To card */}
         <div className="swap-pair-card">
           {/* FROM half */}
-          <div className="swap-half">
+          <div className="swap-half swap-half--from">
             <div className="swap-half-top">
               <span className="swap-half-label">From</span>
               <button
@@ -1886,8 +2442,18 @@ if (selectedAccount && fromToken && toToken) {
                 onClick={() => setTokenPickerSide("from")}
                 disabled={isLoadingTokens && tokens.length === 0}
               >
-                <span className="swap-token-pill__icon">{fromToken?.iconText ?? "?"}</span>
-                <span>{fromToken?.symbol ?? "Select"}</span>
+                {fromToken ? (
+                  <AssetIcon
+                    ticker={fromToken.symbol}
+                    address={fromToken.type === "native" ? null : fromToken.address}
+                    chainId={selectedChainId}
+                    size={30}
+                    className="swap-token-pill__img"
+                  />
+                ) : (
+                  <span className="swap-token-pill__icon">?</span>
+                )}
+                <span className="swap-token-pill__sym">{fromToken?.symbol ?? "Select"}</span>
                 <span className="swap-token-pill__chevron">▾</span>
               </button>
             </div>
@@ -1896,28 +2462,95 @@ if (selectedAccount && fromToken && toToken) {
               className="swap-amount-input"
               inputMode="decimal"
               placeholder="0"
-              value={amount}
-              onChange={(event) => handleAmountChange(event.target.value)}
+              value={fromInputValue}
+              onFocus={handleSellAmountFocus}
+              onChange={(event) => handleSellAmountInput(event.target.value)}
+              style={{
+                fontSize: getAmountFontSize(fromInputValue || "0"),
+                letterSpacing: getAmountLetterSpacing(fromInputValue || "0"),
+                lineHeight: 1.05,
+              }}
             />
 
             <div className="swap-half-bottom">
               <span>{fromToken?.name ?? "—"}</span>
-              <div className="swap-half-bottom__right">
-                {fromToken ? (
-                  <span>
-                    {hideBalances ? "••••" : formatTokenBalance(fromToken.balance)}{" "}
-                    {fromToken.symbol}
-                  </span>
-                ) : null}
-                <button
-                  className="swap-max-pill"
-                  type="button"
-                  onClick={handleMaxClick}
-                  disabled={!fromToken}
+              {fromToken ? (
+                <span className="swap-half-bottom__bal">
+                  {hideBalances ? "••••" : formatTokenBalance(fromToken.balance)}{" "}
+                  {fromToken.symbol}
+                </span>
+              ) : null}
+            </div>
+
+            {/* Custom percent + MAX live inside FROM, near the balance. */}
+            <div className="swap-from-chips">
+              {isEditingCustom ? (
+                <span
+                  className={`swap-percent-chip swap-percent-chip--edit${
+                    customPercentInvalid ? " swap-percent-chip--invalid" : ""
+                  }`}
                 >
-                  MAX
+                  <input
+                    className="swap-percent-chip__input"
+                    inputMode="decimal"
+                    autoFocus
+                    placeholder="0"
+                    value={customPercentValue}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => {
+                      setCustomPercentValue(event.target.value);
+                      setCustomPercentInvalid(false);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleApplyCustomPercent();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        handleCancelCustomEdit();
+                      }
+                    }}
+                    onBlur={handleApplyCustomPercent}
+                  />
+                  <span className="swap-percent-chip__suffix">%</span>
+                  <button
+                    type="button"
+                    className="swap-percent-chip__apply"
+                    aria-label="Apply custom percent"
+                    // Keep input focus so the click applies before onBlur fires.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={handleApplyCustomPercent}
+                  >
+                    ✓
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className={`swap-percent-chip swap-percent-chip--custom${
+                    amountMode === "sell" && selectedPercent !== null
+                      ? " swap-percent-chip--active"
+                      : ""
+                  }`}
+                  onClick={handleStartCustomEdit}
+                  disabled={!fromToken || fromBalanceIsZero}
+                  aria-label="Custom percent of balance"
+                  title="Custom percent of balance"
+                >
+                  {amountMode === "sell" && selectedPercent !== null
+                    ? `${selectedPercent}%`
+                    : "✎"}
                 </button>
-              </div>
+              )}
+
+              <button
+                className="swap-max-pill swap-percent-chip"
+                type="button"
+                onClick={handleMaxClick}
+                disabled={!fromToken || fromBalanceIsZero}
+              >
+                MAX
+              </button>
             </div>
           </div>
 
@@ -1935,7 +2568,7 @@ if (selectedAccount && fromToken && toToken) {
           </div>
 
           {/* TO half */}
-          <div className="swap-half">
+          <div className="swap-half swap-half--to">
             <div className="swap-half-top">
               <span className="swap-half-label">To</span>
               <button
@@ -1944,24 +2577,46 @@ if (selectedAccount && fromToken && toToken) {
                 onClick={() => setTokenPickerSide("to")}
                 disabled={isLoadingTokens && tokens.length === 0}
               >
-                <span className="swap-token-pill__icon">{toToken?.iconText ?? "?"}</span>
-                <span>{toToken?.symbol ?? "Select"}</span>
+                {toToken ? (
+                  <AssetIcon
+                    ticker={toToken.symbol}
+                    address={toToken.type === "native" ? null : toToken.address}
+                    chainId={selectedChainId}
+                    size={30}
+                    className="swap-token-pill__img"
+                  />
+                ) : (
+                  <span className="swap-token-pill__icon">?</span>
+                )}
+                <span className="swap-token-pill__sym">{toToken?.symbol ?? "Select"}</span>
                 <span className="swap-token-pill__chevron">▾</span>
               </button>
             </div>
 
-            <div
-              className={`swap-estimated-display${
-                !amount || priceStatus === "idle" ? " swap-estimated-display--muted" : ""
+            <input
+              className={`swap-amount-input${
+                amountMode === "buy" ? " swap-amount-input--target" : ""
               }`}
-            >
-              {estimatedReceive}
-            </div>
+              inputMode="decimal"
+              placeholder="0"
+              value={toInputValue}
+              onFocus={handleReceiveAmountFocus}
+              onChange={(event) => handleReceiveAmountInput(event.target.value)}
+              disabled={!toToken}
+              title={amountMode === "sell" ? estimatedReceive : undefined}
+              style={{
+                fontSize: getAmountFontSize(toInputValue || "0"),
+                letterSpacing: getAmountLetterSpacing(toInputValue || "0"),
+                lineHeight: 1.05,
+              }}
+            />
 
             <div className="swap-half-bottom">
-              <span>{toToken?.name ?? "—"}</span>
+              <span>
+                {amountMode === "buy" ? "You receive" : toToken?.name ?? "—"}
+              </span>
               {toToken ? (
-                <span>
+                <span className="swap-half-bottom__bal">
                   {hideBalances ? "••••" : formatTokenBalance(toToken.balance)}{" "}
                   {toToken.symbol}
                 </span>
@@ -1981,9 +2636,11 @@ if (selectedAccount && fromToken && toToken) {
               <span>Network fee</span>
               <strong>{formatNetworkFee(price, selectedChainId)}</strong>
             </div>
-            <div className="swap-quote-row">
+            <div className="swap-quote-row swap-quote-row--route">
               <span>Route</span>
-              <strong>{priceStatus === "ready" ? getZeroXRouteLabel(price) : "—"}</strong>
+              <strong title={priceStatus === "ready" ? getZeroXRouteLabel(price) : undefined}>
+                {priceStatus === "ready" ? getZeroXRouteLabel(price) : "—"}
+              </strong>
             </div>
             <div className="swap-quote-row">
               <span>Simple fee</span>
@@ -2002,14 +2659,24 @@ if (selectedAccount && fromToken && toToken) {
           </div>
         ) : null}
 
-        {/* Status notice */}
-        <div className={priceStatus === "error" ? "swap-error" : "swap-notice"}>
-          {quoteNotice}
-        </div>
+        {/* Status notice — errors always show; the loading hint shows while a
+            quote is fetching. The success/"quote ready" notice is intentionally
+            omitted: the active black Review button is confirmation enough and
+            it saves vertical space in the popup. */}
+        {priceStatus === "error" ? (
+          <div className="swap-error">{quoteNotice}</div>
+        ) : priceStatus === "loading" && !swapBalanceWarning ? (
+          <div className="swap-notice">{quoteNotice}</div>
+        ) : null}
 
         {/* Balance / gas warning */}
         {swapBalanceWarning ? (
           <div className="swap-warning">{swapBalanceWarning}</div>
+        ) : null}
+
+        {/* MAX could not reserve gas (balance too low for the network fee) */}
+        {maxReserveNotice ? (
+          <div className="swap-warning">{maxReserveNotice}</div>
         ) : null}
 
         {/* Auto-refresh countdown */}
@@ -2019,8 +2686,8 @@ if (selectedAccount && fromToken && toToken) {
           </div>
         ) : null}
 
-        {/* CTA — no fixed positioning, never overlays content */}
-        <div className="swap-actions">
+        {/* Review CTA — last block in normal flow; never scrolls or overlaps */}
+        <div className="swap-review-cta">
           <button
             className="btn primary lg full"
             type="button"
@@ -2038,54 +2705,76 @@ if (selectedAccount && fromToken && toToken) {
       ) : null}
 
       {submitStatus === "submitted" ? (
-        <div className="swap-token-modal-backdrop">
-          <div
-            className="swap-token-modal swap-submitted-modal"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="swap-token-modal-header">
-              <div>
-                <h2>{getSubmittedSwapStatusTitle(submittedSwapStatus)}</h2>
-                <p>{getSubmittedSwapStatusSubtitle(submittedSwapStatus)}</p>
-              </div>
-
-              <button
-                className="icbtn"
-                type="button"
-                onClick={handleDoneAfterSubmittedSwap}
-                aria-label="Close submitted swap screen"
-              >
-                ×
-              </button>
-            </div>
-
-            <div
-              className={`swap-submitted-status-card swap-submitted-status-card--${submittedSwapStatus}`}
+        <div
+          className={`swap-status-page swap-status-page--${submittedSwapStatus}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={getSubmittedSwapStatusTitle(submittedSwapStatus)}
+        >
+          {/* Header — full wallet screen, not a modal */}
+          <div className="swap-status-header">
+            <button
+              className="icbtn"
+              type="button"
+              onClick={handleBackToWalletAfterSubmit}
+              aria-label="Back to wallet"
             >
-              <div className="swap-submitted-status-icon">
-                {getSubmittedSwapStatusIcon(submittedSwapStatus)}
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            <div className="swap-status-titles">
+              <div className="swap-status-title">
+                {getSubmittedSwapStatusTitle(submittedSwapStatus)}
               </div>
-              <div>
-                <strong>{getSubmittedSwapStatusCardTitle(submittedSwapStatus)}</strong>
-                <p>{getSubmittedSwapStatusCardText(submittedSwapStatus)}</p>
+              <div className="swap-status-subtitle">
+                {getSubmittedSwapStatusSubtitle(submittedSwapStatus)}
               </div>
             </div>
 
-            {submittedSwapError ? (
-              <p className="swap-submitted-error">{submittedSwapError}</p>
-            ) : null}
+            <span className="swap-status-spacer" aria-hidden="true" />
+          </div>
 
-            <div className="swap-review-details">
-              <div className="swap-review-row">
+          <div className="swap-status-content">
+            {/* Compact status card */}
+            <div
+              className={`swap-status-card swap-status-card--${submittedSwapStatus}`}
+            >
+              <div className="swap-status-icon">
+                {submittedSwapStatus === "pending" ? (
+                  <span className="swap-status-spinner" aria-hidden="true" />
+                ) : (
+                  getSubmittedSwapStatusIcon(submittedSwapStatus)
+                )}
+              </div>
+              <div className="swap-status-text">
+                <strong>{getSubmittedSwapStatusCardTitle(submittedSwapStatus)}</strong>
+                <p>
+                  {submittedSwapStatus === "failed" && submittedSwapError
+                    ? submittedSwapError
+                    : getSubmittedSwapStatusCardText(submittedSwapStatus)}
+                </p>
+              </div>
+            </div>
+
+            {/* Transaction details */}
+            <div className="swap-status-details">
+              <div className="swap-details-row">
                 <span>You paid</span>
                 <strong>
-                  {amount} {fromToken?.symbol ?? ""}
+                  {reviewPayAmount} {fromToken?.symbol ?? ""}
                 </strong>
               </div>
 
-              <div className="swap-review-row">
-                <span>You receive</span>
+              <div className="swap-details-row">
+                <span>
+                  {submittedSwapStatus === "confirmed"
+                    ? "You received"
+                    : submittedSwapStatus === "failed"
+                      ? "You expected"
+                      : "You receive"}
+                </span>
                 <strong>
                   {quote && toToken
                     ? `${formatEstimatedReceive(quote, toToken)} ${toToken.symbol}`
@@ -2093,63 +2782,114 @@ if (selectedAccount && fromToken && toToken) {
                 </strong>
               </div>
 
-              <div className="swap-review-row">
+              <div className="swap-details-row">
                 <span>Status</span>
-                <strong
-                  className={`swap-submitted-status-badge swap-submitted-status-badge--${submittedSwapStatus}`}
-                >
-                  {getSubmittedSwapStatusLabel(submittedSwapStatus)}
-                </strong>
-              </div>
-
-              <div className="swap-review-row">
-                <span>Simple fee</span>
                 <strong>
-                  {quote ? formatSimpleFeeAmount(quote, fromToken, toToken) : "—"}
+                  <span
+                    className={`swap-status-badge swap-status-badge--${submittedSwapStatus}`}
+                  >
+                    {getSubmittedSwapStatusLabel(submittedSwapStatus)}
+                  </span>
                 </strong>
               </div>
 
-              <div className="swap-review-row">
+              {submittedSwapStatus === "confirmed" ? (
+                <div className="swap-details-row">
+                  <span>Simple fee</span>
+                  <strong>
+                    {quote ? formatSimpleFeeAmount(quote, fromToken, toToken) : "—"}
+                  </strong>
+                </div>
+              ) : null}
+
+              <div className="swap-details-row">
                 <span>Network fee</span>
                 <strong>{quote ? formatNetworkFee(quote, selectedChainId) : "—"}</strong>
               </div>
 
-              <div className="swap-review-row">
+              {submittedSwapStatus !== "confirmed" ? (
+                <div className="swap-details-row">
+                  <span>Route</span>
+                  <strong title={quote ? getZeroXRouteLabel(quote) : undefined}>
+                    {quote ? getZeroXRouteLabel(quote) : "—"}
+                  </strong>
+                </div>
+              ) : null}
+
+              <div className="swap-details-row">
                 <span>Tx hash</span>
-                <strong className="swap-submitted-hash">
+                <strong
+                  className="swap-status-hash"
+                  title={submittedTxHash ?? undefined}
+                >
                   {formatShortTransactionHash(submittedTxHash)}
                 </strong>
               </div>
             </div>
+          </div>
 
-            <div className="swap-submitted-actions">
-              {submittedExplorerUrl ? (
-                <a
-                  className="swap-secondary-action"
-                  href={submittedExplorerUrl}
-                  target="_blank"
-                  rel="noreferrer"
+          <div className="swap-status-actions">
+            {submittedSwapStatus === "failed" ? (
+              <>
+                <button
+                  className="btn primary lg full swap-status-primary"
+                  type="button"
+                  onClick={handleTryAgainAfterFailedSwap}
                 >
-                  View on explorer
-                </a>
-              ) : null}
+                  Try again
+                </button>
 
-              <button
-                className="swap-secondary-action"
-                type="button"
-                onClick={handleStartNewSwapAfterSubmit}
-              >
-                New swap
-              </button>
+                <button
+                  className="btn secondary lg full swap-status-secondary"
+                  type="button"
+                  onClick={handleBackToWalletAfterSubmit}
+                >
+                  Back to wallet
+                </button>
 
-              <button
-                className="swap-review-button"
-                type="button"
-                onClick={handleDoneAfterSubmittedSwap}
-              >
-                Done
-              </button>
-            </div>
+                {submittedExplorerUrl ? (
+                  <a
+                    className="swap-status-tertiary"
+                    href={submittedExplorerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on explorer
+                  </a>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {submittedExplorerUrl ? (
+                  <a
+                    className="btn primary lg full swap-status-primary"
+                    href={submittedExplorerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View on explorer
+                  </a>
+                ) : null}
+
+                <button
+                  className="btn secondary lg full swap-status-secondary"
+                  type="button"
+                  onClick={handleBackToWalletAfterSubmit}
+                >
+                  Back to wallet
+                </button>
+
+                {submittedSwapStatus === "confirmed" ? (
+                  <button
+                    className="swap-status-tertiary"
+                    type="button"
+                    onClick={handleStartNewSwapAfterSubmit}
+                  >
+                    New swap
+                  </button>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
       ) : null}
@@ -2231,55 +2971,78 @@ if (selectedAccount && fromToken && toToken) {
       ) : null}
 
       {isReviewOpen ? (
-        <div className="swap-token-modal-backdrop">
-          <div className="swap-token-modal" role="dialog" aria-modal="true">
-            <div className="swap-token-modal-header">
-              <div>
-                <h2>Review swap</h2>
-                <p>Slippage {formatSlippageBps(slippageBps)}</p>
-              </div>
+        <div
+          className="swap-review-page"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Review swap"
+        >
+          {/* Header — full wallet screen, not a modal */}
+          <div className="swap-review-page__header">
+            <button
+              className="icbtn"
+              type="button"
+              onClick={handleCloseReview}
+              aria-label="Back to swap"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
 
-              <button
-                className="icbtn"
-                type="button"
-                onClick={handleCloseReview}
-              >
-                ×
-              </button>
+            <div className="swap-review-page__titles">
+              <div className="swap-review-page__title">Review swap</div>
+              <div className="swap-review-page__subtitle">
+                Slippage {formatSlippageBps(slippageBps)}
+              </div>
             </div>
 
-            {reviewStatus === "loading" ? (
-              <div className="swap-empty-state">Fetching final quote...</div>
-            ) : null}
+            <span className="swap-review-page__spacer" aria-hidden="true" />
+          </div>
 
-            {reviewStatus === "error" ? (
+          {reviewStatus === "loading" ? (
+            <div className="swap-review-page__content">
+              <div className="swap-empty-state">Fetching final quote…</div>
+            </div>
+          ) : null}
+
+          {reviewStatus === "error" ? (
+            <div className="swap-review-page__content">
               <section className="swap-error">
                 {quoteError ?? "Could not fetch final quote."}
               </section>
-            ) : null}
+            </div>
+          ) : null}
 
-            {reviewStatus === "ready" && quote && fromToken && toToken ? (
-              <div className="swap-review-content">
-                <div className="swap-review-main">
-                  <div>
-                    <span>You pay</span>
-                    <strong>
-                      {amount} {fromToken.symbol}
+          {reviewStatus === "ready" && quote && fromToken && toToken ? (
+            <>
+              <div className="swap-review-page__content">
+                {/* Compact pay / receive summary */}
+                <div className="swap-review-summary">
+                  <div className="swap-review-summary__row">
+                    <span className="swap-review-summary__label">You pay</span>
+                    <strong className="swap-review-summary__amount">
+                      {reviewPayAmount} {fromToken.symbol}
                     </strong>
                   </div>
 
-                  <div>
-                    <span>You receive</span>
-                    <strong>
+                  <div className="swap-review-summary__divider" />
+
+                  <div className="swap-review-summary__row">
+                    <span className="swap-review-summary__label">You receive</span>
+                    <strong className="swap-review-summary__amount">
                       {formatEstimatedReceive(quote, toToken)} {toToken.symbol}
                     </strong>
                   </div>
                 </div>
 
+                {/* Quote details */}
                 <div className="swap-review-details">
                   <div className="swap-details-row">
                     <span>Rate</span>
-                    <strong>{formatRate(quote, fromToken, toToken)}</strong>
+                    <strong title={formatRate(quote, fromToken, toToken)}>
+                      {formatRate(quote, fromToken, toToken)}
+                    </strong>
                   </div>
 
                   <div className="swap-details-row">
@@ -2288,16 +3051,15 @@ if (selectedAccount && fromToken && toToken) {
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Estimated network fee</span>
+                    <span>Network fee</span>
                     <strong>{formatNetworkFee(quote, selectedChainId)}</strong>
                   </div>
-                  <p className="swap-review-fee-note">
-                    Network fee is paid to the network and may change before confirmation.
-                  </p>
 
                   <div className="swap-details-row">
                     <span>Route</span>
-                    <strong>{getZeroXRouteLabel(quote)}</strong>
+                    <strong title={getZeroXRouteLabel(quote)}>
+                      {getZeroXRouteLabel(quote)}
+                    </strong>
                   </div>
 
                   <div className="swap-details-row">
@@ -2307,10 +3069,12 @@ if (selectedAccount && fromToken && toToken) {
 
                   <div className="swap-details-row">
                     <span>Approval</span>
-                    <strong>
-                      {needsApproval ? "Required" : "Not needed"}
-                    </strong>
+                    <strong>{needsApproval ? "Required" : "Not needed"}</strong>
                   </div>
+
+                  <p className="swap-review-fee-note">
+                    Network fee may change before confirmation.
+                  </p>
                 </div>
 
                 {isApprovalApproved && approvalTxHash ? (
@@ -2324,46 +3088,18 @@ if (selectedAccount && fromToken && toToken) {
                   <section className="swap-error">{approvalError}</section>
                 ) : null}
 
-                {submitStatus === "submitted" && submittedTxHash ? (
-                  <section className="swap-success">
-                    <strong>Swap submitted</strong>
-                    <span>{submittedTxHash}</span>
-
-                    <div className="swap-success-actions">
-                      {submittedExplorerUrl ? (
-                        <a
-                          href={submittedExplorerUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          View transaction
-                        </a>
-                      ) : null}
-
-                      <button type="button" onClick={onBack}>
-                        Back to wallet
-                      </button>
-
-                      <button type="button" onClick={handleNewSwap}>
-                        New swap
-                      </button>
-                    </div>
-                  </section>
-                ) : null}
-
                 {submitStatus === "error" && submitError ? (
                   <section className="swap-error">{submitError}</section>
                 ) : null}
+              </div>
 
+              <div className="swap-review-page__footer">
                 {needsApproval ? (
                   <button
-                    className="swap-review-button"
+                    className="btn primary lg full swap-review-confirm"
                     type="button"
                     onClick={() => void handleApproveToken()}
-                    disabled={
-                      approvalStatus === "approving" ||
-                      isApprovalApproved
-                    }
+                    disabled={approvalStatus === "approving" || isApprovalApproved}
                   >
                     {approvalStatus === "approving"
                       ? `Approving ${fromToken.symbol}…`
@@ -2371,24 +3107,21 @@ if (selectedAccount && fromToken && toToken) {
                   </button>
                 ) : (
                   <button
-                    className="swap-review-button"
+                    className="btn primary lg full swap-review-confirm"
                     type="button"
                     onClick={() => void handleConfirmSwap()}
                     disabled={
-                      submitStatus === "submitting" ||
-                      submitStatus === "submitted"
+                      submitStatus === "submitting" || submitStatus === "submitted"
                     }
                   >
                     {submitStatus === "submitting"
                       ? "Submitting swap…"
-                      : submitStatus === "submitted"
-                        ? "Swap submitted"
-                        : "Confirm swap"}
+                      : "Confirm swap"}
                   </button>
                 )}
               </div>
-            ) : null}
-          </div>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -2476,9 +3209,13 @@ if (selectedAccount && fromToken && toToken) {
                 {tokenImportStatus === "ready" && tokenImportPreview ? (
                   <>
                     <div className="swap-token-import-card">
-                      <span className="swap-token-icon">
-                        {getTokenIconText(tokenImportPreview.symbol)}
-                      </span>
+                      <AssetIcon
+                        ticker={tokenImportPreview.symbol}
+                        address={tokenImportPreview.address}
+                        chainId={selectedChainId}
+                        size={32}
+                        className="swap-token-list-img"
+                      />
                       <span className="swap-token-list-body">
                         <strong>{tokenImportPreview.symbol}</strong>
                         <span>
@@ -2524,7 +3261,13 @@ if (selectedAccount && fromToken && toToken) {
                         type="button"
                         onClick={() => handleSelectToken(token)}
                       >
-                        <span className="swap-token-icon">{token.iconText}</span>
+                        <AssetIcon
+                          ticker={token.symbol}
+                          address={token.type === "native" ? null : token.address}
+                          chainId={selectedChainId}
+                          size={32}
+                          className="swap-token-list-img"
+                        />
                         <span className="swap-token-list-body">
                           <strong>{token.symbol}</strong>
                           <span>{token.name}</span>
@@ -2548,7 +3291,13 @@ if (selectedAccount && fromToken && toToken) {
                         type="button"
                         onClick={() => handleSelectToken(token)}
                       >
-                        <span className="swap-token-icon">{token.iconText}</span>
+                        <AssetIcon
+                          ticker={token.symbol}
+                          address={token.type === "native" ? null : token.address}
+                          chainId={selectedChainId}
+                          size={32}
+                          className="swap-token-list-img"
+                        />
                         <span className="swap-token-list-body">
                           <strong>{token.symbol}</strong>
                           <span>{token.name}</span>
@@ -2570,7 +3319,13 @@ if (selectedAccount && fromToken && toToken) {
                         type="button"
                         onClick={() => handleSelectToken(token)}
                       >
-                        <span className="swap-token-icon">{token.iconText}</span>
+                        <AssetIcon
+                          ticker={token.symbol}
+                          address={token.type === "native" ? null : token.address}
+                          chainId={selectedChainId}
+                          size={32}
+                          className="swap-token-list-img"
+                        />
                         <span className="swap-token-list-body">
                           <strong>{token.symbol}</strong>
                           <span>{token.name}</span>
