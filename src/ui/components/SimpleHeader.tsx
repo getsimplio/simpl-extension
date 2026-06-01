@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import logoUrl from "../../assets/simpl-logo.png";
 
 type SimpleHeaderProps = {
   right?: ReactNode;
@@ -7,10 +8,11 @@ type SimpleHeaderProps = {
 export function SimpleHeader({ right }: SimpleHeaderProps) {
   return (
     <header className="simple-header">
-      <div className="simple-logo" aria-label="SIMPLE Wallet">
-        <span className="simple-logo__mark" aria-hidden="true" />
-        <span className="simple-logo__text">SIMPLE</span>
-      </div>
+      <img
+        src={logoUrl}
+        alt="Simpl wallet"
+        style={{ height: 30, width: "auto", objectFit: "contain" }}
+      />
 
       {right}
     </header>

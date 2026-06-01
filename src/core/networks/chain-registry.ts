@@ -5,6 +5,10 @@ export type ChainId = number;
 export type ChainConfig = {
   chainId: ChainId;
   name: string;
+  // Canonical user-facing network name, consistent across the whole app
+  // (e.g. "BNB Chain", never "BNB Smart Chain"; "Ethereum", never
+  // "Ethereum Mainnet"). UI label only — does not affect network logic.
+  displayName: string;
   nativeCurrency: {
     name: string;
     symbol: string;
@@ -13,6 +17,9 @@ export type ChainConfig = {
   rpcUrl: string;
   blockExplorerUrl: string;
   isTestnet: boolean;
+  // Token standard label shown in receive/network UIs (e.g. "ERC-20",
+  // "BEP-20"). Display metadata only — does not affect network logic.
+  standardLabel: string;
 };
 
 export const ETHEREUM_MAINNET_CHAIN_ID = 1;
@@ -24,6 +31,7 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
   {
     chainId: ETHEREUM_MAINNET_CHAIN_ID,
     name: "Ethereum Mainnet",
+    displayName: "Ethereum",
     nativeCurrency: {
       name: "Ether",
       symbol: "ETH",
@@ -32,10 +40,12 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
     rpcUrl: "https://ethereum-rpc.publicnode.com",
     blockExplorerUrl: "https://etherscan.io",
     isTestnet: false,
+    standardLabel: "ERC-20",
   },
   {
     chainId: BNB_SMART_CHAIN_ID,
     name: "BNB Smart Chain",
+    displayName: "BNB Chain",
     nativeCurrency: {
       name: "BNB",
       symbol: "BNB",
@@ -44,10 +54,12 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
     rpcUrl: "https://bsc-rpc.publicnode.com",
     blockExplorerUrl: "https://bscscan.com",
     isTestnet: false,
+    standardLabel: "BEP-20",
   },
   {
     chainId: BASE_CHAIN_ID,
     name: "Base",
+    displayName: "Base",
     nativeCurrency: {
       name: "Ether",
       symbol: "ETH",
@@ -56,10 +68,12 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
     rpcUrl: "https://base-rpc.publicnode.com",
     blockExplorerUrl: "https://basescan.org",
     isTestnet: false,
+    standardLabel: "ERC-20",
   },
   {
     chainId: SEPOLIA_CHAIN_ID,
     name: "Sepolia",
+    displayName: "Sepolia",
     nativeCurrency: {
       name: "Sepolia Ether",
       symbol: "ETH",
@@ -68,8 +82,22 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
     rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com",
     blockExplorerUrl: "https://sepolia.etherscan.io",
     isTestnet: true,
+    standardLabel: "ERC-20 Testnet",
   },
 ];
+
+// Token standard label for a chain, with an "EVM" fallback for chains that
+// haven't declared one. Display metadata only.
+export function getNetworkStandardLabel(chainId: number): string {
+  return getChainById(chainId)?.standardLabel ?? "EVM";
+}
+
+// Canonical user-facing network name, used everywhere a network is labelled so
+// naming stays consistent (e.g. "BNB Chain", "Ethereum"). Falls back to a
+// generic "Chain <id>" for unknown chains.
+export function getNetworkDisplayName(chainId: number): string {
+  return getChainById(chainId)?.displayName ?? `Chain ${chainId}`;
+}
 
 export function getChainById(chainId: number): ChainConfig | null {
   return DEFAULT_CHAINS.find((chain) => chain.chainId === chainId) ?? null;

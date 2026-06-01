@@ -11,8 +11,11 @@ import {
   type NativeAssetQuote,
 } from "../../core/prices/native-price.service";
 import { transactionHistoryService } from "../../core/transactions/transaction-history.service";
+import { getNetworkDisplayName } from "../../core/networks/chain-registry";
 import { AssetIcon } from "../components/AssetIcon";
 import { NetworkIcon } from "../components/NetworkIcon";
+import { SelectNetworkPage } from "../components/SelectNetworkPage";
+import { SelectSendAssetPage } from "./SelectSendAssetPage";
 
 type SendPageProps = {
   asset: WalletAssetBalance;
@@ -20,6 +23,9 @@ type SendPageProps = {
   walletState: WalletState;
   onBack: () => void;
   onSent: () => void | Promise<void>;
+  // Re-sync global view state after switching network so the rest of the app
+  // (e.g. the Home network pill) stays consistent. Does not navigate away.
+  onChanged?: () => void | Promise<void>;
 };
 
 type SendStep = "form" | "review" | "success";
@@ -41,60 +47,8 @@ function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
-function getNetworkLabel(chainId: number): string {
-  if (chainId === 1) return "Ethereum";
-  if (chainId === 56) return "BNB Chain";
-  if (chainId === 8453) return "Base";
-  if (chainId === 11155111) return "Sepolia";
-
-  return `Chain ${chainId}`;
-}
-
-type SendChainOption = {
-  chainId: number;
-  name: string;
-  nativeSymbol: string;
-  subtitle: string;
-};
-
-const SEND_CHAIN_OPTIONS: SendChainOption[] = [
-  {
-    chainId: 1,
-    name: "Ethereum Mainnet",
-    nativeSymbol: "ETH",
-    subtitle: "ETH · Chain 1",
-  },
-  {
-    chainId: 56,
-    name: "BNB Smart Chain",
-    nativeSymbol: "BNB",
-    subtitle: "BNB · Chain 56",
-  },
-  {
-    chainId: 8453,
-    name: "Base",
-    nativeSymbol: "ETH",
-    subtitle: "ETH · Chain 8453",
-  },
-  {
-    chainId: 11155111,
-    name: "Sepolia",
-    nativeSymbol: "ETH",
-    subtitle: "ETH · Chain 11155111",
-  },
-];
-
-function getActiveSendChain(chainId: number): SendChainOption {
-  return (
-    SEND_CHAIN_OPTIONS.find((chain) => chain.chainId === chainId) ?? {
-      chainId,
-      name: `Chain ${chainId}`,
-      nativeSymbol: "EVM",
-      subtitle: `Chain ${chainId}`,
-    }
-  );
-}
-
+// Canonical network name from the chain registry (single source of truth).
+const getNetworkLabel = getNetworkDisplayName;
 
 function getExplorerTransactionUrl(chainId: number, hash: string): string | null {
   if (chainId === 1) return `https://etherscan.io/tx/${hash}`;
@@ -540,6 +494,7 @@ export function SendPage({
   walletState,
   onBack,
   onSent,
+  onChanged,
 }: SendPageProps) {
   const [selectedAsset, setSelectedAsset] = useState<WalletAssetBalance>(asset);
   const [availableAssets, setAvailableAssets] = useState<WalletAssetBalance[]>([
@@ -564,8 +519,7 @@ export function SendPage({
   const [sentTransaction, setSentTransaction] =
     useState<SentTransaction | null>(null);
 
-  // Search + validation touch state
-  const [assetSearch, setAssetSearch] = useState("");
+  // Validation touch state
   const [toAddressTouched, setToAddressTouched] = useState(false);
   const [amountTouched, setAmountTouched] = useState(false);
 
@@ -608,24 +562,6 @@ export function SendPage({
     return `≈ ${trimDecimal(n.toFixed(8))} ${selectedAsset.symbol}`;
   })();
 
-  const filteredAssets = availableAssets
-    .filter((item) => {
-      if (!assetSearch.trim()) return true;
-      const q = assetSearch.toLowerCase();
-      return (
-        item.symbol.toLowerCase().includes(q) ||
-        item.name.toLowerCase().includes(q) ||
-        (item.contractAddress?.toLowerCase().includes(q) ?? false)
-      );
-    })
-    .sort((a, b) => {
-      const balA = Number(a.formatted);
-      const balB = Number(b.formatted);
-      if (balA > 0 && balB <= 0) return -1;
-      if (balB > 0 && balA <= 0) return 1;
-      return balB - balA;
-    });
-
   const canContinue =
     recipientIsValid &&
     amountIsValid &&
@@ -645,7 +581,6 @@ export function SendPage({
     setStep("form");
     setToAddressTouched(false);
     setAmountTouched(false);
-    setAssetSearch("");
   }, [asset.id]);
 
   useEffect(() => {
@@ -720,8 +655,6 @@ export function SendPage({
     };
   }, [asset.id]);
 
-  const activeSendChain = getActiveSendChain(currentChainId);
-
   function handleBack() {
     if (step === "review") {
       setStep("form");
@@ -792,6 +725,9 @@ export function SendPage({
       setStep("form");
       setToAddressTouched(false);
       setAmountTouched(false);
+
+      // Keep the rest of the app (e.g. Home network pill) in sync.
+      await onChanged?.();
     } catch (error) {
       const alreadyKnownHash = getAlreadyKnownTransactionHash(error);
 
@@ -929,8 +865,65 @@ export function SendPage({
     }
   }
 
+  if (isWatchOnly) {
+    return (
+      <div className="ext-popup send-page" data-screen-label="09 Send – Watch-only">
+        <div className="bar-top">
+          <button className="icbtn" type="button" onClick={onBack}>
+            <BackIcon />
+          </button>
+          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
+            Send
+          </div>
+        </div>
+        <div className="screen-body watch-only-guard">
+          <div className="watch-only-guard__title">Watch-only account</div>
+          <div className="watch-only-guard__text">
+            This account cannot send assets because it does not have a private
+            key in this wallet.
+          </div>
+          <button className="btn secondary lg full" type="button" onClick={onBack}>
+            Back to wallet
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Network selection — the shared full-screen selector (no modal/sheet).
+  // Back returns to the Send form unchanged; selecting switches the network.
+  if (networkSelectorOpen) {
+    return (
+      <SelectNetworkPage
+        purpose="send"
+        selectedChainId={currentChainId}
+        onSelect={(chainId) => void selectNetwork(chainId)}
+        onBack={() => setNetworkSelectorOpen(false)}
+      />
+    );
+  }
+
+  // Asset selection — full-screen picker (no modal/sheet). Back leaves the
+  // selected asset unchanged; selecting updates the Send form (recipient kept,
+  // amount cleared by selectAsset).
+  if (assetSelectorOpen) {
+    return (
+      <SelectSendAssetPage
+        assets={availableAssets}
+        selectedAssetId={selectedAsset.id}
+        networkLabel={networkLabel}
+        hideBalances={hideBalances}
+        onSelect={(nextAsset) => {
+          selectAsset(nextAsset);
+          setAssetSelectorOpen(false);
+        }}
+        onBack={() => setAssetSelectorOpen(false)}
+      />
+    );
+  }
+
   return (
-    <div className="ext-popup" data-screen-label="09 Send">
+    <div className="ext-popup send-page" data-screen-label="09 Send">
       <div className="bar-top">
         <button className="icbtn" type="button" onClick={handleBack}>
           <BackIcon />
@@ -969,6 +962,7 @@ export function SendPage({
       >
         {/* Hero: asset icon + name + balance */}
         <section
+          className="send-hero"
           style={{
             display: "grid",
             gridTemplateColumns: "46px 1fr",
@@ -1069,7 +1063,7 @@ export function SendPage({
             }}
           >
             {/* Recipient address */}
-            <div style={{ display: "grid", gap: 6 }}>
+            <div className="send-field" style={{ display: "grid", gap: 6 }}>
               <SectionLabel left="Recipient address" />
 
               <div style={{ position: "relative" }}>
@@ -1107,7 +1101,7 @@ export function SendPage({
             </div>
 
             {/* Amount */}
-            <div style={{ display: "grid", gap: 6 }}>
+            <div className="send-field" style={{ display: "grid", gap: 6 }}>
               <div
                 style={{
                   display: "flex",
@@ -1178,7 +1172,7 @@ export function SendPage({
               ) : null}
             </div>
 
-            <section className="row-list">
+            <section className="row-list send-summary">
               <MetaRow label="From" value={shortAddress(selectedAccount.address)} />
               <MetaRow label="Network" value={networkLabel} />
               <MetaRow
@@ -1188,7 +1182,7 @@ export function SendPage({
             </section>
 
             <button
-              className="btn primary lg full"
+              className="btn primary lg full send-submit"
               type="submit"
               disabled={!canContinue || isWatchOnly}
               style={{ marginTop: 4 }}
@@ -1349,188 +1343,6 @@ export function SendPage({
         ) : null}
       </div>
 
-      {/* Network selector sheet */}
-      {networkSelectorOpen ? (
-        <div className="send-network-sheet-backdrop">
-          <button
-            type="button"
-            className="send-network-sheet-scrim"
-            aria-label="Close network selector"
-            onClick={() => setNetworkSelectorOpen(false)}
-          />
-
-          <section className="send-network-sheet">
-            <div className="send-network-sheet-head">
-              <div>
-                <div className="send-network-sheet-title">Select network</div>
-                <div className="send-network-sheet-subtitle">
-                  Current: {activeSendChain.name}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                className="icbtn"
-                aria-label="Close network selector"
-                onClick={() => setNetworkSelectorOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="row-list">
-              {SEND_CHAIN_OPTIONS.map((chain) => {
-                const active = chain.chainId === currentChainId;
-
-                return (
-                  <button
-                    key={chain.chainId}
-                    type="button"
-                    className="row send-network-sheet-row"
-                    onClick={() => void selectNetwork(chain.chainId)}
-                    style={{
-                      width: "100%",
-                      border: 0,
-                      background: active ? "var(--bg-sunken)" : "transparent",
-                      textAlign: "left",
-                    }}
-                  >
-                    <NetworkIcon
-                      chainId={chain.chainId}
-                      networkName={chain.name}
-                      size={36}
-                      showTestnetBadge={chain.chainId === 11155111}
-                    />
-
-                    <div className="body">
-                      <div className="nm">{chain.name}</div>
-                      <div className="sub">{chain.subtitle}</div>
-                    </div>
-
-                    <div className="num">
-                      <div
-                        className="v"
-                        style={active ? { color: "var(--secure)" } : undefined}
-                      >
-                        {active ? "Active" : "›"}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {/* Asset selector sheet */}
-      {assetSelectorOpen ? (
-        <div className="asset-sheet-backdrop">
-          <button
-            type="button"
-            className="asset-sheet-scrim"
-            aria-label="Close asset selector"
-            onClick={() => {
-              setAssetSelectorOpen(false);
-              setAssetSearch("");
-            }}
-          />
-
-          <section className="asset-sheet">
-            {/* Sticky header + search */}
-            <div className="asset-sheet-sticky">
-              <div className="asset-sheet-head">
-                <div>
-                  <div className="asset-sheet-title">Select asset</div>
-                  <div className="asset-sheet-subtitle">
-                    Choose token to send on {networkLabel}.
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  className="icbtn"
-                  aria-label="Close asset selector"
-                  onClick={() => {
-                    setAssetSelectorOpen(false);
-                    setAssetSearch("");
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div className="asset-sheet-search-wrap">
-                <input
-                  className="input asset-sheet-search"
-                  type="text"
-                  placeholder="Search symbol or address…"
-                  value={assetSearch}
-                  autoComplete="off"
-                  onChange={(e) => setAssetSearch(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Scrollable asset list */}
-            <div className="asset-sheet-scroll-body">
-              <div className="row-list">
-                {filteredAssets.length === 0 ? (
-                  <div className="asset-sheet-empty">No assets found.</div>
-                ) : (
-                  filteredAssets.map((item) => {
-                    const active = item.id === selectedAsset.id;
-
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="row asset-sheet-row"
-                        onClick={() => {
-                          selectAsset(item);
-                          setAssetSelectorOpen(false);
-                          setAssetSearch("");
-                        }}
-                        style={{
-                          width: "100%",
-                          border: 0,
-                          background: active ? "var(--bg-sunken)" : "transparent",
-                          textAlign: "left",
-                        }}
-                      >
-                        <AssetIcon
-                          ticker={item.symbol}
-                          logoURI={item.logoUrl}
-                          address={item.contractAddress}
-                          chainId={item.chainId}
-                          size={36}
-                        />
-
-                        <div className="body">
-                          <div className="nm">{item.symbol}</div>
-                          <div className="sub">{item.name}</div>
-                        </div>
-
-                        <div className="num">
-                          <div className="v">
-                            {hideBalances ? "••••" : formatAssetBalance(item)}
-                          </div>
-                          <div
-                            className="q"
-                            style={active ? { color: "var(--secure)" } : undefined}
-                          >
-                            {active ? "✓" : item.symbol}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }
