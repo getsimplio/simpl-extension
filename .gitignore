@@ -29,3 +29,5 @@ yarn-error.log*
 swap_settings_context.txt
 export_claude_design_context.py
 .package-lock.json
+
+.claude/
