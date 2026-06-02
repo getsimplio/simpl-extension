@@ -2,26 +2,29 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { isAddress } from "ethers";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import {
   tokenRegistryService,
   type TokenPreview,
 } from "../../core/tokens/token-registry";
-import { DEFAULT_CHAINS } from "../../core/networks/chain-registry";
+import { getChainById, isTronChainId } from "../../core/networks/chain-registry";
+import { isValidTronAddress } from "../../chains/tron/tron.address";
+import { walletService } from "../../core/wallet/wallet.service";
+import { NetworkIcon } from "../components/NetworkIcon";
+import { AssetIcon } from "../components/AssetIcon";
+import { Notice } from "../components/Notice";
+import { SelectNetworkPage } from "../components/SelectNetworkPage";
 
 type AddCustomTokenPageProps = {
   walletState: WalletState;
   selectedAccount: WalletAccount | null;
   onBack: () => void;
   onAdded: () => void | Promise<void>;
-};
-
-type StatusKind = "info" | "success" | "error";
-
-type StatusMessage = {
-  kind: StatusKind;
-  text: string;
+  // Re-sync global view state after switching network so walletState (and the
+  // rest of the app) reflects the new active chain — same wiring as Send/Swap.
+  onChanged?: () => void | Promise<void>;
 };
 
 function BackIcon() {
@@ -46,7 +49,7 @@ function PlusIcon() {
   );
 }
 
-function TokenIcon() {
+function SearchIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -59,19 +62,18 @@ function TokenIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <circle cx="12" cy="12" r="8" />
-      <path d="M9 12h6" />
-      <path d="M12 9v6" />
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
     </svg>
   );
 }
 
-function ShieldIcon() {
+function CopyIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="16"
-      height="16"
+      width="14"
+      height="14"
       aria-hidden="true"
       fill="none"
       stroke="currentColor"
@@ -79,18 +81,18 @@ function ShieldIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="M9 12l2 2 4-4" />
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
     </svg>
   );
 }
 
-function NetworkIcon() {
+function ExternalIcon() {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="16"
-      height="16"
+      width="14"
+      height="14"
       aria-hidden="true"
       fill="none"
       stroke="currentColor"
@@ -98,43 +100,37 @@ function NetworkIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+      <path d="M14 5h5v5" />
+      <path d="M10 14L19 5" />
+      <path d="M19 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4" />
     </svg>
   );
-}
-
-function getStatusStyle(kind: StatusKind) {
-  if (kind === "success") {
-    return {
-      background: "var(--secure-soft)",
-      color: "var(--secure)",
-    };
-  }
-
-  if (kind === "error") {
-    return {
-      background: "var(--danger-soft)",
-      color: "var(--danger)",
-    };
-  }
-
-  return {
-    background: "var(--warn-soft)",
-    color: "var(--warn)",
-  };
 }
 
 function getNetworkName(chainId: number): string {
-  const chain = DEFAULT_CHAINS.find((item) => item.chainId === chainId);
-
-  return chain?.name ?? `Chain ${chainId}`;
+  return getChainById(chainId)?.name ?? `Chain ${chainId}`;
 }
 
-function getNativeSymbol(chainId: number): string {
-  const chain = DEFAULT_CHAINS.find((item) => item.chainId === chainId);
+// Explorer URL for a token contract — TronScan uses hash routes, EVM explorers
+// use /token. Returns null when the chain has no known explorer.
+function getExplorerTokenUrl(
+  chainId: number,
+  contractAddress: string,
+): string | null {
+  if (isTronChainId(chainId)) {
+    return `https://tronscan.org/#/token20/${contractAddress}`;
+  }
 
-  return chain?.nativeCurrency.symbol ?? "Native";
+  const base = getChainById(chainId)?.blockExplorerUrl ?? null;
+  return base ? `${base}/token/${contractAddress}` : null;
+}
+
+function isValidContractForChain(chainId: number, address: string): boolean {
+  const trimmed = address.trim();
+  if (!trimmed) return false;
+  return isTronChainId(chainId)
+    ? isValidTronAddress(trimmed)
+    : isAddress(trimmed);
 }
 
 function shortAddress(address: string): string {
@@ -160,12 +156,11 @@ function formatTokenAmount(value: string): string {
   });
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
+function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div
       className="lbl"
       style={{
-        padding: "0 4px",
         fontSize: 11,
         letterSpacing: "0.12em",
         textTransform: "uppercase",
@@ -176,27 +171,11 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+function MetaRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div
-      className="row"
-      style={{
-        cursor: "default",
-      }}
-    >
-      <div className="body">
-        <div className="sub">{label}</div>
-      </div>
-
-      <div className="num">
-        <div className="v">{value}</div>
-      </div>
+    <div className="send-meta-row">
+      <span className="send-meta-label">{label}</span>
+      <strong className="send-meta-value">{value}</strong>
     </div>
   );
 }
@@ -206,34 +185,37 @@ export function AddCustomTokenPage({
   selectedAccount,
   onBack,
   onAdded,
+  onChanged,
 }: AddCustomTokenPageProps) {
   const [tokenAddress, setTokenAddress] = useState("");
   const [preview, setPreview] = useState<TokenPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [addingToken, setAddingToken] = useState(false);
-  const [status, setStatus] = useState<StatusMessage | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
 
+  const chainId = walletState.selectedChainId;
   const cleanTokenAddress = tokenAddress.trim();
-  const selectedChainName = getNetworkName(walletState.selectedChainId);
-  const nativeSymbol = getNativeSymbol(walletState.selectedChainId);
+  const selectedChainName = getNetworkName(chainId);
+  const isTron = isTronChainId(chainId);
+
+  const addressValid = isValidContractForChain(chainId, cleanTokenAddress);
+  const showAddressError = touched && cleanTokenAddress.length > 0 && !addressValid;
 
   async function loadTokenPreview() {
-    setStatus(null);
+    setError(null);
     setPreview(null);
+    setTouched(true);
 
     if (!selectedAccount) {
-      setStatus({
-        kind: "error",
-        text: "Selected account not found.",
-      });
+      setError("Selected account not found.");
       return;
     }
 
-    if (!cleanTokenAddress) {
-      setStatus({
-        kind: "info",
-        text: "Paste token contract address first.",
-      });
+    if (!addressValid) {
+      setError(null);
       return;
     }
 
@@ -241,22 +223,14 @@ export function AddCustomTokenPage({
 
     try {
       const nextPreview = await tokenRegistryService.loadTokenPreview({
-        chainId: walletState.selectedChainId,
+        chainId,
         tokenAddress: cleanTokenAddress,
         ownerAddress: selectedAccount.address,
       });
 
       setPreview(nextPreview);
-
-      setStatus({
-        kind: "success",
-        text: `${nextPreview.symbol} loaded on ${selectedChainName}. Check the details before adding.`,
-      });
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setLoadingPreview(false);
     }
@@ -266,7 +240,7 @@ export function AddCustomTokenPage({
     if (!preview) return;
 
     setAddingToken(true);
-    setStatus(null);
+    setError(null);
 
     try {
       tokenRegistryService.addToken({
@@ -278,20 +252,59 @@ export function AddCustomTokenPage({
         createdAt: new Date().toISOString(),
       });
 
-      setStatus({
-        kind: "success",
-        text: `${preview.symbol} added to your asset list.`,
-      });
-
       await onAdded();
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        text: error instanceof Error ? error.message : String(error),
-      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setAddingToken(false);
     }
+  }
+
+  async function copyContract() {
+    if (!preview) return;
+    try {
+      await navigator.clipboard.writeText(preview.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable in this surface — ignore.
+    }
+  }
+
+  // Switch the wallet's active network from the shared header chip — same flow
+  // Send/Swap use. After the switch, onChanged re-syncs view state so the
+  // walletState prop (and the rest of the app) reflects the new chain.
+  async function selectNetwork(nextChainId: number) {
+    setNetworkSelectorOpen(false);
+
+    if (nextChainId === chainId) {
+      return;
+    }
+
+    // A loaded token is chain-specific — clear it when the chain changes.
+    setPreview(null);
+    setError(null);
+    setTouched(false);
+
+    await walletService.setSelectedChainId(nextChainId);
+    await onChanged?.();
+  }
+
+  const explorerUrl = preview
+    ? getExplorerTokenUrl(preview.chainId, preview.address)
+    : null;
+
+  // Full-screen network selector — the shared component every page uses. Back
+  // returns to the Add token form unchanged; selecting switches the network.
+  if (networkSelectorOpen) {
+    return (
+      <SelectNetworkPage
+        purpose="active"
+        selectedChainId={chainId}
+        onSelect={(nextChainId) => void selectNetwork(nextChainId)}
+        onBack={() => setNetworkSelectorOpen(false)}
+      />
+    );
   }
 
   return (
@@ -301,34 +314,43 @@ export function AddCustomTokenPage({
           <BackIcon />
         </button>
 
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--ink-1)",
-          }}
-        >
+        <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
           Add token
         </div>
 
         <span style={{ flex: 1 }} />
 
-        <span className="addr-mono">{selectedChainName}</span>
+        {/* Active network — shared header chip, opens the same selector as Send/Swap. */}
+        <button
+          className="net-chip network-pill-button"
+          type="button"
+          onClick={() => setNetworkSelectorOpen(true)}
+          aria-label="Select network"
+          title={`Network: ${selectedChainName}`}
+        >
+          <NetworkIcon
+            chainId={chainId}
+            networkName={selectedChainName}
+            size={16}
+            showTestnetBadge={false}
+          />
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {selectedChainName}
+          </span>
+        </button>
       </div>
 
-      <div
-        className="screen-body"
-        style={{
-          padding: 16,
-          display: "grid",
-          gap: 18,
-        }}
-      >
-        <section style={{ padding: "10px 4px 0" }}>
-          <div className="t-h2">
-            Add
-            <br />
-            custom token
+      <div className="screen-body" style={{ display: "grid", gap: 16 }}>
+        {/* Intro */}
+        <section style={{ paddingTop: 6 }}>
+          <div className="t-h2" style={{ fontSize: 30 }}>
+            Import token
           </div>
 
           <div
@@ -339,143 +361,71 @@ export function AddCustomTokenPage({
               lineHeight: 1.45,
             }}
           >
-            Paste an ERC-20 or BEP-20 contract address. SIMPLE will read token
-            metadata and show your balance.
+            Paste a token contract address. Simpl will read the token details and
+            show your balance.
           </div>
         </section>
 
-        {status ? (
-          <div
-            style={{
-              ...getStatusStyle(status.kind),
-              padding: "10px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              lineHeight: 1.45,
+        {/* Contract input */}
+        <section style={{ display: "grid", gap: 6 }}>
+          <SectionLabel>Token contract</SectionLabel>
+
+          <input
+            className={`input lg${showAddressError ? " input--error" : ""}`}
+            value={tokenAddress}
+            placeholder={isTron ? "T…" : "0x…"}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => {
+              setTokenAddress(event.target.value);
+              setPreview(null);
+              setError(null);
+              if (!touched && event.target.value.trim().length >= 4) {
+                setTouched(true);
+              }
             }}
+            onBlur={() => {
+              if (cleanTokenAddress.length > 0) setTouched(true);
+            }}
+          />
+
+          {showAddressError ? (
+            <div className="send-field-error">
+              Enter a valid {isTron ? "TRON" : "EVM"} contract address.
+            </div>
+          ) : null}
+
+          <button
+            className="btn secondary lg full"
+            type="button"
+            onClick={() => void loadTokenPreview()}
+            disabled={loadingPreview || !addressValid}
+            style={{ marginTop: 2 }}
           >
-            {status.text}
-          </div>
+            <SearchIcon />
+            {loadingPreview ? "Loading token…" : "Load token"}
+          </button>
+        </section>
+
+        {error ? (
+          <Notice tone="danger" title="Couldn’t add this token">
+            {error}
+          </Notice>
         ) : null}
 
-        <section style={{ display: "grid", gap: 8 }}>
-          <SectionTitle>Token contract</SectionTitle>
-
-          <div
-            style={{
-              border: "1px solid var(--line)",
-              borderRadius: 10,
-              background: "var(--bg-surface)",
-              padding: 12,
-              display: "grid",
-              gap: 10,
-            }}
-          >
-            <label style={{ display: "grid", gap: 6 }}>
-              <input
-                className="input lg"
-                value={tokenAddress}
-                placeholder="0x..."
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => {
-                  setTokenAddress(event.target.value.trim());
-                  setPreview(null);
-                  setStatus(null);
-                }}
-              />
-            </label>
-
-            <button
-              className="btn secondary lg full"
-              type="button"
-              onClick={() => void loadTokenPreview()}
-              disabled={loadingPreview || cleanTokenAddress.length === 0}
-            >
-              <TokenIcon />
-              {loadingPreview ? "Loading token..." : "Load token"}
-            </button>
-          </div>
-        </section>
-
-        <section style={{ display: "grid", gap: 8 }}>
-          <SectionTitle>Network</SectionTitle>
-
-          <div className="row-list">
-            <div
-              className="row"
-              style={{
-                cursor: "default",
-              }}
-            >
-              <div className="tok">
-                <NetworkIcon />
-              </div>
-
-              <div className="body">
-                <div className="nm">{selectedChainName}</div>
-                <div className="sub">
-                  Native gas token: {nativeSymbol}
-                </div>
-              </div>
-
-              <div className="num">
-                <div
-                  className="pill"
-                  style={{
-                    background: "var(--secure-soft)",
-                    color: "var(--secure)",
-                  }}
-                >
-                  Active
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {selectedAccount ? (
-          <section style={{ display: "grid", gap: 8 }}>
-            <SectionTitle>Owner account</SectionTitle>
-
-            <div className="row-list">
-              <div
-                className="row"
-                style={{
-                  cursor: "default",
-                }}
-              >
-                <div className="tok">
-                  {selectedAccount.label.slice(0, 1).toUpperCase()}
-                </div>
-
-                <div className="body">
-                  <div className="nm">{selectedAccount.label}</div>
-                  <div className="sub">{shortAddress(selectedAccount.address)}</div>
-                </div>
-
-                <div className="num">
-                  <div className="q">{shortAddress(selectedAccount.address)}</div>
-                </div>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
+        {/* Loaded token preview */}
         {preview ? (
           <section style={{ display: "grid", gap: 8 }}>
-            <SectionTitle>Token preview</SectionTitle>
+            <SectionLabel>Token</SectionLabel>
 
             <div className="row-list">
-              <div
-                className="row"
-                style={{
-                  cursor: "default",
-                }}
-              >
-                <div className="tok">
-                  {preview.symbol.slice(0, 1).toUpperCase()}
-                </div>
+              <div className="row" style={{ cursor: "default" }}>
+                <AssetIcon
+                  symbol={preview.symbol}
+                  address={preview.address}
+                  chainId={preview.chainId}
+                  size={38}
+                />
 
                 <div className="body">
                   <div className="nm">{preview.name}</div>
@@ -486,23 +436,88 @@ export function AddCustomTokenPage({
                   <div className="v">
                     {formatTokenAmount(preview.balanceFormatted)}
                   </div>
-                  <div className="q">{preview.symbol}</div>
                 </div>
               </div>
+            </div>
 
-              <InfoRow label="Name" value={preview.name} />
-              <InfoRow label="Symbol" value={preview.symbol} />
-              <InfoRow label="Decimals" value={preview.decimals} />
-              <InfoRow
-                label="Your balance"
+            <div className="row-list send-summary">
+              <MetaRow label="Decimals" value={preview.decimals} />
+              <MetaRow
+                label="Balance"
                 value={`${formatTokenAmount(preview.balanceFormatted)} ${
                   preview.symbol
                 }`}
               />
-              <InfoRow
-                label="Contract"
-                value={shortAddress(preview.address)}
-              />
+
+              <div className="send-meta-row">
+                <span className="send-meta-label">Contract</span>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    gap: 8,
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 13,
+                      fontWeight: 750,
+                      color: "var(--ink-1)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {shortAddress(preview.address)}
+                  </span>
+
+                  <button
+                    type="button"
+                    className="icbtn"
+                    onClick={() => void copyContract()}
+                    aria-label="Copy contract address"
+                    title={copied ? "Copied" : "Copy"}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      minWidth: 28,
+                      color: copied ? "var(--secure)" : "var(--ink-3)",
+                    }}
+                  >
+                    {copied ? (
+                      <span style={{ fontSize: 11, fontWeight: 800 }}>✓</span>
+                    ) : (
+                      <CopyIcon />
+                    )}
+                  </button>
+
+                  {explorerUrl ? (
+                    <a
+                      className="icbtn"
+                      href={explorerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="View contract on explorer"
+                      title="View on explorer"
+                      style={{
+                        width: 28,
+                        height: 28,
+                        minWidth: 28,
+                        color: "var(--ink-3)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <ExternalIcon />
+                    </a>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             <button
@@ -513,59 +528,16 @@ export function AddCustomTokenPage({
               style={{ marginTop: 4 }}
             >
               <PlusIcon />
-              {addingToken ? "Adding..." : "Add token"}
+              {addingToken ? "Importing…" : "Import token"}
             </button>
           </section>
         ) : null}
 
-        <section
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: 10,
-            background: "var(--bg-surface)",
-            padding: 12,
-            display: "grid",
-            gridTemplateColumns: "32px 1fr",
-            gap: 10,
-            alignItems: "flex-start",
-          }}
-        >
-          <div
-            className="tok"
-            style={{
-              width: 32,
-              height: 32,
-              background: "var(--warn-soft)",
-              color: "var(--warn)",
-            }}
-          >
-            <ShieldIcon />
-          </div>
-
-          <div>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: "var(--ink-1)",
-              }}
-            >
-              Check the contract address
-            </div>
-
-            <div
-              style={{
-                marginTop: 4,
-                color: "var(--ink-3)",
-                fontSize: 12,
-                lineHeight: 1.45,
-              }}
-            >
-              Anyone can create fake tokens. Add custom tokens only from trusted
-              contract addresses.
-            </div>
-          </div>
-        </section>
+        {/* Safety */}
+        <Notice tone="warning" title="Check the contract address">
+          Anyone can create fake tokens. Import tokens only from trusted contract
+          addresses.
+        </Notice>
       </div>
     </div>
   );

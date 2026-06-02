@@ -506,6 +506,7 @@ export function App() {
             walletState={viewState.walletState}
             selectedAccount={viewState.selectedAccount}
             onBack={() => setRoute("home")}
+            onChanged={syncViewState}
             onAdded={async () => {
               await syncViewState();
               setRoute("home");
