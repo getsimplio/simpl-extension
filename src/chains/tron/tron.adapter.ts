@@ -22,6 +22,7 @@ import {
   sendTrx,
 } from "./tron.transactions";
 import { isValidTronAddress } from "./tron.address";
+import { tronError } from "./tron.errors";
 
 export type TronSendResult = {
   hash: string;
@@ -119,7 +120,7 @@ export async function sendTronAsset(input: {
   const { asset, privateKey, fromAddress, toAddress, amount } = input;
 
   if (!isValidTronAddress(toAddress)) {
-    throw new Error("Invalid recipient address.");
+    throw tronError("INVALID_TRON_ADDRESS", "Invalid recipient address.");
   }
 
   if (asset.type === "native") {
@@ -127,7 +128,7 @@ export async function sendTronAsset(input: {
     const balanceSun = await getTrxBalance(fromAddress);
 
     if (balanceSun < amountSun) {
-      throw new Error("Insufficient TRX balance.");
+      throw tronError("INSUFFICIENT_TRX_BALANCE", "Insufficient TRX balance.");
     }
 
     const { txId } = await sendTrx({
@@ -149,7 +150,7 @@ export async function sendTronAsset(input: {
 
   if (asset.type === "trc20") {
     if (!asset.contractAddress) {
-      throw new Error("Token contract address is missing.");
+      throw tronError("TRON_BUILD_TX_FAILED", "Token contract address is missing.");
     }
 
     const amountBaseUnits = toBaseUnits(amount, asset.decimals);
@@ -160,14 +161,18 @@ export async function sendTronAsset(input: {
     );
 
     if (tokenBalance < amountBaseUnits) {
-      throw new Error(`Insufficient ${asset.symbol} balance.`);
+      throw tronError(
+        "INSUFFICIENT_TOKEN_BALANCE",
+        `Insufficient ${asset.symbol} balance.`,
+      );
     }
 
     // TRC-20 transfers are paid in TRX (energy/bandwidth). Block early with a
     // clear message when the account has no TRX at all.
     const trxBalance = await getTrxBalance(fromAddress);
     if (trxBalance <= 0n) {
-      throw new Error(
+      throw tronError(
+        "INSUFFICIENT_TRX_BALANCE",
         "You need TRX to pay the network fee for this transfer. Keep some TRX in your wallet.",
       );
     }

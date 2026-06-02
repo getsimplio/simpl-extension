@@ -13,6 +13,7 @@
     "check:balance": "tsx scripts/check-balance.ts",
     "check:wallet": "tsx scripts/check-wallet.ts",
     "check:security": "tsx scripts/check-security.ts",
+    "check:tron": "tsx scripts/check-tron.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"

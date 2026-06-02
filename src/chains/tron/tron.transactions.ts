@@ -1,15 +1,22 @@
 // src/chains/tron/tron.transactions.ts
 //
-// Build, sign and broadcast TRON transactions, plus status polling.
+// High-level TRON transaction operations (TRX + TRC-20 send, status polling).
+// The actual build/sign/broadcast primitives live in tron.signer.ts and
+// tron.trc20.ts; this module composes them and keeps the shapes the adapter
+// already consumes.
 //
-// SECURITY: signing happens here, inside the wallet/background service layer.
-// The private key is supplied by the wallet service (derived from the encrypted
-// vault) and never crosses into the React UI.
+// SECURITY: the private key is supplied by the wallet service (derived from the
+// encrypted vault) and never crosses into the React UI.
 
-import { TRC20_DEFAULT_FEE_LIMIT_SUN } from "./tron.config";
 import { getTronWeb } from "./tron.balance";
 import { isValidTronAddress } from "./tron.address";
-import { normalizeTronError } from "./tron.errors";
+import { tronError, normalizeTronError } from "./tron.errors";
+import {
+  sendTrxTransaction,
+  signTronTransaction,
+  sendSignedTronTransaction,
+} from "./tron.signer";
+import { buildTrc20TransferTransaction } from "./tron.trc20";
 
 export type TronTransactionStatus = "pending" | "confirmed" | "failed";
 
@@ -35,85 +42,43 @@ export type SendTrc20Input = {
 
 function assertValidRecipient(toAddress: string): void {
   if (!isValidTronAddress(toAddress)) {
-    throw new Error("Invalid recipient address.");
+    throw tronError("INVALID_TRON_ADDRESS", "Invalid recipient address.");
   }
-}
-
-// A broadcast is "submitted" when TronGrid acknowledges it. TronWeb returns
-// either { result: true, txid } or a failure object with a (often hex-encoded)
-// message — surface the latter as a normalized error.
-function extractTxId(broadcast: unknown, signedTxId: string): string {
-  const record = (broadcast ?? {}) as {
-    result?: boolean;
-    txid?: string;
-    code?: string;
-    message?: string;
-  };
-
-  if (record.result === true || typeof record.txid === "string") {
-    return record.txid ?? signedTxId;
-  }
-
-  throw normalizeTronError(record.message ?? record.code ?? record);
 }
 
 export async function sendTrx(input: SendTrxInput): Promise<SendTronResult> {
   assertValidRecipient(input.toAddress);
 
-  if (input.amountSun <= 0n) {
-    throw new Error("Amount must be greater than zero.");
-  }
-
-  try {
-    const tronWeb = getTronWeb();
-
-    const tx = await tronWeb.transactionBuilder.sendTrx(
-      input.toAddress,
-      Number(input.amountSun),
-      input.fromAddress,
-    );
-
-    const signed = await tronWeb.trx.sign(tx, input.privateKey);
-    const broadcast = await tronWeb.trx.sendRawTransaction(signed);
-
-    return { txId: extractTxId(broadcast, signed.txID) };
-  } catch (error) {
-    throw normalizeTronError(error, { assetSymbol: "TRX", isToken: false });
-  }
+  return sendTrxTransaction({
+    fromAddress: input.fromAddress,
+    toAddress: input.toAddress,
+    amountSun: input.amountSun,
+    privateKey: input.privateKey,
+  });
 }
 
 export async function sendTrc20(input: SendTrc20Input): Promise<SendTronResult> {
   assertValidRecipient(input.toAddress);
 
   if (input.amountBaseUnits <= 0n) {
-    throw new Error("Amount must be greater than zero.");
+    throw tronError("INVALID_AMOUNT", "Amount must be greater than zero.");
   }
 
   try {
-    const tronWeb = getTronWeb();
+    const unsignedTx = await buildTrc20TransferTransaction({
+      contractAddress: input.contractAddress,
+      fromAddress: input.fromAddress,
+      toAddress: input.toAddress,
+      amount: input.amountBaseUnits,
+      feeLimit: input.feeLimitSun,
+    });
 
-    const { transaction } = await tronWeb.transactionBuilder.triggerSmartContract(
-      input.contractAddress,
-      "transfer(address,uint256)",
-      { feeLimit: input.feeLimitSun ?? TRC20_DEFAULT_FEE_LIMIT_SUN },
-      [
-        { type: "address", value: input.toAddress },
-        { type: "uint256", value: input.amountBaseUnits.toString() },
-      ],
-      input.fromAddress,
-    );
-
-    if (!transaction) {
-      throw new Error("Failed to build TRC-20 transfer.");
-    }
-
-    const signed = await tronWeb.trx.sign(transaction, input.privateKey);
-    const broadcast = await tronWeb.trx.sendRawTransaction(signed);
+    const signedTx = await signTronTransaction(unsignedTx, input.privateKey);
 
     // NOTE: USDT TRC-20 does not reliably return a boolean from transfer(); we
     // intentionally do NOT gate success on a return value. A successful
     // broadcast means "submitted" — final success is determined by polling.
-    return { txId: extractTxId(broadcast, signed.txID) };
+    return sendSignedTronTransaction(signedTx);
   } catch (error) {
     throw normalizeTronError(error, { isToken: true });
   }

@@ -6,17 +6,35 @@
 
 import { formatUnits, parseUnits } from "ethers";
 import { TRX_DECIMALS } from "./tron.config";
+import { tronError } from "./tron.errors";
 
 // Parse a user-entered decimal display amount into integer base units for a
-// token with `decimals`. Throws on a malformed amount.
+// token with `decimals`. Throws a coded INVALID_AMOUNT error on a malformed
+// amount, more decimals than the token supports, or a non-positive value.
+// Integer-only math (via ethers' parseUnits) avoids float precision bugs.
 export function toBaseUnits(displayAmount: string, decimals: number): bigint {
   const normalized = displayAmount.trim().replace(",", ".");
 
   if (!/^\d+(\.\d+)?$/.test(normalized)) {
-    throw new Error("Invalid amount.");
+    throw tronError("INVALID_AMOUNT", "Enter a valid amount.");
   }
 
-  return parseUnits(normalized, decimals);
+  const fraction = normalized.split(".")[1] ?? "";
+
+  if (fraction.length > decimals) {
+    throw tronError(
+      "INVALID_AMOUNT",
+      `Amount has too many decimals (max ${decimals}).`,
+    );
+  }
+
+  const baseUnits = parseUnits(normalized, decimals);
+
+  if (baseUnits <= 0n) {
+    throw tronError("INVALID_AMOUNT", "Amount must be greater than zero.");
+  }
+
+  return baseUnits;
 }
 
 // Format integer base units back to a human-readable decimal string.

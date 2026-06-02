@@ -1244,8 +1244,9 @@ export function SendPage({
             </section>
 
             {isTron ? (
-              <Notice title="TRON network fee" tone="warning">
-                TRON network fees are paid in TRX. Keep some TRX in your wallet.
+              <Notice title="TRON network resources" tone="warning">
+                TRON uses Bandwidth/Energy. If resources are insufficient, TRX may
+                be burned as network fee.
               </Notice>
             ) : null}
 
