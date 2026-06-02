@@ -11,7 +11,12 @@ import {
   type NativeAssetQuote,
 } from "../../core/prices/native-price.service";
 import { transactionHistoryService } from "../../core/transactions/transaction-history.service";
-import { getNetworkDisplayName } from "../../core/networks/chain-registry";
+import {
+  getNetworkDisplayName,
+  isTronChainId,
+  TRON_MAINNET_CHAIN_ID,
+} from "../../core/networks/chain-registry";
+import { isValidTronAddress } from "../../chains/tron/tron.address";
 import { AssetIcon } from "../components/AssetIcon";
 import { NetworkIcon } from "../components/NetworkIcon";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
@@ -41,7 +46,20 @@ const GAS_RESERVES: Record<number, number> = {
   56: 0.001,
   8453: 0.0005,
   11155111: 0.01,
+  // TRX kept back for bandwidth/energy on a native TRX max-send.
+  [TRON_MAINNET_CHAIN_ID]: 1,
 };
+
+// Validate a recipient for the active chain's address family.
+function isValidRecipientForChain(chainId: number, address: string): boolean {
+  const trimmed = address.trim();
+
+  if (isTronChainId(chainId)) {
+    return isValidTronAddress(trimmed);
+  }
+
+  return isAddress(trimmed);
+}
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -55,6 +73,8 @@ function getExplorerTransactionUrl(chainId: number, hash: string): string | null
   if (chainId === 56) return `https://bscscan.com/tx/${hash}`;
   if (chainId === 8453) return `https://basescan.org/tx/${hash}`;
   if (chainId === 11155111) return `https://sepolia.etherscan.io/tx/${hash}`;
+  if (chainId === TRON_MAINNET_CHAIN_ID)
+    return `https://tronscan.org/#/transaction/${hash}`;
 
   return null;
 }
@@ -515,6 +535,9 @@ export function SendPage({
   const [assetSelectorOpen, setAssetSelectorOpen] = useState(false);
   const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
   const [currentChainId, setCurrentChainId] = useState(walletState.selectedChainId);
+  // The account's TRON address, resolved lazily so it can be recorded as the
+  // `from` address in local history for TRON sends.
+  const [tronFromAddress, setTronFromAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sentTransaction, setSentTransaction] =
     useState<SentTransaction | null>(null);
@@ -530,7 +553,8 @@ export function SendPage({
     usdPrice: assetUsdPrice,
   });
   const normalizedAmount = normalizeAmount(transferAmount);
-  const recipientIsValid = isAddress(toAddress.trim());
+  const isTron = isTronChainId(currentChainId);
+  const recipientIsValid = isValidRecipientForChain(currentChainId, toAddress);
   const amountIsValid = isPositiveAmount(normalizedAmount);
   const amountCanBeConverted = amountMode === "asset" || assetUsdPrice !== null;
   const isWatchOnly = selectedAccount.type === "watch";
@@ -538,7 +562,9 @@ export function SendPage({
   const assetBalance = Number(selectedAsset.formatted);
   const toAddressError =
     toAddressTouched && toAddress.length > 0 && !recipientIsValid
-      ? "Enter a valid EVM address."
+      ? isTron
+        ? "Enter a valid TRON address."
+        : "Enter a valid EVM address."
       : null;
   const hasInsufficientBalance =
     amountIsValid && Number(normalizedAmount) > assetBalance;
@@ -570,6 +596,36 @@ export function SendPage({
     !hasInsufficientBalance;
 
   const networkLabel = getNetworkLabel(currentChainId);
+  const assetStandardLabel =
+    selectedAsset.type === "native"
+      ? "Native"
+      : selectedAsset.type === "trc20"
+        ? "TRC-20"
+        : "ERC-20";
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isTron) {
+      setTronFromAddress(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    void walletService
+      .getSelectedReceiveAddress()
+      .then((address) => {
+        if (active) setTronFromAddress(address);
+      })
+      .catch(() => {
+        if (active) setTronFromAddress(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isTron, currentChainId, selectedAccount.address]);
 
   useEffect(() => {
     setSelectedAsset(asset);
@@ -846,7 +902,9 @@ export function SendPage({
         assetName: selectedAsset.name,
         contractAddress: selectedAsset.contractAddress,
         amount: normalizedAmount,
-        fromAddress: selectedAccount.address,
+        fromAddress: isTron
+          ? tronFromAddress ?? selectedAccount.address
+          : selectedAccount.address,
         toAddress: toAddress.trim(),
         explorerUrl: result.explorerUrl,
         createdAt: new Date().toISOString(),
@@ -1070,7 +1128,7 @@ export function SendPage({
                 <input
                   className={`input lg${toAddressError ? " input--error" : ""}`}
                   value={toAddress}
-                  placeholder="0x..."
+                  placeholder={isTron ? "T..." : "0x..."}
                   autoComplete="off"
                   spellCheck={false}
                   onChange={(event) => {
@@ -1173,13 +1231,23 @@ export function SendPage({
             </div>
 
             <section className="row-list send-summary">
-              <MetaRow label="From" value={shortAddress(selectedAccount.address)} />
-              <MetaRow label="Network" value={networkLabel} />
               <MetaRow
-                label="Asset"
-                value={selectedAsset.type === "native" ? "Native" : "ERC-20"}
+                label="From"
+                value={shortAddress(
+                  isTron
+                    ? tronFromAddress ?? selectedAccount.address
+                    : selectedAccount.address,
+                )}
               />
+              <MetaRow label="Network" value={networkLabel} />
+              <MetaRow label="Asset" value={assetStandardLabel} />
             </section>
+
+            {isTron ? (
+              <Notice title="TRON network fee" tone="warning">
+                TRON network fees are paid in TRX. Keep some TRX in your wallet.
+              </Notice>
+            ) : null}
 
             <button
               className="btn primary lg full send-submit"

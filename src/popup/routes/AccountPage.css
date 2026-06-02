@@ -62,11 +62,11 @@
    ACCOUNT ROW CARD
    ============================================================ */
 
-/* Whole row is a single button that opens AccountDetailsPage */
+/* Card is a column: a clickable header (opens AccountDetailsPage) plus public
+   address rows below it. */
 .acct-row-card {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
   width: 100%;
   border: 1px solid var(--line, #e5e5e5);
   border-radius: 18px;
@@ -75,27 +75,118 @@
   transition: border-color 100ms ease, background 100ms ease;
 }
 
-.acct-row-button {
+/* The header row — avatar | name/source | Active + chevron. */
+.acct-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
   padding: 10px 12px;
+  border: 0;
+  background: transparent;
   text-align: left;
   font: inherit;
   color: inherit;
   cursor: pointer;
 }
 
-/* Hover/tap affordance (inactive rows tint; active rows stay green) */
+/* Hover/tap affordance scoped to the header so the address controls below
+   don't tint the card (inactive rows tint; active rows stay green). */
 .acct-row-card:not(.acct-row-card--active):hover {
   border-color: var(--line-strong, #d4d4d4);
+}
+
+.acct-row-card:not(.acct-row-card--active) .acct-row-main:hover {
   background: rgba(17, 17, 17, 0.03);
 }
 
-.acct-row-card:not(.acct-row-card--active):active {
+.acct-row-card:not(.acct-row-card--active) .acct-row-main:active {
   background: rgba(17, 17, 17, 0.06);
 }
 
 .acct-row-card--active {
   border-color: rgba(42, 111, 78, 0.3) !important;
   background: rgba(42, 111, 78, 0.04) !important;
+}
+
+/* ── Multi-chain address rows (under the account name) ── */
+.acct-addr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Align under the name text: card padding 12 + avatar 38 + gap 10 = 60. */
+  padding: 0 12px 10px 60px;
+}
+
+.acct-addr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acct-addr-badge {
+  flex-shrink: 0;
+  width: 42px;
+  padding: 1px 0;
+  border-radius: 6px;
+  background: var(--bg-sunken, #f1f1ee);
+  border: 1px solid var(--line, #e5e5e5);
+  color: var(--ink-2, #4a4a45);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* TRON badge gets a subtle brand-tinted treatment. */
+.acct-addr-badge--tron {
+  background: rgba(235, 0, 41, 0.08);
+  border-color: rgba(235, 0, 41, 0.22);
+  color: #c20023;
+}
+
+.acct-addr-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.acct-addr-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.acct-addr-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-4, #b4b4b0);
+  cursor: pointer;
+  transition: color 100ms ease, background 100ms ease;
+}
+
+.acct-addr-btn:hover {
+  color: var(--ink-1);
+  background: rgba(17, 17, 17, 0.05);
+}
+
+.acct-addr-copied {
+  color: var(--secure, #2a6f4e) !important;
 }
 
 /* Row internals (no design-kit .row class on the button anymore) */
@@ -616,6 +707,66 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 .acct-details-copied {
   border-color: var(--secure, #2a6f4e) !important;
   color: var(--secure, #2a6f4e) !important;
+}
+
+/* ── Export private key (reveal screen) ── */
+.acct-export-key__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acct-export-key__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2, #4a4a45);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-export-key__copy {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.acct-export-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: var(--bg-sunken, #f1f1ee);
+  border: 1px solid var(--line, #e5e5e5);
+  color: var(--ink-2, #4a4a45);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+}
+
+.acct-export-badge--evm {
+  background: rgba(98, 126, 234, 0.1);
+  border-color: rgba(98, 126, 234, 0.25);
+  color: #3b53b5;
+}
+
+.acct-export-badge--tron {
+  background: rgba(235, 0, 41, 0.08);
+  border-color: rgba(235, 0, 41, 0.22);
+  color: #c20023;
+}
+
+.acct-export-badge--shared {
+  background: var(--bg-sunken, #f1f1ee);
+  border-color: var(--line, #e5e5e5);
+  color: var(--ink-2, #4a4a45);
+}
+
+.acct-export-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--warn, #9a6b1e);
 }
 
 /* Imported removal block */

@@ -26,6 +26,22 @@ import {
 import { balanceService } from "../balances/balance.service";
 import { mnemonicService } from "../mnemonic/mnemonic.service";
 import { networkService } from "../networks/network.service";
+import {
+  TRON_MAINNET_CHAIN_ID,
+  isTronChainId,
+} from "../networks/chain-registry";
+import {
+  deriveTronAccount,
+  tronAddressFromPrivateKey,
+} from "../../chains/tron/tron.address";
+import { sunToTrx } from "../../chains/tron/tron.format";
+import { getTronAddressExplorerUrl } from "../../chains/tron/tron.config";
+import { getTrxBalance } from "../../chains/tron/tron.balance";
+import {
+  getTronActivityStatus,
+  getTronPortfolio,
+  sendTronAsset,
+} from "../../chains/tron/tron.adapter";
 import { assertValidPassword } from "../security/password-policy";
 import {
   DEFAULT_SELECTED_CHAIN_ID,
@@ -70,6 +86,10 @@ type WatchedAssetStorageItem = {
 };
 
 import type {
+  AccountDisplayAddress,
+  ExportAccountKeysInput,
+  ExportAccountKeysResult,
+  ExportedPrivateKey,
   AddAccountInput,
   AddAccountResult,
   CreateNewWalletInput,
@@ -699,6 +719,26 @@ export class WalletService {
     const walletState = await this.storage.getWalletState();
     const selectedAccount = this.getRequiredSelectedAccount(walletState);
 
+    if (isTronChainId(walletState.selectedChainId)) {
+      const tronAddress = await this.ensureTronAddressForAccount(
+        walletState,
+        selectedAccount,
+      );
+      const sun = await getTrxBalance(tronAddress);
+
+      return {
+        // Display-only field; TRON uses a base58 address here.
+        address: tronAddress as EvmAddress,
+        chainId: TRON_MAINNET_CHAIN_ID,
+        chainName: "TRON",
+        symbol: "TRX",
+        decimals: 6,
+        balanceWei: sun.toString(),
+        formatted: sunToTrx(sun),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
     return balanceService.getNativeBalance(
       selectedAccount.address,
       walletState.selectedChainId,
@@ -708,6 +748,23 @@ export class WalletService {
   async getSelectedPortfolio(): Promise<WalletPortfolio> {
     const walletState = await this.storage.getWalletState();
     const selectedAccount = this.getRequiredSelectedAccount(walletState);
+
+    if (isTronChainId(walletState.selectedChainId)) {
+      const tronAddress = await this.ensureTronAddressForAccount(
+        walletState,
+        selectedAccount,
+      );
+      const assets = await getTronPortfolio(tronAddress);
+
+      return {
+        // Display-only field; TRON uses a base58 address here.
+        address: tronAddress as EvmAddress,
+        chainId: TRON_MAINNET_CHAIN_ID,
+        chainName: "TRON",
+        assets,
+        updatedAt: new Date().toISOString(),
+      };
+    }
 
     const portfolio = await tokenBalanceService.getPortfolio(
       selectedAccount.address,
@@ -750,6 +807,26 @@ export class WalletService {
 
     if (selectedAccount.type === "watch") {
       throw new Error("Watch-only wallet cannot send transactions.");
+    }
+
+    if (isTronChainId(walletState.selectedChainId)) {
+      const tronAddress = await this.ensureTronAddressForAccount(
+        walletState,
+        selectedAccount,
+        input.password,
+      );
+      const tronPrivateKey = await this.getTronPrivateKeyForAccount(
+        selectedAccount,
+        input.password,
+      );
+
+      return sendTronAsset({
+        asset: input.asset,
+        privateKey: tronPrivateKey,
+        fromAddress: tronAddress,
+        toAddress: input.toAddress,
+        amount: input.amount,
+      });
     }
 
     const privateKey = await this.getPrivateKeyForAccount(
@@ -888,6 +965,14 @@ export class WalletService {
     timeoutMs?: number;
   }): Promise<"confirmed" | "failed"> {
     const walletState = await this.storage.getWalletState();
+
+    if (isTronChainId(walletState.selectedChainId)) {
+      return this.waitForTronTransaction(
+        input.hash,
+        input.timeoutMs ?? 180_000,
+      );
+    }
+
     const chain = networkService.getRequiredChainById(walletState.selectedChainId);
     const provider = new JsonRpcProvider(chain.rpcUrl);
 
@@ -908,6 +993,11 @@ export class WalletService {
     hash: string;
   }): Promise<"submitted" | "confirmed" | "failed"> {
     const walletState = await this.storage.getWalletState();
+
+    if (isTronChainId(walletState.selectedChainId)) {
+      return getTronActivityStatus(input.hash);
+    }
+
     const chain = networkService.getRequiredChainById(walletState.selectedChainId);
     const provider = new JsonRpcProvider(chain.rpcUrl);
 
@@ -982,6 +1072,96 @@ export class WalletService {
     };
   }
 
+  // Export the private key(s) for an account AFTER verifying the wallet
+  // password. Mnemonic-derived accounts yield both an EVM key (m/44'/60') and a
+  // TRON key (m/44'/195'). A private-key import yields the single secp256k1 key,
+  // which controls both its EVM and TRON addresses. Watch-only accounts have no
+  // key. Returned values are never persisted; the caller must clear them.
+  async exportAccountKeys(
+    input: ExportAccountKeysInput,
+  ): Promise<ExportAccountKeysResult> {
+    const encryptedVault = await this.getRequiredEncryptedVault();
+
+    let payload: VaultPayload;
+    try {
+      payload = await vaultService.unlockVault({
+        encryptedVault,
+        password: input.password,
+      });
+    } catch {
+      throw new Error("Wrong wallet password.");
+    }
+
+    const walletState = await this.storage.getWalletState();
+    const account = input.accountId
+      ? this.getRequiredAccountById(walletState, input.accountId)
+      : this.getRequiredSelectedAccount(walletState);
+
+    if (account.type === "watch") {
+      throw new Error("Watch-only accounts do not have a private key.");
+    }
+
+    const keys: ExportedPrivateKey[] = [];
+
+    if (account.type === "mnemonic" || account.type === "importedMnemonic") {
+      let evmPrivateKey: string;
+
+      if (account.type === "mnemonic") {
+        evmPrivateKey = deriveEvmPrivateKey(payload.mnemonic, account.index);
+      } else {
+        const secret = (payload.importedAccounts ?? []).find(
+          (item) => item.id === account.id,
+        );
+
+        if (!secret || secret.type !== "importedMnemonic") {
+          throw new Error(
+            "Key material for this imported account is missing. Re-import the account.",
+          );
+        }
+
+        evmPrivateKey = deriveEvmAccount(
+          secret.mnemonic,
+          secret.index,
+        ).privateKey;
+      }
+
+      keys.push({
+        family: "evm",
+        label: "EVM private key",
+        privateKey: evmPrivateKey,
+      });
+
+      const tron = this.deriveTronMaterialForAccount(account, payload);
+      keys.push({
+        family: "tron",
+        label: "TRON private key",
+        privateKey: tron.privateKey,
+      });
+
+      return { account, keys };
+    }
+
+    // Private-key import: one secp256k1 key backs both chains' addresses.
+    const secret = (payload.importedAccounts ?? []).find(
+      (item) => item.id === account.id,
+    );
+
+    if (!secret || secret.type !== "privateKey") {
+      throw new Error(
+        "Key material for this imported account is missing. Re-import the account.",
+      );
+    }
+
+    keys.push({
+      family: "shared",
+      label: "Private key",
+      privateKey: secret.privateKey,
+      note: "This key controls both the EVM and TRON addresses for this account.",
+    });
+
+    return { account, keys };
+  }
+
   async setSelectedChainId(chainId: number): Promise<WalletState> {
     return this.storage.setSelectedChainId(chainId);
   }
@@ -997,7 +1177,11 @@ export class WalletService {
   async clearWallet(): Promise<void> {
     this.unlockedVault = null;
 
-    await this.storage.clearWalletData();
+    // Wipe ALL wallet-scoped local data (vault, accounts, custom tokens, hidden
+    // overrides, history, portfolio/price caches, watched assets), not just the
+    // vault + wallet state — so a freshly created/imported wallet never inherits
+    // the previous wallet's tokens, balances or activity.
+    await this.storage.clearWalletScopedStorage();
   }
 
   private createInitialWalletState(
@@ -1262,6 +1446,238 @@ export class WalletService {
     }
 
     return deriveEvmAccount(secret.mnemonic, secret.index).privateKey;
+  }
+
+  // --- TRON ----------------------------------------------------------------
+
+  // Resolve the selected account's TRON address. Returns the persisted value
+  // when present (no vault needed); otherwise derives it from the vault and
+  // persists it on the account (lazy migration for accounts created before
+  // TRON support). Requires the wallet to be unlocked or a password.
+  private async ensureTronAddressForAccount(
+    walletState: WalletState,
+    account: WalletAccount,
+    password?: string,
+  ): Promise<string> {
+    if (
+      (account.type === "mnemonic" || account.type === "importedMnemonic") &&
+      account.tronAddress
+    ) {
+      return account.tronAddress;
+    }
+
+    if (account.type === "watch") {
+      throw new Error("Watch-only accounts do not support TRON.");
+    }
+
+    const payload =
+      await this.getDecryptedPayloadForSensitiveOperation(password);
+    const { address } = this.deriveTronMaterialForAccount(account, payload);
+
+    if (account.type === "mnemonic" || account.type === "importedMnemonic") {
+      await this.persistTronAddress(walletState, account.id, address);
+    }
+
+    return address;
+  }
+
+  // Derive the TRON address + signing key for an account from decrypted vault
+  // material. Mnemonic-derived accounts use m/44'/195'/0'/0/index; private-key
+  // imports reuse the same secp256k1 key as their EVM address.
+  private deriveTronMaterialForAccount(
+    account: WalletAccount,
+    payload: VaultPayload,
+  ): { address: string; privateKey: string } {
+    if (account.type === "mnemonic") {
+      const derived = deriveTronAccount(payload.mnemonic, account.index);
+      return { address: derived.address, privateKey: derived.privateKey };
+    }
+
+    if (account.type === "importedMnemonic" || account.type === "privateKey") {
+      const secret = (payload.importedAccounts ?? []).find(
+        (item) => item.id === account.id,
+      );
+
+      if (!secret) {
+        throw new Error(
+          "Key material for this imported account is missing. Re-import the account.",
+        );
+      }
+
+      if (secret.type === "importedMnemonic") {
+        const derived = deriveTronAccount(secret.mnemonic, secret.index);
+        return { address: derived.address, privateKey: derived.privateKey };
+      }
+
+      const privateKey = secret.privateKey.startsWith("0x")
+        ? secret.privateKey.slice(2)
+        : secret.privateKey;
+
+      return {
+        address: tronAddressFromPrivateKey(secret.privateKey),
+        privateKey,
+      };
+    }
+
+    throw new Error("Watch-only accounts do not support TRON.");
+  }
+
+  private async getTronPrivateKeyForAccount(
+    account: WalletAccount,
+    password?: string,
+  ): Promise<string> {
+    if (account.type === "watch") {
+      throw new Error("Watch-only wallet cannot send transactions.");
+    }
+
+    const payload =
+      await this.getDecryptedPayloadForSensitiveOperation(password);
+
+    return this.deriveTronMaterialForAccount(account, payload).privateKey;
+  }
+
+  private async persistTronAddress(
+    walletState: WalletState,
+    accountId: WalletAccountId,
+    tronAddress: string,
+  ): Promise<void> {
+    const accounts = walletState.accounts.map((account) => {
+      if (account.id !== accountId) {
+        return account;
+      }
+
+      if (account.type === "mnemonic" || account.type === "importedMnemonic") {
+        return { ...account, tronAddress };
+      }
+
+      return account;
+    });
+
+    await this.storage.saveWalletState({ ...walletState, accounts });
+  }
+
+  private async waitForTronTransaction(
+    txId: string,
+    timeoutMs: number,
+  ): Promise<"confirmed" | "failed"> {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const status = await getTronActivityStatus(txId);
+
+      if (status === "confirmed") return "confirmed";
+      if (status === "failed") return "failed";
+
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+
+    throw new Error("Transaction confirmation timed out.");
+  }
+
+  // Receive address for the selected account on the selected network: the EVM
+  // address for EVM chains, the (lazily derived) TRON address for TRON.
+  async getSelectedReceiveAddress(): Promise<string> {
+    const walletState = await this.storage.getWalletState();
+    const account = this.getRequiredSelectedAccount(walletState);
+
+    if (isTronChainId(walletState.selectedChainId)) {
+      return this.ensureTronAddressForAccount(walletState, account);
+    }
+
+    return account.address;
+  }
+
+  // Public multi-chain addresses for every account, for the Accounts screen —
+  // independent of the selected network. Derives & persists a missing TRON
+  // address for mnemonic-derivable accounts when the wallet is unlocked, and
+  // derives (without persisting) for private-key imports. Watch-only accounts
+  // get the EVM row only. Returns ONLY public addresses — never key material.
+  async getAccountsDisplayAddresses(): Promise<
+    Record<WalletAccountId, AccountDisplayAddress[]>
+  > {
+    const walletState = await this.storage.getWalletState();
+    const payload = this.unlockedVault?.payload ?? null;
+
+    const result: Record<WalletAccountId, AccountDisplayAddress[]> = {};
+    let nextAccounts = walletState.accounts;
+    let mutated = false;
+
+    for (const account of walletState.accounts) {
+      const rows: AccountDisplayAddress[] = [
+        {
+          family: "evm",
+          label: "EVM",
+          address: account.address,
+          explorerUrl: `https://etherscan.io/address/${account.address}`,
+        },
+      ];
+
+      const tronAddress = this.resolveTronDisplayAddress(account, payload);
+
+      if (tronAddress) {
+        // Persist newly derived addresses for mnemonic-derivable accounts so the
+        // stored account carries it (consistent with the TRON MVP).
+        if (
+          (account.type === "mnemonic" ||
+            account.type === "importedMnemonic") &&
+          account.tronAddress !== tronAddress
+        ) {
+          nextAccounts = nextAccounts.map((item) =>
+            item.id === account.id &&
+            (item.type === "mnemonic" || item.type === "importedMnemonic")
+              ? { ...item, tronAddress }
+              : item,
+          );
+          mutated = true;
+        }
+
+        rows.push({
+          family: "tron",
+          label: "TRON",
+          address: tronAddress,
+          explorerUrl: getTronAddressExplorerUrl(tronAddress),
+        });
+      }
+
+      result[account.id] = rows;
+    }
+
+    if (mutated) {
+      await this.storage.saveWalletState({
+        ...walletState,
+        accounts: nextAccounts,
+      });
+    }
+
+    return result;
+  }
+
+  // Resolve a TRON address for display: the persisted value if present, else
+  // derive from the vault when unlocked. Watch-only → none. Never leaks keys.
+  private resolveTronDisplayAddress(
+    account: WalletAccount,
+    payload: VaultPayload | null,
+  ): string | null {
+    if (account.type === "watch") {
+      return null;
+    }
+
+    if (
+      (account.type === "mnemonic" || account.type === "importedMnemonic") &&
+      account.tronAddress
+    ) {
+      return account.tronAddress;
+    }
+
+    if (!payload) {
+      return null;
+    }
+
+    try {
+      return this.deriveTronMaterialForAccount(account, payload).address;
+    } catch {
+      return null;
+    }
   }
 
   private async getRequiredEncryptedVault(): Promise<EncryptedVault> {

@@ -296,9 +296,13 @@ export function TransactionHistoryPage({
       return;
     }
 
-    const currentItems = transactionHistoryService.listByAccount(
+    const accountAddresses = [
       selectedAccount.address,
-    );
+      "tronAddress" in selectedAccount ? selectedAccount.tronAddress : null,
+    ];
+
+    const currentItems =
+      transactionHistoryService.listByAddresses(accountAddresses);
     setItems(currentItems);
 
     const submittedItems = currentItems.filter(
@@ -324,7 +328,7 @@ export function TransactionHistoryPage({
       }),
     );
 
-    setItems(transactionHistoryService.listByAccount(selectedAccount.address));
+    setItems(transactionHistoryService.listByAddresses(accountAddresses));
   }
 
   useEffect(() => {
@@ -336,7 +340,10 @@ export function TransactionHistoryPage({
       setConfirmClearOpen(false);
       return;
     }
-    transactionHistoryService.clearByAccount(selectedAccount.address);
+    transactionHistoryService.clearByAddresses([
+      selectedAccount.address,
+      "tronAddress" in selectedAccount ? selectedAccount.tronAddress : null,
+    ]);
     setConfirmClearOpen(false);
     void refresh();
   }

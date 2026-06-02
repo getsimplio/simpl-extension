@@ -13,11 +13,18 @@ export type WalletAccountType =
   | "privateKey"
   | "watch";
 
+// Multi-family addresses. `address` (EVM) stays the primary field so all
+// existing EVM behavior is untouched; non-EVM addresses are added as optional
+// fields and derived lazily (see wallet.service.ensureSelectedTronAddress).
+// For mnemonic-derivable accounts, `tronAddress` is a TRON base58 address
+// (m/44'/195'/0'/0/index). Absent on stored accounts created before TRON
+// support — migrated on first use.
 export type MnemonicWalletAccount = {
   id: WalletAccountId;
   type: "mnemonic";
   index: number;
   address: EvmAddress;
+  tronAddress?: string;
   label: string;
   derivationPath: EvmDerivationPath;
   createdAt: string;
@@ -30,6 +37,7 @@ export type ImportedMnemonicWalletAccount = {
   type: "importedMnemonic";
   index: number;
   address: EvmAddress;
+  tronAddress?: string;
   label: string;
   derivationPath: EvmDerivationPath;
   createdAt: string;

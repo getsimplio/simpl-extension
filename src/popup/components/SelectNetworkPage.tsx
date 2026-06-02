@@ -34,7 +34,7 @@ type SelectNetworkPageProps = {
 
 // Context copy per purpose — layout stays identical, only the hint changes.
 const PURPOSE_HINT: Record<NetworkPurpose, string> = {
-  active: "Choose active EVM network.",
+  active: "Choose active network.",
   receive: "Choose where to receive funds.",
   send: "Choose network to send from.",
   swap: "Choose network to swap on.",

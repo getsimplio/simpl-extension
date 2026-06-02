@@ -1,6 +1,6 @@
 // src/popup/routes/ReceivePage.tsx
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   WalletAccount,
   WalletAccountId,
@@ -11,6 +11,7 @@ import {
   DEFAULT_CHAINS,
   getNetworkDisplayName,
   getNetworkStandardLabel,
+  isTronChainId,
 } from "../../core/networks/chain-registry";
 import { walletService } from "../../core/wallet/wallet.service";
 import { AssetIcon } from "../components/AssetIcon";
@@ -190,6 +191,51 @@ export function ReceivePage({
   const chainId = walletState.selectedChainId;
   const networkLabel = getNetworkLabel(chainId);
   const nativeSymbol = getNativeSymbol(chainId);
+  const isTron = isTronChainId(chainId);
+
+  // The address to display/copy for the selected network. For EVM this is the
+  // account's stored address; for TRON it is the (lazily derived) base58 TRON
+  // address resolved through the wallet service.
+  const [receiveAddress, setReceiveAddress] = useState<string>(
+    selectedAccount?.address ?? "",
+  );
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!selectedAccount) {
+      setReceiveAddress("");
+      return;
+    }
+
+    if (!isTron) {
+      setReceiveAddress(selectedAccount.address);
+      setAddressError(null);
+      return;
+    }
+
+    setAddressError(null);
+
+    void walletService
+      .getSelectedReceiveAddress()
+      .then((address) => {
+        if (active) setReceiveAddress(address);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setReceiveAddress("");
+        setAddressError(
+          error instanceof Error
+            ? error.message
+            : "TRON address is unavailable for this account.",
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [chainId, isTron, selectedAccount?.id, selectedAccount?.address]);
 
   // Use the passed receive asset only while it belongs to the selected chain;
   // switching the network in-page falls back to that chain's native asset.
@@ -226,9 +272,9 @@ export function ReceivePage({
   const canSwitchNetworks = DEFAULT_CHAINS.length > 1;
 
   async function copyAddress() {
-    if (!selectedAccount?.address) return;
+    if (!receiveAddress) return;
 
-    await copyText(selectedAccount.address);
+    await copyText(receiveAddress);
 
     setCopied(true);
 
@@ -416,12 +462,22 @@ export function ReceivePage({
           </div>
         </section>
 
-        {/* Safety notice — tokens also call out the chain's token standard */}
-        <Notice title="Check network" note="Wrong network may cause loss of funds.">
-          {isTokenReceive
-            ? `Only send ${receiveSymbol} on ${networkLabel}. Use ${standardLabel}.`
-            : `Only send ${receiveSymbol} on ${networkLabel}.`}
-        </Notice>
+        {/* Safety notice — tokens also call out the chain's token standard.
+            TRON gets an explicit cross-network loss warning. */}
+        {isTron ? (
+          <Notice
+            title="TRON network only"
+            note="Sending assets from another network may result in permanent loss."
+          >
+            Only send TRX or TRC-20 tokens on TRON to this address.
+          </Notice>
+        ) : (
+          <Notice title="Check network" note="Wrong network may cause loss of funds.">
+            {isTokenReceive
+              ? `Only send ${receiveSymbol} on ${networkLabel}. Use ${standardLabel}.`
+              : `Only send ${receiveSymbol} on ${networkLabel}.`}
+          </Notice>
+        )}
 
         {networkError ? (
           <div className="receive-network-error">{networkError}</div>
@@ -463,9 +519,12 @@ export function ReceivePage({
             <span className="receive-account-row__value">
               <strong
                 className="send-meta-value"
-                title={`${accountLabel} · ${shortAddress(selectedAccount.address)}`}
+                title={`${accountLabel}${
+                  receiveAddress ? ` · ${shortAddress(receiveAddress)}` : ""
+                }`}
               >
-                {accountLabel} · {shortAddress(selectedAccount.address)}
+                {accountLabel}
+                {receiveAddress ? ` · ${shortAddress(receiveAddress)}` : ""}
               </strong>
               {canSwitchAccounts ? (
                 <span className="receive-account-row__chevron">
@@ -489,16 +548,24 @@ export function ReceivePage({
             Wallet address
           </div>
 
-          <div className="receive-address-short">
-            {shortAddress(selectedAccount.address)}
-          </div>
+          {addressError ? (
+            <div className="receive-network-error">{addressError}</div>
+          ) : (
+            <>
+              <div className="receive-address-short">
+                {receiveAddress ? shortAddress(receiveAddress) : "…"}
+              </div>
 
-          <div className="receive-address-full">{selectedAccount.address}</div>
+              <div className="receive-address-full">
+                {receiveAddress || "Resolving address…"}
+              </div>
+            </>
+          )}
 
           <button
             className={`btn primary lg full receive-copy-btn${copied ? " receive-copy-btn--copied" : ""}`}
             type="button"
-            disabled={!selectedAccount.address}
+            disabled={!receiveAddress}
             onClick={() => void copyAddress()}
           >
             {copied ? <CheckIcon /> : <CopyIcon />}

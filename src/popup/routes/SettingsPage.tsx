@@ -454,8 +454,9 @@ export function SettingsPage({
                   lineHeight: "19px",
                 }}
               >
-                This will remove the encrypted vault and wallet state from this browser.
-                Make sure your recovery phrase is safely backed up before continuing.
+                Your wallet, accounts, imported tokens, local activity, and
+                wallet-specific settings will be removed from this browser. Make
+                sure your recovery phrase is safely backed up before continuing.
               </p>
 
               <div style={{ display: "grid", gap: 10, marginTop: 18 }}>

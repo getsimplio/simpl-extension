@@ -14,6 +14,30 @@ import {
 
 type StorageRecord = Record<string, unknown>;
 
+// chrome.storage.local key for user-added watched (read-only) assets. Owned by
+// WalletService but cleared centrally on reset.
+const WATCHED_ASSETS_STORAGE_KEY = "watchedAssets";
+
+// localStorage keys that hold wallet-scoped data but do NOT use the `simple:`
+// prefix, so the prefix sweep below would otherwise miss them:
+// - walletState      → plaintext mirror of the wallet state
+// - settings         → hideBalances / fiatCurrency / security mirror
+// - securitySettings → seed-backup confirmation state
+// - biometricUnlock  → biometric credential config
+const WALLET_SCOPED_LOCAL_KEYS = [
+  "walletState",
+  "settings",
+  "securitySettings",
+  "biometricUnlock",
+] as const;
+
+// Every wallet-scoped localStorage feature namespaces its keys with this prefix:
+// custom tokens (`simple:customTokens:*`), hidden assets, transaction history,
+// portfolio cache (`simple:portfolio:*`), price/market/logo caches, and send/
+// swap UI prefs. App-level preferences use a DOT namespace instead (e.g.
+// `simple.actionMode`) and are intentionally preserved across a reset.
+const WALLET_SCOPED_LOCAL_PREFIX = "simple:";
+
 export interface KeyValueStorageAdapter {
   get(keys: string[]): Promise<StorageRecord>;
   set(items: StorageRecord): Promise<void>;
@@ -227,6 +251,54 @@ export class StorageRepository {
       STORAGE_KEYS.encryptedVault,
       STORAGE_KEYS.walletState,
     ]);
+  }
+
+  // Single entry point for wiping ALL wallet-scoped local data on reset: the
+  // encrypted vault and wallet state, watched assets (chrome.storage), and every
+  // wallet-scoped localStorage key (custom/imported tokens, hidden-asset
+  // overrides, transaction history, portfolio + price caches, send/swap prefs).
+  // App-level preferences (e.g. `simple.actionMode`) are intentionally kept.
+  // Built-in registry tokens live in source code and are never stored, so they
+  // always reappear for a fresh wallet.
+  async clearWalletScopedStorage(): Promise<void> {
+    await this.storageAdapter.remove([
+      STORAGE_KEYS.encryptedVault,
+      STORAGE_KEYS.walletState,
+      WATCHED_ASSETS_STORAGE_KEY,
+    ]);
+
+    this.clearWalletScopedLocalStorage();
+  }
+
+  // Remove wallet-scoped localStorage entries: every key under the `simple:`
+  // prefix plus the known non-prefixed wallet keys. Best-effort and a no-op
+  // where `window`/localStorage is unavailable (e.g. the service worker).
+  private clearWalletScopedLocalStorage(): void {
+    const localStorageLike = (
+      globalThis as typeof globalThis & {
+        window?: { localStorage?: Storage };
+      }
+    ).window?.localStorage;
+
+    if (!localStorageLike) return;
+
+    try {
+      const keysToRemove: string[] = [...WALLET_SCOPED_LOCAL_KEYS];
+
+      for (let index = 0; index < localStorageLike.length; index += 1) {
+        const key = localStorageLike.key(index);
+
+        if (key && key.startsWith(WALLET_SCOPED_LOCAL_PREFIX)) {
+          keysToRemove.push(key);
+        }
+      }
+
+      for (const key of keysToRemove) {
+        localStorageLike.removeItem(key);
+      }
+    } catch {
+      // localStorage may be unavailable; clearing it is best-effort.
+    }
   }
 
   async clearAll(): Promise<void> {

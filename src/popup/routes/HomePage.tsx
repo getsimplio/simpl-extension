@@ -34,6 +34,7 @@ import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
 import {
   getChainById,
   getNetworkDisplayName,
+  isTronChainId,
 } from "../../core/networks/chain-registry";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
 import {
@@ -167,6 +168,29 @@ function truncateAddress(address: string): string {
 
 function getExplorerBaseUrl(chainId: number): string | null {
   return getChainById(chainId)?.blockExplorerUrl ?? null;
+}
+
+// Explorer URLs differ by family: TronScan uses hash routes (/#/address,
+// /#/token20) while EVM explorers use /address and /token.
+function getExplorerAddressUrl(chainId: number, address: string): string | null {
+  if (isTronChainId(chainId)) {
+    return `https://tronscan.org/#/address/${address}`;
+  }
+
+  const base = getExplorerBaseUrl(chainId);
+  return base ? `${base}/address/${address}` : null;
+}
+
+function getExplorerTokenUrl(
+  chainId: number,
+  contractAddress: string,
+): string | null {
+  if (isTronChainId(chainId)) {
+    return `https://tronscan.org/#/token20/${contractAddress}`;
+  }
+
+  const base = getExplorerBaseUrl(chainId);
+  return base ? `${base}/token/${contractAddress}` : null;
 }
 
 // Stable price identity for an ERC-20 asset: `${chainId}:${lowercaseAddress}`.
@@ -818,8 +842,12 @@ export function HomePage(props: HomePageProps) {
       setAssetHistory([]);
       return;
     }
-    const accountAddress = props.selectedAccount.address;
-    const allItems = transactionHistoryService.listByAccount(accountAddress);
+    const allItems = transactionHistoryService.listByAddresses([
+      props.selectedAccount.address,
+      "tronAddress" in props.selectedAccount
+        ? props.selectedAccount.tronAddress
+        : null,
+    ]);
     const filtered = allItems
       .filter((item) => item.chainId === assetDetails.chainId)
       .filter((item) => {
@@ -1027,10 +1055,11 @@ export function HomePage(props: HomePageProps) {
   const visibleAssets = assets
     .filter((asset) => asset.visible)
     .filter((asset) => isNativeAsset(asset) || !hiddenAddressSet.has(getAssetKey(asset)));
-  const tokenAssets = visibleAssets.filter((asset) => asset.type === "erc20");
+  // Non-native assets (ERC-20 on EVM, TRC-20 on TRON) make up the token list.
+  const tokenAssets = visibleAssets.filter((asset) => asset.type !== "native");
 
   const defaultSendAsset =
-    nativeAsset ?? visibleAssets.find((asset) => asset.type === "erc20") ?? null;
+    nativeAsset ?? visibleAssets.find((asset) => asset.type !== "native") ?? null;
 
   const totalKnownValueUsd = visibleAssets.reduce((sum, asset) => {
     const value = getAssetUsdValue(asset, nativeAsset, nativeValueUsd, tokenPrices);
@@ -1073,7 +1102,6 @@ export function HomePage(props: HomePageProps) {
   if (assetDetails) {
     const asset = assetDetails;
     const isNative = isNativeAsset(asset);
-    const explorerBase = getExplorerBaseUrl(asset.chainId);
 
     // Chart change %: compares first vs last point of the selected range.
     const chartFirst = chartPoints?.[0]?.price ?? null;
@@ -1346,16 +1374,27 @@ export function HomePage(props: HomePageProps) {
                 <p className="asset-details-info-note">
                   Used to pay network fees on {getNetworkLabel(asset.chainId)}.
                 </p>
-                {selectedAddress && explorerBase ? (
-                  <a
-                    className="asset-details-explorer-btn"
-                    href={`${explorerBase}/address/${selectedAddress}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    View address ↗
-                  </a>
-                ) : null}
+                {(() => {
+                  const nativeAddress = isTronChainId(asset.chainId)
+                    ? props.selectedAccount &&
+                      "tronAddress" in props.selectedAccount
+                      ? props.selectedAccount.tronAddress ?? null
+                      : null
+                    : selectedAddress;
+                  const url = nativeAddress
+                    ? getExplorerAddressUrl(asset.chainId, nativeAddress)
+                    : null;
+                  return url ? (
+                    <a
+                      className="asset-details-explorer-btn"
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      View address ↗
+                    </a>
+                  ) : null;
+                })()}
               </section>
             ) : asset.contractAddress ? (
               <section className="asset-details-info-card">
@@ -1375,10 +1414,13 @@ export function HomePage(props: HomePageProps) {
                     {copied ? "Copied" : "Copy"}
                   </button>
                 </div>
-                {explorerBase ? (
+                {getExplorerTokenUrl(asset.chainId, asset.contractAddress) ? (
                   <a
                     className="asset-details-explorer-btn"
-                    href={`${explorerBase}/token/${asset.contractAddress}`}
+                    href={
+                      getExplorerTokenUrl(asset.chainId, asset.contractAddress) ??
+                      undefined
+                    }
                     target="_blank"
                     rel="noopener noreferrer"
                   >

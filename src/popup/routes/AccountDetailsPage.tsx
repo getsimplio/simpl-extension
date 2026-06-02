@@ -6,7 +6,7 @@
 // recovery phrase) it offers a guarded removal flow that actually deletes the
 // encrypted secret from the vault (not just a UI hide). No modal / bottom sheet.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import { isImportedAccount } from "../../core/accounts/account.types";
 import {
@@ -14,6 +14,7 @@ import {
   getNetworkDisplayName,
 } from "../../core/networks/chain-registry";
 import { walletService } from "../../core/wallet/wallet.service";
+import type { ExportedPrivateKey } from "../../core/wallet/wallet.types";
 import { AccountBlockie } from "../components/AccountBlockie";
 
 type AccountDetailsPageProps = {
@@ -47,6 +48,14 @@ function CopyIcon() {
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <rect x="8" y="8" width="11" height="11" rx="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6L9 17l-5-5" />
     </svg>
   );
 }
@@ -91,6 +100,16 @@ function SwapIcon() {
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+function getExportBadge(family: ExportedPrivateKey["family"]): {
+  text: string;
+  cls: string;
+} {
+  if (family === "tron") return { text: "TRON", cls: "acct-export-badge--tron" };
+  if (family === "shared")
+    return { text: "EVM + TRON", cls: "acct-export-badge--shared" };
+  return { text: "EVM", cls: "acct-export-badge--evm" };
 }
 
 function getSourceLabel(account: WalletAccount): string {
@@ -146,6 +165,78 @@ export function AccountDetailsPage({
   const [nameDraft, setNameDraft] = useState(account.label);
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+
+  // Private key export. Keys live in state ONLY while the reveal screen is open
+  // and are cleared on close / account change. Nothing is shown before the
+  // password is verified by the service layer.
+  const [exportStep, setExportStep] = useState<"hidden" | "password" | "revealed">(
+    "hidden",
+  );
+  const [exportPassword, setExportPassword] = useState("");
+  const [exportKeys, setExportKeys] = useState<ExportedPrivateKey[] | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [copiedKeyIndex, setCopiedKeyIndex] = useState<number | null>(null);
+
+  // Reset all export state whenever the account changes (and on unmount React
+  // drops it), so a revealed key never lingers when leaving the page.
+  useEffect(() => {
+    setExportStep("hidden");
+    setExportPassword("");
+    setExportKeys(null);
+    setExportError(null);
+    setCopiedKeyIndex(null);
+  }, [account.id]);
+
+  function openExport() {
+    setExportError(null);
+    setExportPassword("");
+    setExportKeys(null);
+    setCopiedKeyIndex(null);
+    setExportStep("password");
+  }
+
+  // Leave the export flow and wipe any revealed key material from state.
+  function closeExport() {
+    setExportStep("hidden");
+    setExportPassword("");
+    setExportKeys(null);
+    setExportError(null);
+    setCopiedKeyIndex(null);
+  }
+
+  async function submitExport() {
+    if (!exportPassword || exportBusy) return;
+
+    setExportBusy(true);
+    setExportError(null);
+
+    try {
+      const result = await walletService.exportAccountKeys({
+        accountId: account.id,
+        password: exportPassword,
+      });
+      // Drop the password as soon as it has been used.
+      setExportPassword("");
+      setExportKeys(result.keys);
+      setExportStep("revealed");
+    } catch (exportErr) {
+      setExportError(
+        exportErr instanceof Error ? exportErr.message : String(exportErr),
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  }
+
+  async function handleCopyKey(index: number, value: string) {
+    await copyText(value);
+    setCopiedKeyIndex(index);
+    window.setTimeout(
+      () => setCopiedKeyIndex((current) => (current === index ? null : current)),
+      1500,
+    );
+  }
 
   const imported = isImportedAccount(account);
   const isWatch = account.type === "watch";
@@ -357,6 +448,132 @@ export function AccountDetailsPage({
     );
   }
 
+  // ── Export private key (password → reveal) ──
+  if (exportStep !== "hidden") {
+    return (
+      <div className="ext-popup acct-details-page" data-screen-label="Export key">
+        <div className="bar-top">
+          <button
+            className="icbtn"
+            type="button"
+            onClick={closeExport}
+            aria-label="Back"
+          >
+            <BackIcon />
+          </button>
+          <span className="acct-details-title">Export private key</span>
+          <span style={{ width: 32, flexShrink: 0 }} />
+        </div>
+
+        <div className="screen-body acct-details-body">
+          <div className="acct-details-danger-card">
+            Anyone with this private key has full control of this account's
+            funds. Never share it, and never enter it on any website.
+          </div>
+
+          {exportStep === "password" ? (
+            <>
+              <div className="acct-details-field">
+                <label
+                  className="acct-details-field-label"
+                  htmlFor="acct-export-pwd"
+                >
+                  Wallet password
+                </label>
+                <input
+                  id="acct-export-pwd"
+                  className="import-acct-input"
+                  type="password"
+                  placeholder="Enter wallet password"
+                  value={exportPassword}
+                  autoComplete="current-password"
+                  onChange={(event) => {
+                    setExportPassword(event.target.value);
+                    setExportError(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void submitExport();
+                  }}
+                />
+                <p className="acct-details-help">
+                  Required before any key is shown.
+                </p>
+              </div>
+
+              {exportError ? (
+                <div className="send-field-error">{exportError}</div>
+              ) : null}
+
+              <button
+                className="acct-danger-outline-btn"
+                type="button"
+                disabled={exportBusy || !exportPassword}
+                onClick={() => void submitExport()}
+              >
+                {exportBusy ? "Verifying…" : "Reveal private key"}
+              </button>
+            </>
+          ) : null}
+
+          {exportStep === "revealed" && exportKeys ? (
+            <>
+              {exportKeys.map((key, index) => {
+                const badge = getExportBadge(key.family);
+                const isCopied = copiedKeyIndex === index;
+
+                return (
+                  <div
+                    className="acct-details-address-card"
+                    key={`${key.family}-${index}`}
+                  >
+                    <div className="acct-export-key__head">
+                      <span className={`acct-export-badge ${badge.cls}`}>
+                        {badge.text}
+                      </span>
+                      <span className="acct-export-key__label">{key.label}</span>
+                      <button
+                        className={`acct-addr-btn acct-export-key__copy${
+                          isCopied ? " acct-addr-copied" : ""
+                        }`}
+                        type="button"
+                        onClick={() => void handleCopyKey(index, key.privateKey)}
+                        aria-label={`Copy ${key.label}`}
+                        title={isCopied ? "Copied" : "Copy key"}
+                      >
+                        {isCopied ? <CheckIcon /> : <CopyIcon />}
+                      </button>
+                    </div>
+
+                    <div className="acct-details-address-value">
+                      {key.privateKey}
+                    </div>
+
+                    {key.note ? (
+                      <p className="acct-export-note">{key.note}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+
+              <p className="acct-details-help">
+                Store these keys offline. Closing this screen clears them from
+                view.
+              </p>
+
+              <button
+                className="btn secondary lg full"
+                type="button"
+                onClick={closeExport}
+              >
+                Done
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   // ── Details ──
   return (
     <div className="ext-popup acct-details-page" data-screen-label="Account">
@@ -553,6 +770,24 @@ export function AccountDetailsPage({
             ) : null}
           </div>
         </div>
+
+        {/* Export private key — signer accounts only (hidden for watch-only) */}
+        {!isWatch ? (
+          <div className="acct-details-remove">
+            <button
+              className="acct-danger-outline-btn"
+              type="button"
+              onClick={openExport}
+            >
+              Export private key
+            </button>
+            <p className="acct-details-help">
+              {isPrivateKey
+                ? "Reveals the imported key (controls both EVM and TRON) after password confirmation."
+                : "Reveals the EVM and TRON private keys for this account after password confirmation. Never share them."}
+            </p>
+          </div>
+        ) : null}
 
         {imported ? (
           <div className="acct-details-remove">

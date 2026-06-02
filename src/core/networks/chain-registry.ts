@@ -2,8 +2,17 @@
 
 export type ChainId = number;
 
+// Address/transaction family a chain belongs to. EVM chains share ethers-based
+// derivation, balances, signing and RPC; "tron" routes to the TRON adapter.
+// Chains keep a single numeric `chainId` as their routing key everywhere in the
+// app (TRON uses its canonical EVM chain id 728126428 as that key) so existing
+// EVM plumbing is untouched; `family` is the discriminator that selects the
+// adapter.
+export type ChainFamily = "evm" | "tron";
+
 export type ChainConfig = {
   chainId: ChainId;
+  family: ChainFamily;
   name: string;
   // Canonical user-facing network name, consistent across the whole app
   // (e.g. "BNB Chain", never "BNB Smart Chain"; "Ethereum", never
@@ -26,10 +35,15 @@ export const ETHEREUM_MAINNET_CHAIN_ID = 1;
 export const BNB_SMART_CHAIN_ID = 56;
 export const BASE_CHAIN_ID = 8453;
 export const SEPOLIA_CHAIN_ID = 11155111;
+// TRON Mainnet's canonical chain id (0x2b6653dc). Used as the single numeric
+// routing key for TRON across the app; the human "tron-mainnet" id lives in
+// src/chains/tron/tron.config.ts.
+export const TRON_MAINNET_CHAIN_ID = 728126428;
 
 export const DEFAULT_CHAINS: ChainConfig[] = [
   {
     chainId: ETHEREUM_MAINNET_CHAIN_ID,
+    family: "evm",
     name: "Ethereum Mainnet",
     displayName: "Ethereum",
     nativeCurrency: {
@@ -44,6 +58,7 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
   },
   {
     chainId: BNB_SMART_CHAIN_ID,
+    family: "evm",
     name: "BNB Smart Chain",
     displayName: "BNB Chain",
     nativeCurrency: {
@@ -58,6 +73,7 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
   },
   {
     chainId: BASE_CHAIN_ID,
+    family: "evm",
     name: "Base",
     displayName: "Base",
     nativeCurrency: {
@@ -71,7 +87,23 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
     standardLabel: "ERC-20",
   },
   {
+    chainId: TRON_MAINNET_CHAIN_ID,
+    family: "tron",
+    name: "TRON",
+    displayName: "TRON",
+    nativeCurrency: {
+      name: "TRON",
+      symbol: "TRX",
+      decimals: 6,
+    },
+    rpcUrl: "https://api.trongrid.io",
+    blockExplorerUrl: "https://tronscan.org",
+    isTestnet: false,
+    standardLabel: "TRC-20",
+  },
+  {
     chainId: SEPOLIA_CHAIN_ID,
+    family: "evm",
     name: "Sepolia",
     displayName: "Sepolia",
     nativeCurrency: {
@@ -97,6 +129,17 @@ export function getNetworkStandardLabel(chainId: number): string {
 // generic "Chain <id>" for unknown chains.
 export function getNetworkDisplayName(chainId: number): string {
   return getChainById(chainId)?.displayName ?? `Chain ${chainId}`;
+}
+
+// Address/transaction family for a chain. Unknown chains default to "evm" so
+// any legacy/custom EVM chain keeps working as before.
+export function getChainFamily(chainId: number): ChainFamily {
+  return getChainById(chainId)?.family ?? "evm";
+}
+
+// True when the chain routes through the TRON adapter instead of EVM plumbing.
+export function isTronChainId(chainId: number): boolean {
+  return getChainFamily(chainId) === "tron";
 }
 
 export function getChainById(chainId: number): ChainConfig | null {

@@ -114,6 +114,28 @@ export class TransactionHistoryService {
     });
   }
 
+  // Like listByAccount but matches any of several addresses — used for accounts
+  // that hold addresses in more than one family (e.g. an EVM address plus a
+  // TRON address) so their activity appears together.
+  listByAddresses(
+    addresses: Array<string | null | undefined>,
+  ): TransactionHistoryItem[] {
+    const set = new Set(
+      addresses
+        .filter((address): address is string => Boolean(address))
+        .map(normalizeAddress),
+    );
+
+    if (set.size === 0) return [];
+
+    return this.list().filter((item) => {
+      return (
+        set.has(normalizeAddress(item.fromAddress)) ||
+        set.has(normalizeAddress(item.toAddress))
+      );
+    });
+  }
+
   addTransaction(input: AddTransactionInput): TransactionHistoryItem {
     const now = new Date().toISOString();
 
@@ -181,6 +203,25 @@ export class TransactionHistoryService {
       return (
         normalizeAddress(item.fromAddress) !== normalizedAccount &&
         normalizeAddress(item.toAddress) !== normalizedAccount
+      );
+    });
+
+    this.save(nextItems);
+  }
+
+  clearByAddresses(addresses: Array<string | null | undefined>): void {
+    const set = new Set(
+      addresses
+        .filter((address): address is string => Boolean(address))
+        .map(normalizeAddress),
+    );
+
+    if (set.size === 0) return;
+
+    const nextItems = this.list().filter((item) => {
+      return (
+        !set.has(normalizeAddress(item.fromAddress)) &&
+        !set.has(normalizeAddress(item.toAddress))
       );
     });
 

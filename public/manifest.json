@@ -53,6 +53,7 @@
     "https://bsc-dataseed4.binance.org/*",
     "https://binance.llamarpc.com/*",
     "https://api.coingecko.com/*",
-    "https://api.0x.org/*"
+    "https://api.0x.org/*",
+    "https://api.trongrid.io/*"
   ]
 }
