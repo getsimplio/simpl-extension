@@ -324,24 +324,47 @@ chrome.runtime.onMessage.addListener((message: any, _sender, sendResponse) => {
   }
 
   if (message?.type === "SIMPLE_WALLETCONNECT_TRON_SIGN_TRANSACTION") {
-    // WC TRON params arrive as the tx object, [tx], or { transaction: tx }.
-    const raw = message.params;
-    const unwrapped = Array.isArray(raw) ? raw[0] : raw;
-    const transaction =
-      unwrapped &&
-      typeof unwrapped === "object" &&
-      (unwrapped as Record<string, unknown>).transaction &&
-      typeof (unwrapped as Record<string, unknown>).transaction === "object"
-        ? (unwrapped as Record<string, unknown>).transaction
-        : unwrapped;
-
+    // Sign-only: return the signed tx; the dApp decides whether to broadcast.
     void walletService
       .signTronDappTransaction({
-        transaction,
+        transaction: message.params,
         password: typeof message.password === "string" ? message.password : undefined,
       })
       .then((result) => {
         sendResponse({ ok: true, result });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: getErrorMessage(error) });
+      });
+
+    return true;
+  }
+
+  if (message?.type === "SIMPLE_WALLETCONNECT_TRON_SIGN_MESSAGE") {
+    void walletService
+      .signTronDappMessage({
+        message: message.params,
+        password: typeof message.password === "string" ? message.password : undefined,
+      })
+      .then((result) => {
+        sendResponse({ ok: true, result: result.signature });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: getErrorMessage(error) });
+      });
+
+    return true;
+  }
+
+  if (message?.type === "SIMPLE_WALLETCONNECT_TRON_SEND_TRANSACTION") {
+    // Sign AND broadcast; return the txID to the dApp.
+    void walletService
+      .sendTronDappTransaction({
+        transaction: message.params,
+        password: typeof message.password === "string" ? message.password : undefined,
+      })
+      .then((result) => {
+        sendResponse({ ok: true, result: result.txId });
       })
       .catch((error) => {
         sendResponse({ ok: false, error: getErrorMessage(error) });

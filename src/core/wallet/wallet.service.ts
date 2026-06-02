@@ -37,9 +37,16 @@ import {
 } from "../../chains/tron/tron.address";
 import {
   signTronTransaction,
+  signTronMessage,
+  sendSignedTronTransaction,
   type UnsignedTronTransaction,
   type SignedTronTransaction,
 } from "../../chains/tron/tron.signer";
+import {
+  extractTronWcTransaction,
+  extractTronWcMessage,
+} from "../../chains/tron/tron.wc";
+import { tronError } from "../../chains/tron/tron.errors";
 import { sunToTrx } from "../../chains/tron/tron.format";
 import { getTronAddressExplorerUrl } from "../../chains/tron/tron.config";
 import { getTrxBalance } from "../../chains/tron/tron.balance";
@@ -1621,30 +1628,81 @@ export class WalletService {
     transaction: unknown;
     password?: string;
   }): Promise<SignedTronTransaction> {
-    const walletState = await this.storage.getWalletState();
-    const account = this.getRequiredSelectedAccount(walletState);
+    const account = this.getRequiredTronSigner(
+      await this.storage.getWalletState(),
+    );
 
-    if (account.type === "watch") {
-      throw new Error("Watch-only wallet cannot sign transactions.");
-    }
-
-    if (
-      !input.transaction ||
-      typeof input.transaction !== "object" ||
-      typeof (input.transaction as { txID?: unknown }).txID !== "string"
-    ) {
-      throw new Error("Invalid TRON transaction to sign.");
-    }
-
+    const transaction = extractTronWcTransaction(input.transaction);
     const privateKey = await this.getTronPrivateKeyForAccount(
       account,
       input.password,
     );
 
     return signTronTransaction(
-      input.transaction as UnsignedTronTransaction,
+      transaction as unknown as UnsignedTronTransaction,
       privateKey,
     );
+  }
+
+  // Sign a dApp-supplied message (tron_signMessage) with the selected account's
+  // TRON key. Local ECDSA only — never broadcast. Returns the hex signature.
+  // The private key is derived inside the signing layer and never returned,
+  // logged, or persisted.
+  async signTronDappMessage(input: {
+    message: unknown;
+    password?: string;
+  }): Promise<{ signature: string }> {
+    const account = this.getRequiredTronSigner(
+      await this.storage.getWalletState(),
+    );
+
+    const message = extractTronWcMessage(input.message);
+    const privateKey = await this.getTronPrivateKeyForAccount(
+      account,
+      input.password,
+    );
+
+    return { signature: signTronMessage(message, privateKey) };
+  }
+
+  // Sign AND broadcast a dApp-supplied unsigned TRON transaction
+  // (tron_sendTransaction). Returns the broadcast txID. Signing + broadcasting
+  // happen in the signing layer; the private key never leaves it.
+  async sendTronDappTransaction(input: {
+    transaction: unknown;
+    password?: string;
+  }): Promise<{ txId: string }> {
+    const account = this.getRequiredTronSigner(
+      await this.storage.getWalletState(),
+    );
+
+    const transaction = extractTronWcTransaction(input.transaction);
+    const privateKey = await this.getTronPrivateKeyForAccount(
+      account,
+      input.password,
+    );
+
+    const signed = await signTronTransaction(
+      transaction as unknown as UnsignedTronTransaction,
+      privateKey,
+    );
+
+    return sendSignedTronTransaction(signed);
+  }
+
+  // Resolve the selected account, rejecting watch-only accounts with a coded
+  // error. Shared by the TRON dApp signing methods.
+  private getRequiredTronSigner(walletState: WalletState): WalletAccount {
+    const account = this.getRequiredSelectedAccount(walletState);
+
+    if (account.type === "watch") {
+      throw tronError(
+        "TRON_SIGN_FAILED",
+        "Watch-only wallet cannot sign transactions.",
+      );
+    }
+
+    return account;
   }
 
   // Public multi-chain addresses for every account, for the Accounts screen —

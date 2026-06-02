@@ -854,6 +854,75 @@ async function buildTronNamespace(proposal: any) {
   };
 }
 
+// NON-SENSITIVE description of a request payload for debug storage: only the
+// top-level key names / primitive type — never values (a message or signature
+// must never be stored).
+function describeWcParamsShape(params: unknown): string {
+  const value = Array.isArray(params) ? params[0] : params;
+  if (value === null) return "null";
+  if (typeof value === "object") {
+    return `object{${Object.keys(value as Record<string, unknown>).sort().join(",")}}`;
+  }
+  return typeof value;
+}
+
+// Relay an approved TRON request (sign message / sign tx / send tx) to the
+// signing layer in the service worker and respond to the dApp with the result.
+// The private key, message and signature never enter this engine — only the
+// service-worker round-trip result. Stores a non-sensitive request shape only.
+async function approveTronWalletConnectRequest(input: {
+  walletKit: any;
+  pendingRequest: WalletConnectPendingRequest;
+  password: string | undefined;
+  serviceWorkerType: string;
+}) {
+  const { walletKit, pendingRequest, password, serviceWorkerType } = input;
+
+  if (!password?.trim()) {
+    throw new Error("Wallet password is required.");
+  }
+
+  await chromeStorageSet({
+    lastWalletConnectTronRequestDebug: {
+      method: pendingRequest.method,
+      paramsShape: describeWcParamsShape(pendingRequest.params),
+      topic: pendingRequest.topic,
+      createdAt: new Date().toISOString(),
+    },
+  });
+
+  const response = await sendServiceWorkerMessage<{
+    ok?: boolean;
+    error?: string;
+    result?: unknown;
+  }>({
+    type: serviceWorkerType,
+    password: password.trim(),
+    params: pendingRequest.params,
+  });
+
+  if (
+    !response?.ok ||
+    response.result === undefined ||
+    response.result === null
+  ) {
+    throw new Error(response?.error ?? "TRON request failed.");
+  }
+
+  await (walletKit as any).respondSessionRequest?.({
+    topic: pendingRequest.topic,
+    response: {
+      id: pendingRequest.id,
+      jsonrpc: "2.0",
+      result: response.result,
+    },
+  });
+
+  await clearPendingWalletConnectRequest();
+
+  return { result: response.result };
+}
+
 async function buildNamespacesForProposal(proposal: any) {
   const selected = await getSelectedWalletAccount();
   const chains = getRequestedEip155Chains(proposal);
@@ -1149,40 +1218,34 @@ async function approvePendingWalletConnectRequest(password?: string) {
     };
   }
 
-  // --- TRON: sign an unsigned transaction (sign-only; not broadcast) ---------
+  // --- TRON: sign an unsigned transaction (sign-only; NOT broadcast) ---------
   if (pendingRequest.method === "tron_signTransaction") {
-    if (!password?.trim()) {
-      throw new Error("Wallet password is required.");
-    }
-
-    const response = await sendServiceWorkerMessage<{
-      ok?: boolean;
-      error?: string;
-      result?: unknown;
-    }>({
-      type: "SIMPLE_WALLETCONNECT_TRON_SIGN_TRANSACTION",
-      password: password.trim(),
-      params: pendingRequest.params,
+    return approveTronWalletConnectRequest({
+      walletKit,
+      pendingRequest,
+      password,
+      serviceWorkerType: "SIMPLE_WALLETCONNECT_TRON_SIGN_TRANSACTION",
     });
+  }
 
-    if (!response?.ok || !response.result) {
-      throw new Error(response?.error ?? "TRON transaction signing failed.");
-    }
-
-    await (walletKit as any).respondSessionRequest?.({
-      topic: pendingRequest.topic,
-      response: {
-        id: pendingRequest.id,
-        jsonrpc: "2.0",
-        result: response.result,
-      },
+  // --- TRON: sign a message (local ECDSA; NOT broadcast) ---------------------
+  if (pendingRequest.method === "tron_signMessage") {
+    return approveTronWalletConnectRequest({
+      walletKit,
+      pendingRequest,
+      password,
+      serviceWorkerType: "SIMPLE_WALLETCONNECT_TRON_SIGN_MESSAGE",
     });
+  }
 
-    await clearPendingWalletConnectRequest();
-
-    return {
-      result: response.result,
-    };
+  // --- TRON: sign AND broadcast a transaction --------------------------------
+  if (pendingRequest.method === "tron_sendTransaction") {
+    return approveTronWalletConnectRequest({
+      walletKit,
+      pendingRequest,
+      password,
+      serviceWorkerType: "SIMPLE_WALLETCONNECT_TRON_SEND_TRANSACTION",
+    });
   }
 
   throw new Error(`${pendingRequest.method} approval is not supported yet.`);

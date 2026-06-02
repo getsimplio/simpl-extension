@@ -810,7 +810,9 @@ function canApprovePendingRequest(method: string): boolean {
     method === "eth_signTypedData_v4" ||
     method === "personal_sign" ||
     method === "wallet_watchAsset" ||
-    method === "tron_signTransaction"
+    method === "tron_signTransaction" ||
+    method === "tron_signMessage" ||
+    method === "tron_sendTransaction"
   );
 }
 
@@ -827,6 +829,15 @@ function getPendingRequestActionLabel(method: string): string {
       return "Signature confirmation required";
 
     case "eth_sendTransaction":
+      return "Transaction confirmation required";
+
+    case "tron_signMessage":
+      return "Message signature required";
+
+    case "tron_signTransaction":
+      return "Signature confirmation required";
+
+    case "tron_sendTransaction":
       return "Transaction confirmation required";
 
     default:
@@ -1082,6 +1093,39 @@ type WalletConnectApprovalView = {
   requiresPassword: boolean;
 };
 
+// Best-effort human-readable preview of a tron_signMessage payload. Accepts a
+// bare string, [string], or { message|data|text }, and decodes hex to UTF-8 when
+// possible. Falls back to the raw params dump.
+function getTronWcMessagePreview(params: unknown): string {
+  try {
+    let value: unknown = Array.isArray(params) ? params[0] : params;
+
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      value = record.message ?? record.data ?? record.text;
+    }
+
+    if (typeof value === "string" && value.length > 0) {
+      if (/^0x[0-9a-fA-F]+$/.test(value) && value.length % 2 === 0) {
+        try {
+          const hex = value.slice(2);
+          const bytes = new Uint8Array(
+            (hex.match(/.{1,2}/g) ?? []).map((byte) => parseInt(byte, 16)),
+          );
+          return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        } catch {
+          return value;
+        }
+      }
+      return value;
+    }
+  } catch {
+    // fall through to raw dump
+  }
+
+  return formatRequestParams(params);
+}
+
 function getWalletConnectApprovalView(
   method: string,
   params: unknown,
@@ -1123,11 +1167,36 @@ function getWalletConnectApprovalView(
     case "tron_signTransaction":
       return {
         title: "Sign TRON transaction",
-        description: "A connected dApp is requesting a TRON transaction signature from SIMPLE.",
+        description:
+          "A connected dApp is requesting a TRON transaction signature. This SIGNS the transaction but does NOT broadcast it.",
         status: "TRON signature required",
         previewTitle: "Transaction preview",
         previewText: formatRequestParams(params),
-        primaryLabel: "Sign",
+        primaryLabel: "Sign transaction",
+        requiresPassword: true,
+      };
+
+    case "tron_signMessage":
+      return {
+        title: "Sign TRON message",
+        description:
+          "A connected dApp is requesting a TRON message signature. This signs a MESSAGE — it is not a transaction and moves no funds.",
+        status: "Message signature required",
+        previewTitle: "Message preview",
+        previewText: getTronWcMessagePreview(params),
+        primaryLabel: "Sign message",
+        requiresPassword: true,
+      };
+
+    case "tron_sendTransaction":
+      return {
+        title: "Send TRON transaction",
+        description:
+          "A connected dApp is requesting to sign and broadcast a TRON transaction. TRON uses Bandwidth/Energy; if resources are insufficient, TRX may be burned as the network fee.",
+        status: "Transaction confirmation required",
+        previewTitle: "Transaction preview",
+        previewText: formatRequestParams(params),
+        primaryLabel: "Send transaction",
         requiresPassword: true,
       };
 
@@ -1765,7 +1834,7 @@ export default function WalletConnectPage({
     setStatus(`Approving ${pendingRequest.method}…`);
 
     try {
-      const needsPassword = ["eth_sendTransaction", "eth_signTypedData_v4", "personal_sign", "tron_signTransaction"].includes(
+      const needsPassword = ["eth_sendTransaction", "eth_signTypedData_v4", "personal_sign", "tron_signTransaction", "tron_signMessage", "tron_sendTransaction"].includes(
         pendingRequest.method,
       );
 
@@ -1882,7 +1951,9 @@ export default function WalletConnectPage({
       method === "eth_sendTransaction" ||
       method === "eth_signTypedData_v4" ||
       method === "personal_sign" ||
-      method === "tron_signTransaction";
+      method === "tron_signTransaction" ||
+      method === "tron_signMessage" ||
+      method === "tron_sendTransaction";
 
     const canApprove =
       !isResponding &&

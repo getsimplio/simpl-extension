@@ -63,6 +63,19 @@ export async function signTronTransaction(
   }
 }
 
+// Sign an arbitrary message with the given private key (TIP-191 / signMessageV2).
+// Local ECDSA only — no network, no broadcast. The key is passed solely to
+// TronWeb's local signer and is never logged or persisted. Returns the 0x… hex
+// signature TRON / TronLink-compatible dApps expect.
+export function signTronMessage(message: string, privateKey: string): string {
+  try {
+    return getTronWeb().trx.signMessageV2(message, privateKey);
+  } catch (error) {
+    // Do not echo the cause — it could embed sensitive material.
+    throw tronError("TRON_SIGN_FAILED", "Could not sign the message.");
+  }
+}
+
 // Broadcast a signed transaction. TronGrid acknowledges a submitted tx with
 // { result: true, txid }, or returns a failure object whose message may be
 // hex-encoded — normalizeTronError decodes and classifies it.

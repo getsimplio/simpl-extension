@@ -13,11 +13,18 @@ if (!globalThis.crypto) {
 const { trxToSun, sunToTrx, toBaseUnits } = await import(
   "../src/chains/tron/tron.format"
 );
-const { isValidTronAddress } = await import("../src/chains/tron/tron.address");
+const { isValidTronAddress, deriveTronAccount } = await import(
+  "../src/chains/tron/tron.address"
+);
 const { normalizeTronError, decodeHexMessage } = await import(
   "../src/chains/tron/tron.errors"
 );
 const { sendTrx } = await import("../src/chains/tron/tron.transactions");
+const { signTronMessage } = await import("../src/chains/tron/tron.signer");
+const { getTronWeb } = await import("../src/chains/tron/tron.balance");
+const { extractTronWcTransaction, extractTronWcMessage } = await import(
+  "../src/chains/tron/tron.wc"
+);
 
 let failures = 0;
 
@@ -129,6 +136,69 @@ await rejects(
       amountSun: 0n,
     }),
   "INVALID_AMOUNT",
+);
+
+console.log("\n=== tron.wc (WalletConnect payload normalization) ===");
+const SAMPLE_TX = { txID: "abc123", raw_data: {}, raw_data_hex: "00" };
+ok(
+  "extractTronWcTransaction unwraps { transaction }",
+  extractTronWcTransaction({ transaction: SAMPLE_TX }).txID === "abc123",
+);
+ok(
+  "extractTronWcTransaction unwraps [tx]",
+  extractTronWcTransaction([SAMPLE_TX]).txID === "abc123",
+);
+ok(
+  "extractTronWcTransaction passes through a bare tx",
+  extractTronWcTransaction(SAMPLE_TX).txID === "abc123",
+);
+throws(
+  "extractTronWcTransaction rejects tx without txID",
+  () => extractTronWcTransaction({ raw_data: {} }),
+  "INVALID_TRON_PAYLOAD",
+);
+throws(
+  "extractTronWcTransaction rejects non-object",
+  () => extractTronWcTransaction("nope"),
+  "INVALID_TRON_PAYLOAD",
+);
+ok(
+  "extractTronWcMessage reads a bare string",
+  extractTronWcMessage("hello") === "hello",
+);
+ok(
+  "extractTronWcMessage reads { message }",
+  extractTronWcMessage({ message: "hi" }) === "hi",
+);
+ok(
+  "extractTronWcMessage reads [message]",
+  extractTronWcMessage(["yo"]) === "yo",
+);
+throws(
+  "extractTronWcMessage rejects empty/invalid",
+  () => extractTronWcMessage({ foo: 1 }),
+  "INVALID_TRON_PAYLOAD",
+);
+
+console.log("\n=== tron.signer message signing (local ECDSA, no network) ===");
+// Standard ethers test mnemonic — derive a real TRON key locally.
+const TEST_MNEMONIC =
+  "test test test test test test test test test test test junk";
+const tronAccount = deriveTronAccount(TEST_MNEMONIC, 0);
+const signature = signTronMessage("Hello SIMPL", tronAccount.privateKey);
+ok(
+  "signTronMessage returns a 65-byte 0x hex signature",
+  /^0x[0-9a-fA-F]{130}$/.test(signature),
+);
+const recovered = await getTronWeb().trx.verifyMessageV2("Hello SIMPL", signature);
+ok(
+  "signTronMessage signature verifies back to the signer address",
+  recovered === tronAccount.address,
+);
+throws(
+  "signTronMessage rejects a malformed private key",
+  () => signTronMessage("x", "not-a-key"),
+  "TRON_SIGN_FAILED",
 );
 
 console.log("");
