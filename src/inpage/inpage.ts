@@ -69,6 +69,19 @@
     if (d["type"] === SIMPL_EVT) {
       const eventName = d["event"] as string;
       const eventData = d["data"];
+
+      // TRON-namespace events drive the TronLink-compatible provider. The
+      // background only signals that the connection/account changed; we
+      // re-hydrate window.tronWeb, which emits to the dApp's TRON listeners.
+      if (d["namespace"] === "tron") {
+        if (eventName === "disconnect") {
+          setTronAccount(null, null);
+        } else {
+          hydrateTron();
+        }
+        return;
+      }
+
       listeners.get(eventName)?.forEach((h) => {
         try {
           h(eventData);
@@ -134,6 +147,146 @@
   if (!win["ethereum"]) {
     win["ethereum"] = provider;
   }
+
+  // ─────────────────── TRON provider (TronLink-compatible) ────────────────────
+  // Exposes window.tron, window.tronLink and window.tronWeb so TRON dApps
+  // (e.g. tronscan.org) detect SIMPL as a TRON wallet. All requests are tagged
+  // namespace "tron" so they route to the TRON handler in the background and
+  // never collide with the EVM provider. Accounts are ALWAYS TRON base58 (T…) —
+  // never EVM 0x addresses. No key material ever lives in this script.
+  const TRON_CHAIN_ID = "0x2b6653dc";
+  const TRON_HOST = "https://api.trongrid.io";
+
+  const tronListeners = new Map<string, Set<EthHandler>>();
+
+  function emitTron(event: string, data: unknown): void {
+    tronListeners.get(event)?.forEach((h) => {
+      try {
+        h(data);
+      } catch {
+        // Keep other handlers running.
+      }
+    });
+  }
+
+  function sendTronRpc(method: string, params: unknown[]): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = nextId();
+      pending.set(id, { resolve, reject });
+      window.postMessage(
+        { type: SIMPL_REQ, id, method, params, namespace: "tron" },
+        "*",
+      );
+    });
+  }
+
+  // Minimal window.tronWeb shim — just enough for dApp detection + signing.
+  // trx.sign forwards to the wallet signing layer and returns the SIGNED tx;
+  // it never broadcasts (the dApp decides) and never touches a private key.
+  const tronWeb = {
+    ready: false,
+    fullNode: { host: TRON_HOST },
+    solidityNode: { host: TRON_HOST },
+    eventServer: { host: TRON_HOST },
+    defaultAddress: {
+      base58: false as string | false,
+      hex: false as string | false,
+      name: false as string | false,
+      type: 0,
+    },
+    trx: {
+      sign(transaction: unknown): Promise<unknown> {
+        return sendTronRpc("tron_signTransaction", [transaction]);
+      },
+    },
+  };
+
+  const tron = {
+    isSimpl: true,
+    isTronLink: true,
+    ready: false,
+    chainId: TRON_CHAIN_ID,
+    selectedAddress: null as string | null,
+    tronWeb,
+
+    request(args: RequestArgs): Promise<unknown> {
+      const { method, params = [] } = args;
+      const result = sendTronRpc(method, Array.from(params));
+      // Refresh window.tronWeb after any account-returning call.
+      if (/requestAccounts|tron_accounts/i.test(method)) {
+        result.then(() => hydrateTron()).catch(() => {});
+      }
+      return result;
+    },
+
+    on(event: string, handler: EthHandler) {
+      if (!tronListeners.has(event)) tronListeners.set(event, new Set());
+      tronListeners.get(event)!.add(handler);
+      return tron;
+    },
+
+    removeListener(event: string, handler: EthHandler) {
+      tronListeners.get(event)?.delete(handler);
+      return tron;
+    },
+
+    off(event: string, handler: EthHandler) {
+      return tron.removeListener(event, handler);
+    },
+  };
+
+  // Apply (or clear) the connected TRON account and emit lifecycle events to the
+  // dApp's listeners on transition.
+  function setTronAccount(base58: string | null, hex: string | null): void {
+    const wasConnected = tron.selectedAddress !== null;
+    const prevAddress = tron.selectedAddress;
+
+    if (base58) {
+      tron.ready = true;
+      tron.selectedAddress = base58;
+      tronWeb.ready = true;
+      tronWeb.defaultAddress.base58 = base58;
+      tronWeb.defaultAddress.hex = hex || false;
+    } else {
+      tron.ready = false;
+      tron.selectedAddress = null;
+      tronWeb.ready = false;
+      tronWeb.defaultAddress.base58 = false;
+      tronWeb.defaultAddress.hex = false;
+    }
+
+    if (!wasConnected && tron.selectedAddress) {
+      emitTron("connect", { chainId: TRON_CHAIN_ID });
+    }
+    if (prevAddress !== tron.selectedAddress) {
+      emitTron("accountsChanged", tron.selectedAddress ? [tron.selectedAddress] : []);
+    }
+    if (wasConnected && !tron.selectedAddress) {
+      emitTron("disconnect", {});
+    }
+  }
+
+  // Pull the current TRON account from the background (silent — no popup). When
+  // connected, populates window.tronWeb so the dApp can detect the wallet.
+  function hydrateTron(): void {
+    sendTronRpc("tron_getAccount", [])
+      .then((res) => {
+        const r = res as { base58?: string; hex?: string } | null;
+        if (r && typeof r.base58 === "string") {
+          setTronAccount(r.base58, typeof r.hex === "string" ? r.hex : null);
+        }
+      })
+      .catch(() => {
+        // Not connected or wallet locked — leave window.tronWeb un-hydrated.
+      });
+  }
+
+  win["tron"] = tron;
+  if (!win["tronLink"]) win["tronLink"] = tron;
+  if (!win["tronWeb"]) win["tronWeb"] = tronWeb;
+
+  // Hydrate on load so an already-connected dApp detects SIMPL immediately.
+  hydrateTron();
 
   // EIP-6963: announce for multi-wallet dApps.
   const eip6963Info = {

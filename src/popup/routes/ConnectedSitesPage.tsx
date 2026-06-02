@@ -1,14 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 
 import WalletConnectPage from "./WalletConnectPage";
+type ConnectedSiteType = "evm" | "tron" | "walletconnect";
+
 type ConnectedSite = {
   id: string;
   origin: string;
   name?: string;
   iconUrl?: string;
+  type?: ConnectedSiteType;
   connectedAt?: string;
   lastUsedAt?: string;
 };
+
+function siteTypeBadge(type: ConnectedSiteType | undefined): {
+  label: string;
+  bg: string;
+  fg: string;
+} {
+  if (type === "tron") {
+    return { label: "TRON", bg: "#fdecea", fg: "#c0392b" };
+  }
+  if (type === "walletconnect") {
+    return { label: "WalletConnect", bg: "#eaf2fd", fg: "#2b6cb0" };
+  }
+  return { label: "EVM", bg: "#eef0f3", fg: "#444b55" };
+}
 
 type ConnectedSitesPageProps = {
   onBack: () => void;
@@ -144,6 +161,14 @@ function safeParseConnectedSites(value: unknown): ConnectedSite[] {
 
     if (typeof record.iconUrl === "string" && record.iconUrl.trim()) {
       site.iconUrl = record.iconUrl;
+    }
+
+    if (
+      record.type === "evm" ||
+      record.type === "tron" ||
+      record.type === "walletconnect"
+    ) {
+      site.type = record.type;
     }
 
     if (typeof record.connectedAt === "string" && record.connectedAt.trim()) {
@@ -499,15 +524,45 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                   <div style={{ minWidth: 0 }}>
                     <div
                       style={{
-                        fontSize: 14,
-                        lineHeight: "18px",
-                        fontWeight: 850,
-                        overflow: "hidden",
-                        whiteSpace: "nowrap",
-                        textOverflow: "ellipsis",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        minWidth: 0,
                       }}
                     >
-                      {getSiteLabel(site)}
+                      <span
+                        style={{
+                          fontSize: 14,
+                          lineHeight: "18px",
+                          fontWeight: 850,
+                          overflow: "hidden",
+                          whiteSpace: "nowrap",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {getSiteLabel(site)}
+                      </span>
+
+                      {(() => {
+                        const badge = siteTypeBadge(site.type);
+                        return (
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: 10,
+                              lineHeight: "14px",
+                              fontWeight: 800,
+                              letterSpacing: "0.04em",
+                              padding: "2px 7px",
+                              borderRadius: 999,
+                              background: badge.bg,
+                              color: badge.fg,
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
                     </div>
 
                     <div

@@ -33,7 +33,13 @@ import {
 import {
   deriveTronAccount,
   tronAddressFromPrivateKey,
+  tronAddressToHex,
 } from "../../chains/tron/tron.address";
+import {
+  signTronTransaction,
+  type UnsignedTronTransaction,
+  type SignedTronTransaction,
+} from "../../chains/tron/tron.signer";
 import { sunToTrx } from "../../chains/tron/tron.format";
 import { getTronAddressExplorerUrl } from "../../chains/tron/tron.config";
 import { getTrxBalance } from "../../chains/tron/tron.balance";
@@ -1585,6 +1591,60 @@ export class WalletService {
     }
 
     return account.address;
+  }
+
+  // The selected account's TRON address in both forms a TRON dApp expects:
+  // base58 (T...) and hex (41...). Used by the injected TronLink-compatible
+  // provider to answer tron_requestAccounts and to populate
+  // tronWeb.defaultAddress. Returns ONLY public addresses — never key material.
+  // Resolves without a password when the wallet is unlocked (in-memory vault);
+  // throws otherwise so the caller surfaces a "locked" state to the dApp.
+  async getSelectedTronAccountInfo(
+    password?: string,
+  ): Promise<{ base58: string; hex: string }> {
+    const walletState = await this.storage.getWalletState();
+    const account = this.getRequiredSelectedAccount(walletState);
+    const base58 = await this.ensureTronAddressForAccount(
+      walletState,
+      account,
+      password,
+    );
+
+    return { base58, hex: tronAddressToHex(base58) };
+  }
+
+  // Sign a dApp-supplied unsigned TRON transaction with the selected account's
+  // key and return the SIGNED transaction. It is intentionally NOT broadcast —
+  // the dApp decides whether to broadcast (sign-only) or sign+send. The private
+  // key is derived inside the signing layer and never returned or logged.
+  async signTronDappTransaction(input: {
+    transaction: unknown;
+    password?: string;
+  }): Promise<SignedTronTransaction> {
+    const walletState = await this.storage.getWalletState();
+    const account = this.getRequiredSelectedAccount(walletState);
+
+    if (account.type === "watch") {
+      throw new Error("Watch-only wallet cannot sign transactions.");
+    }
+
+    if (
+      !input.transaction ||
+      typeof input.transaction !== "object" ||
+      typeof (input.transaction as { txID?: unknown }).txID !== "string"
+    ) {
+      throw new Error("Invalid TRON transaction to sign.");
+    }
+
+    const privateKey = await this.getTronPrivateKeyForAccount(
+      account,
+      input.password,
+    );
+
+    return signTronTransaction(
+      input.transaction as UnsignedTronTransaction,
+      privateKey,
+    );
   }
 
   // Public multi-chain addresses for every account, for the Accounts screen —

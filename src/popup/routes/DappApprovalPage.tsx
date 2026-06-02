@@ -35,15 +35,31 @@ type TransactionDisplayData = {
   erc20Approve?: Erc20ApproveData;
 };
 
+type TronTxDisplay = {
+  contractType?: string;
+  json?: string;
+};
+
 type PendingData = {
   origin: string;
   address: string | null;
   chainId: number;
-  kind: "connect" | "personal_sign" | "typed_data" | "switch_chain" | "transaction";
+  kind:
+    | "connect"
+    | "personal_sign"
+    | "typed_data"
+    | "switch_chain"
+    | "transaction"
+    | "tron_connect"
+    | "tron_sign";
+  // Human network label provided for TRON (e.g. "TRON Mainnet").
+  network?: string;
+  chainIdHex?: string;
   displayMessage?: string;
   typedDataDisplay?: TypedDataDisplay;
   switchChain?: SwitchChainData;
   transaction?: TransactionDisplayData;
+  tronTransaction?: TronTxDisplay;
 };
 
 type PageState =
@@ -497,7 +513,7 @@ export default function DappApprovalPage() {
     if (state.status !== "ready") return;
     setWorking(true);
     setErrorMsg("");
-    const needsPassword = state.data.kind === "personal_sign" || state.data.kind === "typed_data" || state.data.kind === "transaction";
+    const needsPassword = state.data.kind === "personal_sign" || state.data.kind === "typed_data" || state.data.kind === "transaction" || state.data.kind === "tron_sign";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (chrome as any).runtime.sendMessage(
       {
@@ -964,6 +980,162 @@ export default function DappApprovalPage() {
           onPrimary={approve}
           onReject={reject}
           working={working}
+        />
+      </Shell>
+    );
+  }
+
+  // ── tron_connect ──
+
+  if (kind === "tron_connect") {
+    return (
+      <Shell>
+        <ApprovalHeader title="Connect wallet" onClose={reject} disabled={working} />
+        <ScrollSection>
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{
+              width: 46, height: 46, borderRadius: 15,
+              background: C.cardBg, border: `1px solid ${C.cardBorder}`,
+              display: "grid", placeItems: "center", fontSize: 24,
+            }}>
+              ⚡
+            </div>
+            <div style={{ display: "grid", gap: 7 }}>
+              <h1 style={{
+                margin: 0, fontSize: 24, lineHeight: "27px",
+                letterSpacing: "-0.055em", fontWeight: 880,
+              }}>
+                {domain}
+              </h1>
+              <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
+                This site is requesting access to your TRON wallet address.
+              </p>
+            </div>
+          </div>
+
+          <ApprovalCard>
+            <AccountRow address={data.address!} />
+
+            <div style={{
+              border: `1px solid ${C.previewBorder}`,
+              borderRadius: 13, background: C.previewBg, padding: 14,
+              display: "grid", gap: 10,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 850, letterSpacing: "-0.01em" }}>
+                Network
+              </div>
+              <div style={{ fontSize: 13, color: C.fgMuted }}>
+                {data.network ?? "TRON Mainnet"}
+              </div>
+            </div>
+
+            <div style={{
+              border: `1px solid ${C.previewBorder}`,
+              borderRadius: 13, background: C.previewBg, padding: 14,
+              display: "grid", gap: 10,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 850, letterSpacing: "-0.01em" }}>
+                Permissions
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {(["View your TRON address", "View your account balance"] as const).map((p) => (
+                  <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <span style={{ color: "#1d7a3f", fontSize: 14, fontWeight: 700 }}>✓</span>
+                    <span style={{ color: C.fgMuted }}>{p}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </ApprovalCard>
+
+          <OriginNotice domain={domain} method="tron_requestAccounts" />
+
+          {errorMsg && <ErrorLine message={errorMsg} />}
+        </ScrollSection>
+        <ApprovalFooter
+          primaryLabel="Connect"
+          onPrimary={approve}
+          onReject={reject}
+          working={working}
+        />
+      </Shell>
+    );
+  }
+
+  // ── tron_sign ──
+
+  if (kind === "tron_sign") {
+    const ttx = data.tronTransaction ?? {};
+    return (
+      <Shell>
+        <ApprovalHeader title="Sign TRON transaction" onClose={reject} disabled={working} />
+        <ScrollSection>
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{
+              width: 46, height: 46, borderRadius: 15,
+              background: C.cardBg, border: `1px solid ${C.cardBorder}`,
+              display: "grid", placeItems: "center", fontSize: 22,
+            }}>
+              ⚡
+            </div>
+            <div style={{ display: "grid", gap: 7 }}>
+              <h1 style={{
+                margin: 0, fontSize: 24, lineHeight: "27px",
+                letterSpacing: "-0.055em", fontWeight: 880,
+              }}>
+                Sign TRON transaction
+              </h1>
+              <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
+                <strong>{domain}</strong> is requesting a transaction signature.
+              </p>
+            </div>
+          </div>
+
+          <ApprovalCard>
+            <AccountRow address={data.address!} />
+
+            <PreviewBox title="Transaction">
+              <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span style={{ color: C.fgMuted }}>Network</span>
+                  <span style={{ fontWeight: 700 }}>{data.network ?? "TRON Mainnet"}</span>
+                </div>
+                {ttx.contractType && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span style={{ color: C.fgMuted }}>Type</span>
+                    <span style={{ fontWeight: 700 }}>{ttx.contractType}</span>
+                  </div>
+                )}
+              </div>
+            </PreviewBox>
+
+            {ttx.json && (
+              <PreviewBox title="Raw transaction">
+                <MonoPre text={ttx.json} />
+              </PreviewBox>
+            )}
+          </ApprovalCard>
+
+          <SigningWarning />
+
+          <ApprovalCard>
+            <PasswordInput
+              value={password}
+              onChange={setPassword}
+              onEnter={password.trim() ? approve : undefined}
+              disabled={working}
+            />
+            {errorMsg && <ErrorLine message={errorMsg} />}
+          </ApprovalCard>
+
+          <OriginNotice domain={domain} method="tron_signTransaction" />
+        </ScrollSection>
+        <ApprovalFooter
+          primaryLabel="Sign"
+          onPrimary={approve}
+          onReject={reject}
+          working={working}
+          primaryDisabled={!password.trim()}
         />
       </Shell>
     );

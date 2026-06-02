@@ -1,7 +1,7 @@
 /// <reference types="chrome" />
 
 import { walletService } from "../core/wallet/wallet.service";
-import { getChainById } from "../core/networks/chain-registry";
+import { getChainById, TRON_MAINNET_CHAIN_ID } from "../core/networks/chain-registry";
 
 
 
@@ -389,7 +389,16 @@ chrome.runtime.onMessage.addListener((message: any, _sender, sendResponse) => {
 type DappPendingApproval = {
   id: string;
   origin: string;
-  kind: "connect" | "personal_sign" | "typed_data" | "switch_chain" | "transaction";
+  kind:
+    | "connect"
+    | "personal_sign"
+    | "typed_data"
+    | "switch_chain"
+    | "transaction"
+    | "tron_connect"
+    | "tron_sign";
+  // "tron" for TRON-namespace requests, "evm" (default) otherwise.
+  namespace?: "evm" | "tron";
   signingParams?: { method: string; params: unknown[] };
   switchChainId?: number;
   transactionParams?: {
@@ -400,9 +409,16 @@ type DappPendingApproval = {
     gas?: string;
     gasPrice?: string;
   };
+  // TRON connect/sign context.
+  tronAddress?: string;
+  tronAddressHex?: string;
+  tronTransaction?: unknown;
   resolve: (result: unknown) => void;
   reject: (error: { code: number; message: string }) => void;
 };
+
+// TRON Mainnet chain id in the hex form TRON dApps expect (0x2b6653dc).
+const TRON_CHAIN_ID_HEX = `0x${TRON_MAINNET_CHAIN_ID.toString(16)}`;
 
 const pendingDappApprovals = new Map<string, DappPendingApproval>();
 let dappApprovalWindowId: number | null = null;
@@ -481,7 +497,11 @@ async function getDappConnectionForOrigin(origin: string): Promise<boolean> {
 }
 
 // Save a new connection to the connectedSites array (same format as ConnectedSitesPage).
-async function saveDappConnection(origin: string): Promise<void> {
+// `type` drives the network badge shown in the Connected Sites UI.
+async function saveDappConnection(
+  origin: string,
+  type: "evm" | "tron" = "evm",
+): Promise<void> {
   const stored = await chrome.storage.local.get("connectedSites");
   const existing = Array.isArray(stored["connectedSites"])
     ? (stored["connectedSites"] as unknown[])
@@ -499,6 +519,7 @@ async function saveDappConnection(origin: string): Promise<void> {
   filtered.push({
     id: origin,
     origin,
+    type,
     connectedAt: now,
     lastUsedAt: now,
   });
@@ -575,11 +596,36 @@ function decodeErc20Approve(data: string | undefined): DecodedErc20Approve | nul
   }
 }
 
-async function broadcastProviderEvent(event: string, data: unknown): Promise<void> {
+// Summarize a TRON transaction for the approval popup: the contract type
+// (e.g. TransferContract / TriggerSmartContract) and a truncated JSON preview.
+function extractTronTxDisplay(tx: unknown): {
+  contractType?: string;
+  json?: string;
+} {
+  try {
+    const t = tx as { raw_data?: { contract?: Array<{ type?: string }> } };
+    const contractType = t?.raw_data?.contract?.[0]?.type;
+    const json = JSON.stringify(tx, null, 2);
+    return {
+      contractType: typeof contractType === "string" ? contractType : undefined,
+      json: json.length > 4000 ? `${json.slice(0, 4000)}…` : json,
+    };
+  } catch {
+    return {};
+  }
+}
+
+async function broadcastProviderEvent(
+  event: string,
+  data: unknown,
+  namespace: "evm" | "tron" = "evm",
+): Promise<void> {
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (tab.id !== undefined) {
-      chrome.tabs.sendMessage(tab.id, { type: "SIMPL_PROVIDER_EVENT", event, data }).catch(() => {});
+      chrome.tabs
+        .sendMessage(tab.id, { type: "SIMPL_PROVIDER_EVENT", event, data, namespace })
+        .catch(() => {});
     }
   }
 }
@@ -806,19 +852,198 @@ async function handleDappRequest(
   }
 }
 
-// Route dApp RPC requests from content scripts.
+// =============================================================
+//  TRON Injected Provider (TronLink-compatible) — Connect MVP
+//  Requests arrive with namespace "tron" so they never collide
+//  with the EVM provider. Accounts are always TRON base58 (T...),
+//  never EVM 0x addresses. chainId is the TRON mainnet id.
+// =============================================================
+async function handleTronDappRequest(
+  message: { method: string; params: unknown[]; origin: string },
+  sendResponse: (response: unknown) => void,
+): Promise<void> {
+  const { method, origin } = message;
+
+  // Resolve the selected account's TRON address (base58 + hex). Returns null
+  // when the wallet is locked or has no TRON-capable account.
+  const getInfo = () =>
+    walletService.getSelectedTronAccountInfo().catch(() => null);
+
+  try {
+    switch (method) {
+      // Silent: current accounts if already connected, else [].
+      case "tron_accounts":
+      case "eth_accounts": {
+        const connected = await getDappConnectionForOrigin(origin);
+        if (!connected) {
+          sendResponse({ ok: true, result: [] });
+          return;
+        }
+        const info = await getInfo();
+        sendResponse({ ok: true, result: info ? [info.base58] : [] });
+        return;
+      }
+
+      // Silent hydrate for window.tronWeb.defaultAddress — only when connected.
+      case "tron_getAccount": {
+        const connected = await getDappConnectionForOrigin(origin);
+        if (!connected) {
+          sendResponse({ ok: true, result: null });
+          return;
+        }
+        const info = await getInfo();
+        sendResponse({
+          ok: true,
+          result: info
+            ? { base58: info.base58, hex: info.hex, chainId: TRON_CHAIN_ID_HEX }
+            : null,
+        });
+        return;
+      }
+
+      case "tron_chainId":
+      case "eth_chainId": {
+        sendResponse({ ok: true, result: TRON_CHAIN_ID_HEX });
+        return;
+      }
+
+      case "net_version": {
+        sendResponse({ ok: true, result: String(TRON_MAINNET_CHAIN_ID) });
+        return;
+      }
+
+      case "tron_requestAccounts":
+      case "eth_requestAccounts": {
+        const info = await getInfo();
+
+        // Wallet locked / no TRON account — cannot show or return an address.
+        if (!info) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: 4900,
+              message: "Wallet is locked. Please unlock SIMPL Wallet first.",
+            },
+          });
+          return;
+        }
+
+        // Already connected — return the TRON address immediately.
+        if (await getDappConnectionForOrigin(origin)) {
+          sendResponse({ ok: true, result: [info.base58] });
+          return;
+        }
+
+        const approvalId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        pendingDappApprovals.set(approvalId, {
+          id: approvalId,
+          origin,
+          kind: "tron_connect",
+          namespace: "tron",
+          tronAddress: info.base58,
+          tronAddressHex: info.hex,
+          resolve: (result) => sendResponse({ ok: true, result }),
+          reject: (error) => sendResponse({ ok: false, error }),
+        });
+        await openDappApprovalWindow(approvalId);
+        return;
+      }
+
+      // Return the connected account as a permission object if connected.
+      case "wallet_getPermissions":
+      case "tron_getPermissions": {
+        const connected = await getDappConnectionForOrigin(origin);
+        const info = connected ? await getInfo() : null;
+        sendResponse({
+          ok: true,
+          result: info
+            ? [
+                {
+                  parentCapability: "tron_accounts",
+                  caveats: [
+                    { type: "restrictReturnedAccounts", value: [info.base58] },
+                  ],
+                },
+              ]
+            : [],
+        });
+        return;
+      }
+
+      case "tron_signTransaction":
+      case "tron_sign": {
+        if (!(await getDappConnectionForOrigin(origin))) {
+          sendResponse({
+            ok: false,
+            error: { code: 4100, message: "Unauthorized. Connect the site first." },
+          });
+          return;
+        }
+
+        const info = await getInfo();
+        if (!info) {
+          sendResponse({ ok: false, error: { code: 4900, message: "Wallet is locked." } });
+          return;
+        }
+
+        const tx = message.params[0];
+        if (!tx || typeof tx !== "object") {
+          sendResponse({
+            ok: false,
+            error: { code: -32602, message: "Invalid TRON transaction." },
+          });
+          return;
+        }
+
+        const approvalId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        pendingDappApprovals.set(approvalId, {
+          id: approvalId,
+          origin,
+          kind: "tron_sign",
+          namespace: "tron",
+          tronAddress: info.base58,
+          tronAddressHex: info.hex,
+          tronTransaction: tx,
+          resolve: (result) => sendResponse({ ok: true, result }),
+          reject: (error) => sendResponse({ ok: false, error }),
+        });
+        await openDappApprovalWindow(approvalId);
+        return;
+      }
+
+      default: {
+        sendResponse({
+          ok: false,
+          error: { code: 4200, message: `Method not supported: ${method}` },
+        });
+        return;
+      }
+    }
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: { code: -32603, message: getErrorMessage(err) },
+    });
+  }
+}
+
+// Route dApp RPC requests from content scripts. TRON-namespace requests go to
+// the TRON-specific handler; everything else uses the EVM handler.
 chrome.runtime.onMessage.addListener(
   (message: any, sender, sendResponse: (response: unknown) => void) => {
     if (message?.type !== "SIMPL_DAPP_REQUEST") return false;
 
-    void handleDappRequest(
-      {
-        method: message.method as string,
-        params: Array.isArray(message.params) ? (message.params as unknown[]) : [],
-        origin: (message.origin as string | undefined) ?? (sender.origin ?? sender.url ?? ""),
-      },
-      sendResponse,
-    );
+    const request = {
+      method: message.method as string,
+      params: Array.isArray(message.params) ? (message.params as unknown[]) : [],
+      origin: (message.origin as string | undefined) ?? (sender.origin ?? sender.url ?? ""),
+    };
+
+    if (message.namespace === "tron") {
+      void handleTronDappRequest(request, sendResponse);
+    } else {
+      void handleDappRequest(request, sendResponse);
+    }
 
     return true; // keep channel open for async response
   },
@@ -876,6 +1101,18 @@ chrome.runtime.onMessage.addListener(
                   },
                 }
               : {}),
+            // TRON connect/sign: override with the TRON base58 address and a
+            // TRON-Mainnet network label (the popup must never show a 0x addr).
+            ...(pending.namespace === "tron"
+              ? {
+                  address: pending.tronAddress ?? null,
+                  network: "TRON Mainnet",
+                  chainIdHex: TRON_CHAIN_ID_HEX,
+                  ...(pending.kind === "tron_sign"
+                    ? { tronTransaction: extractTronTxDisplay(pending.tronTransaction) }
+                    : {}),
+                }
+              : {}),
           },
         });
       })
@@ -917,6 +1154,21 @@ chrome.runtime.onMessage.addListener(
           pendingDappApprovals.delete(id);
           await saveDappConnection(pending.origin);
           pending.resolve([address]);
+        } else if (pending.kind === "tron_connect") {
+          pendingDappApprovals.delete(id);
+          await saveDappConnection(pending.origin, "tron");
+          pending.resolve(pending.tronAddress ? [pending.tronAddress] : []);
+          // Notify the TRON provider so window.tronWeb hydrates immediately.
+          await broadcastProviderEvent("connect", { chainId: TRON_CHAIN_ID_HEX }, "tron");
+          await broadcastProviderEvent("accountsChanged", pending.tronAddress ? [pending.tronAddress] : [], "tron");
+          await broadcastProviderEvent("chainChanged", { chainId: TRON_CHAIN_ID_HEX }, "tron");
+        } else if (pending.kind === "tron_sign") {
+          const signed = await walletService.signTronDappTransaction({
+            transaction: pending.tronTransaction,
+            password,
+          });
+          pendingDappApprovals.delete(id);
+          pending.resolve(signed);
         } else if (pending.kind === "personal_sign") {
           const result = await walletService.signSelectedPersonalMessage({
             params: pending.signingParams?.params ?? [],
@@ -959,9 +1211,14 @@ chrome.runtime.onMessage.addListener(
         }
       })
       .catch((err) => {
-        // connect and switch_chain have no retry — reject and clean up immediately.
-        // personal_sign, typed_data, and transaction keep pending alive for password retry.
-        if (pending.kind === "connect" || pending.kind === "switch_chain") {
+        // connect, tron_connect and switch_chain have no retry — reject and clean
+        // up immediately. personal_sign, typed_data, transaction and tron_sign
+        // keep pending alive for password retry.
+        if (
+          pending.kind === "connect" ||
+          pending.kind === "tron_connect" ||
+          pending.kind === "switch_chain"
+        ) {
           pendingDappApprovals.delete(id);
           pending.reject({ code: -32603, message: getErrorMessage(err) });
         }

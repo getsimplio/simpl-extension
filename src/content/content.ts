@@ -22,6 +22,8 @@
     const id = d["id"] as string;
     const method = d["method"] as string;
     const params = d["params"] as unknown[];
+    // "tron" for the TronLink-compatible provider; absent for the EVM provider.
+    const namespace = d["namespace"] as string | undefined;
 
     chrome.runtime.sendMessage(
       {
@@ -29,6 +31,7 @@
         id,
         method,
         params,
+        namespace,
         origin: location.origin,
       },
       (
@@ -77,10 +80,20 @@
   // Forward events pushed from the service worker (accountsChanged, chainChanged, etc.)
   // to the inpage provider via postMessage.
   chrome.runtime.onMessage.addListener(
-    (message: { type?: string; event?: string; data?: unknown }) => {
+    (message: {
+      type?: string;
+      event?: string;
+      data?: unknown;
+      namespace?: string;
+    }) => {
       if (message?.type !== SIMPL_EVT) return false;
       window.postMessage(
-        { type: SIMPL_EVT, event: message.event, data: message.data },
+        {
+          type: SIMPL_EVT,
+          event: message.event,
+          data: message.data,
+          namespace: message.namespace,
+        },
         "*",
       );
       return false;

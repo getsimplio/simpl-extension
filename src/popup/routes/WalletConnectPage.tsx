@@ -12,6 +12,7 @@ type ConnectedSite = {
   origin: string;
   name?: string;
   iconUrl?: string;
+  type?: "evm" | "tron" | "walletconnect";
   connectedAt?: string;
   lastUsedAt?: string;
 };
@@ -353,6 +354,14 @@ function safeParseConnectedSites(value: unknown): ConnectedSite[] {
       site.iconUrl = record.iconUrl;
     }
 
+    if (
+      record.type === "evm" ||
+      record.type === "tron" ||
+      record.type === "walletconnect"
+    ) {
+      site.type = record.type;
+    }
+
     if (typeof record.connectedAt === "string" && record.connectedAt.trim()) {
       site.connectedAt = record.connectedAt;
     }
@@ -435,6 +444,7 @@ function getProposalSite(proposal: WalletConnectProposal): ConnectedSite {
     origin,
     name: metadata?.name,
     iconUrl,
+    type: "walletconnect",
   };
 }
 

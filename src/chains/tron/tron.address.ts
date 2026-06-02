@@ -87,6 +87,23 @@ export function tronAddressFromPrivateKey(privateKey: string): TronAddress {
   return address;
 }
 
+// Convert a TRON base58 address (T...) to its hex form (41...). TRON dApps /
+// TronLink expose both: defaultAddress.base58 and defaultAddress.hex. Throws on
+// an invalid base58 address.
+export function tronAddressToHex(base58Address: string): string {
+  if (!isValidTronAddress(base58Address)) {
+    throw new Error("Invalid TRON address.");
+  }
+
+  const hex = TronWeb.address.toHex(base58Address);
+
+  if (typeof hex !== "string") {
+    throw new Error("Failed to convert TRON address to hex.");
+  }
+
+  return hex;
+}
+
 // Validate a TRON base58 address. TronWeb checks the version byte and checksum,
 // so this rejects EVM 0x addresses and malformed input.
 export function isValidTronAddress(address: string): boolean {
