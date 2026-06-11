@@ -21,6 +21,7 @@ import {
 import {
   countsTowardTotalBalance,
   isKnownPriceAsset,
+  priceDebug,
 } from "../../core/prices/price-identity";
 import {
   marketDataService,
@@ -29,6 +30,7 @@ import {
 import {
   resolveAsset,
   getPriceOhlc,
+  toBackendChainId,
 } from "../../core/prices/simpl-market-api.service";
 import {
   PriceChart,
@@ -998,6 +1000,11 @@ export function HomePage(props: HomePageProps) {
       range === "1D" ? "1d" : range === "7D" ? "7d" : "1m";
 
     setChartStatus("loading");
+    // Candle availability is range-specific. Drop the previous range's candles
+    // and points up-front so a range with no candles can never show the prior
+    // range's data or leave its Line/Candles toggle visible while loading.
+    setChartCandles(null);
+    setChartPoints(null);
 
     void (async () => {
       const [ohlc, points] = await Promise.all([
@@ -1036,6 +1043,24 @@ export function HomePage(props: HomePageProps) {
       setChartCandles(nextCandles);
       setChartPoints(nextPoints);
       setChartStatus(nextCandles || nextPoints ? "ready" : "empty");
+
+      // Dev-only chart diagnostics (no-op in production). The toggle renders
+      // whenever we have >= 2 candles — `hasCandles` here mirrors that gate.
+      const hasCandles = nextCandles !== null;
+      priceDebug("asset chart", {
+        symbol: assetDetails.symbol,
+        chainId: assetDetails.chainId,
+        address: address ?? "native",
+        range: backendRange,
+        ohlcUrl: `/v1/prices/ohlc?chainId=${toBackendChainId(assetDetails.chainId)}&address=${address ?? "native"}&range=${backendRange}&vs=usd`,
+        source: ohlc?.source ?? null,
+        candles: ohlc?.candles?.length ?? 0,
+        historyPoints: nextPoints?.length ?? 0,
+        hasCandles,
+        chartMode,
+        toggleRendered: hasCandles,
+        isTestnet: getChainById(assetDetails.chainId)?.isTestnet ?? false,
+      });
     })();
 
     return () => {
@@ -1250,6 +1275,10 @@ export function HomePage(props: HomePageProps) {
     // Testnets/devnets (Sepolia, BTC Testnet, Solana Devnet) show a reference
     // price but never imply real value — matched to the total-balance rule.
     const isReference = !countsTowardTotalBalance(asset.chainId);
+    // True testnet/reference asset (Sepolia, BTC Testnet, Solana Devnet): it has
+    // no real market of its own, so we never show a (borrowed) market chart or a
+    // Swap action — just a clear notice. TRON mainnet is NOT a testnet.
+    const isTestnetAsset = getChainById(asset.chainId)?.isTestnet ?? false;
 
     // Resolve which chart type actually renders: honour the user's preference
     // when the data exists, otherwise gracefully fall back to the other one.
@@ -1462,17 +1491,17 @@ export function HomePage(props: HomePageProps) {
               </div>
             </section>
 
-            {isReference ? (
+            {isTestnetAsset ? (
               <div className="asset-reference-note">
-                {asset.symbol} on {getNetworkLabel(asset.chainId)} is a test
-                network asset with no real market value. The price and chart
-                below are shown for reference only.
+                This is a test network asset. Market price and chart are not
+                available.
               </div>
             ) : null}
 
             {/* Price chart — when history is available. Header carries the
-                selected-range change (left) and 24h volume (right). */}
-            {showChartCard ? (
+                selected-range change (left) and 24h volume (right). Testnet /
+                reference assets never render a market chart. */}
+            {!isTestnetAsset && showChartCard ? (
               <section className="asset-chart-card">
                 <div className="asset-chart-head">
                   <div className="asset-chart-head__col">
@@ -1567,7 +1596,7 @@ export function HomePage(props: HomePageProps) {
                   </div>
                 ) : null}
               </section>
-            ) : showMarketFallback ? (
+            ) : !isTestnetAsset && showMarketFallback ? (
               // No chart (stablecoin / history unavailable) but the asset has a
               // market identity — show a compact market card, not an empty chart.
               <section className="asset-market-card">
@@ -1703,13 +1732,15 @@ export function HomePage(props: HomePageProps) {
                 >
                   Receive
                 </button>
-                <button
-                  type="button"
-                  className="asset-action-btn asset-action-btn--outline"
-                  onClick={handleSwapFromDetails}
-                >
-                  Swap
-                </button>
+                {isTestnetAsset ? null : (
+                  <button
+                    type="button"
+                    className="asset-action-btn asset-action-btn--outline"
+                    onClick={handleSwapFromDetails}
+                  >
+                    Swap
+                  </button>
+                )}
               </div>
             )}
 

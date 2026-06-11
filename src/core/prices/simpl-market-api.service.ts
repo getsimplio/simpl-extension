@@ -17,8 +17,9 @@ import {
   BITCOIN_TESTNET_CHAIN_ID,
   SOLANA_MAINNET_CHAIN_ID,
   SOLANA_DEVNET_CHAIN_ID,
+  TRON_MAINNET_CHAIN_ID,
 } from "../networks/chain-registry";
-import { NATIVE_ADDRESS, priceWarn } from "./price-identity";
+import { NATIVE_ADDRESS, priceDebug, priceWarn } from "./price-identity";
 
 // Resolve the gateway base URL. Prefer the explicit market-data alias, fall
 // back to the existing swap-proxy var, then the production gateway. Trailing
@@ -48,6 +49,8 @@ export function toBackendChainId(chainId: number): string {
       return "solana";
     case SOLANA_DEVNET_CHAIN_ID:
       return "solana-devnet";
+    case TRON_MAINNET_CHAIN_ID:
+      return "tron";
     default:
       return String(chainId);
   }
@@ -293,10 +296,15 @@ export async function getPriceOhlc(params: {
     range: params.range,
     vs,
   });
+  const url = `${API_BASE_URL}/v1/prices/ohlc?${search.toString()}`;
   try {
-    return await fetchJson<SimplOhlcResult>(
-      `${API_BASE_URL}/v1/prices/ohlc?${search.toString()}`,
-    );
+    const result = await fetchJson<SimplOhlcResult>(url);
+    priceDebug("simpl ohlc", {
+      url,
+      source: result?.source ?? null,
+      candles: result?.candles?.length ?? 0,
+    });
+    return result;
   } catch (error) {
     priceWarn("simpl ohlc failed", {
       chainId: params.chainId,

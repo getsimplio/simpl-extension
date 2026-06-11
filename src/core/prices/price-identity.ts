@@ -22,6 +22,7 @@ import {
   BITCOIN_TESTNET_CHAIN_ID,
   SOLANA_MAINNET_CHAIN_ID,
   SOLANA_DEVNET_CHAIN_ID,
+  TRON_MAINNET_CHAIN_ID,
 } from "../networks/chain-registry";
 
 // Marker used in place of a contract address for a chain's native asset.
@@ -108,6 +109,7 @@ const TOTAL_BALANCE_MAINNET_CHAIN_IDS = new Set<number>([
   BASE_CHAIN_ID,
   BITCOIN_MAINNET_CHAIN_ID,
   SOLANA_MAINNET_CHAIN_ID,
+  TRON_MAINNET_CHAIN_ID,
 ]);
 
 export function countsTowardTotalBalance(chainId: number): boolean {
@@ -126,6 +128,7 @@ export function getNativeCoinId(chainId: number): string | null {
     return "ethereum";
   }
   if (chainId === BNB_SMART_CHAIN_ID) return "binancecoin";
+  if (chainId === TRON_MAINNET_CHAIN_ID) return "tron";
   return getNativeAssetMarketId(chainId);
 }
 
@@ -140,6 +143,11 @@ export const KNOWN_PRICE_ASSETS: Record<string, KnownPriceAsset> = {
   "11155111:native": {
     symbol: "ETH",
     coinGeckoId: "ethereum",
+    canHaveChart: true,
+  },
+  "728126428:native": {
+    symbol: "TRX",
+    coinGeckoId: "tron",
     canHaveChart: true,
   },
 
