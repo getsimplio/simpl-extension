@@ -9,8 +9,13 @@ import {
   tokenRegistryService,
   type TokenPreview,
 } from "../../core/tokens/token-registry";
-import { getChainById, isTronChainId } from "../../core/networks/chain-registry";
+import {
+  getChainById,
+  isTronChainId,
+  isSolanaChainId,
+} from "../../core/networks/chain-registry";
 import { isValidTronAddress } from "../../chains/tron/tron.address";
+import { isValidSolanaAddress } from "../../chains/solana/solana.address";
 import { walletService } from "../../core/wallet/wallet.service";
 import { NetworkIcon } from "../components/NetworkIcon";
 import { AssetIcon } from "../components/AssetIcon";
@@ -125,12 +130,37 @@ function getExplorerTokenUrl(
   return base ? `${base}/token/${contractAddress}` : null;
 }
 
-function isValidContractForChain(chainId: number, address: string): boolean {
+// Chain family for the Add Token form. Validation, copy and the token-preview
+// flow all branch on this so a Solana mint is never validated as an EVM address.
+type ChainKind = "evm" | "tron" | "solana";
+
+function getChainKind(chainId: number): ChainKind {
+  if (isTronChainId(chainId)) return "tron";
+  if (isSolanaChainId(chainId)) return "solana";
+  return "evm";
+}
+
+// Chain-aware token address validation. NOTE: base58 chains (TRON, Solana) are
+// case-sensitive, so the address is only trimmed — never lowercased — before
+// validation. EVM uses ethers' isAddress (accepts checksummed / lowercase).
+function isValidTokenAddressForChain(chainId: number, address: string): boolean {
   const trimmed = address.trim();
   if (!trimmed) return false;
-  return isTronChainId(chainId)
-    ? isValidTronAddress(trimmed)
-    : isAddress(trimmed);
+  switch (getChainKind(chainId)) {
+    case "tron":
+      return isValidTronAddress(trimmed);
+    case "solana":
+      return isValidSolanaAddress(trimmed);
+    default:
+      return isAddress(trimmed);
+  }
+}
+
+// The "Enter a valid …" inline error, per chain family.
+function invalidAddressMessage(kind: ChainKind): string {
+  if (kind === "solana") return "Enter a valid Solana token mint address.";
+  if (kind === "tron") return "Enter a valid TRON token contract address.";
+  return "Enter a valid EVM contract address.";
 }
 
 function shortAddress(address: string): string {
@@ -199,10 +229,17 @@ export function AddCustomTokenPage({
   const chainId = walletState.selectedChainId;
   const cleanTokenAddress = tokenAddress.trim();
   const selectedChainName = getNetworkName(chainId);
-  const isTron = isTronChainId(chainId);
+  const chainKind = getChainKind(chainId);
+  const isTron = chainKind === "tron";
+  const isSolana = chainKind === "solana";
 
-  const addressValid = isValidContractForChain(chainId, cleanTokenAddress);
+  const addressValid = isValidTokenAddressForChain(chainId, cleanTokenAddress);
   const showAddressError = touched && cleanTokenAddress.length > 0 && !addressValid;
+
+  // Per-chain UI copy. Solana calls it a "mint address"; EVM/TRON keep
+  // "contract". Placeholders hint the expected address shape.
+  const addressInputLabel = isSolana ? "Token mint address" : "Token contract";
+  const addressPlaceholder = isSolana ? "Mint address (base58)" : isTron ? "T…" : "0x…";
 
   async function loadTokenPreview() {
     setError(null);
@@ -216,6 +253,18 @@ export function AddCustomTokenPage({
 
     if (!addressValid) {
       setError(null);
+      return;
+    }
+
+    // The on-chain token preview reader is EVM-only (ethers JsonRpcProvider +
+    // ERC-20 ABIs). For Solana the mint format is valid, but reading SPL mint
+    // metadata isn't wired into this screen yet — surface a clear chain-specific
+    // message instead of running EVM logic (which would throw a misleading EVM
+    // error). Never silently no-op.
+    if (isSolana) {
+      setError(
+        "This mint address is valid, but importing SPL tokens from this screen isn’t supported yet. Solana token import is coming soon.",
+      );
       return;
     }
 
@@ -368,12 +417,12 @@ export function AddCustomTokenPage({
 
         {/* Contract input */}
         <section style={{ display: "grid", gap: 6 }}>
-          <SectionLabel>Token contract</SectionLabel>
+          <SectionLabel>{addressInputLabel}</SectionLabel>
 
           <input
             className={`input lg${showAddressError ? " input--error" : ""}`}
             value={tokenAddress}
-            placeholder={isTron ? "T…" : "0x…"}
+            placeholder={addressPlaceholder}
             autoComplete="off"
             spellCheck={false}
             onChange={(event) => {
@@ -391,7 +440,7 @@ export function AddCustomTokenPage({
 
           {showAddressError ? (
             <div className="send-field-error">
-              Enter a valid {isTron ? "TRON" : "EVM"} contract address.
+              {invalidAddressMessage(chainKind)}
             </div>
           ) : null}
 
