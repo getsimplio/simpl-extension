@@ -59,7 +59,11 @@ export function toBackendChainId(chainId: number): string {
 // Normalize an asset address for the gateway: native marker stays "native",
 // contract addresses are lowercased.
 function toBackendAddress(address: string | null): string {
-  return address ? address.toLowerCase() : NATIVE_ADDRESS;
+  if (!address) return NATIVE_ADDRESS;
+  // EVM 0x addresses are case-insensitive (lowercase canonical). Non-EVM base58
+  // addresses (Solana SPL mints, TRON) are CASE-SENSITIVE and must never be
+  // lowercased — doing so corrupts the mint. Preserve their casing verbatim.
+  return /^0x[0-9a-fA-F]{40}$/u.test(address) ? address.toLowerCase() : address;
 }
 
 export type VsCurrency = "usd" | "eur";

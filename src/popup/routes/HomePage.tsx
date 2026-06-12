@@ -838,7 +838,10 @@ export function HomePage(props: HomePageProps) {
     const addresses = assets
       .filter(
         (asset) =>
-          asset.type === "erc20" &&
+          // Contract-addressed market tokens: EVM ERC-20/BEP-20 and Solana SPL
+          // (e.g. imported GIGA/TROLL). The gateway prices them by chainId +
+          // address; unknown ones simply come back without a price.
+          (asset.type === "erc20" || asset.type === "spl") &&
           asset.contractAddress &&
           asset.chainId === selectedChainId,
       )
