@@ -1,6 +1,6 @@
 // src/popup/routes/AddCustomTokenPage.tsx
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { isAddress } from "ethers";
 import type { WalletAccount } from "../../core/accounts/account.types";
@@ -17,7 +17,10 @@ import {
 import { isValidTronAddress } from "../../chains/tron/tron.address";
 import { isValidSolanaAddress } from "../../chains/solana/solana.address";
 import { getRequiredSolanaConfigByChainId } from "../../chains/solana/solana.config";
-import { loadSplTokenPreview } from "../../chains/solana/solana.tokens";
+import {
+  loadSplTokenPreviewCritical,
+  loadSplTokenMetadata,
+} from "../../chains/solana/solana.tokens";
 import { walletService } from "../../core/wallet/wallet.service";
 import { NetworkIcon } from "../components/NetworkIcon";
 import { AssetIcon } from "../components/AssetIcon";
@@ -227,6 +230,15 @@ export function AddCustomTokenPage({
   const [touched, setTouched] = useState(false);
   const [copied, setCopied] = useState(false);
   const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
+  // True while Stage-2 Solana metadata/logo enrichment runs in the background.
+  // Drives the subtle "Loading metadata…" hint; never blocks the import button.
+  const [enrichingMetadata, setEnrichingMetadata] = useState(false);
+
+  // Monotonic id of the latest preview request. Every load (and every input
+  // edit) bumps it; an in-flight request only updates preview/error/loading when
+  // its id is still current, so a slow RPC answering for an old mint can never
+  // overwrite the result for a newer one.
+  const requestIdRef = useRef(0);
 
   const chainId = walletState.selectedChainId;
   const cleanTokenAddress = tokenAddress.trim();
@@ -244,6 +256,11 @@ export function AddCustomTokenPage({
   const addressPlaceholder = isSolana ? "Mint address (base58)" : isTron ? "T…" : "0x…";
 
   async function loadTokenPreview() {
+    // Claim the latest-request slot. Any older in-flight load is now stale and
+    // its results will be ignored (see isStale checks below).
+    const requestId = ++requestIdRef.current;
+    const isStale = () => requestId !== requestIdRef.current;
+
     setError(null);
     setPreview(null);
     setTouched(true);
@@ -263,6 +280,7 @@ export function AddCustomTokenPage({
     // Solana adapter. The base58 mint is passed verbatim (never lowercased).
     if (isSolana) {
       setLoadingPreview(true);
+      setEnrichingMetadata(false);
       try {
         const config = getRequiredSolanaConfigByChainId(chainId);
         const ownerSolanaAddress =
@@ -270,12 +288,15 @@ export function AddCustomTokenPage({
             ? selectedAccount.solanaAddress ?? null
             : null;
 
-        const sol = await loadSplTokenPreview(
+        // Stage 1 — critical preview (mint/decimals/supply/balance + local known
+        // metadata). Fast: shows a usable card immediately.
+        const sol = await loadSplTokenPreviewCritical(
           config,
           ownerSolanaAddress,
           cleanTokenAddress,
         );
 
+        if (isStale()) return;
         setPreview({
           chainId,
           // Base58 mint stored verbatim. The TokenPreview type is typed for EVM
@@ -289,10 +310,42 @@ export function AddCustomTokenPage({
           logoUrl: sol.logoUrl,
           createdAt: new Date().toISOString(),
         });
+
+        // Stage 2 — background metadata/logo enrichment for unknown mints. Runs
+        // best-effort after the preview is on screen and never blocks import.
+        if (!sol.metadataResolved) {
+          setEnrichingMetadata(true);
+          void loadSplTokenMetadata(config, sol.mint)
+            .then((meta) => {
+              // Only the latest request may patch the card — an old mint's
+              // metadata must never overwrite a newer input.
+              if (isStale()) return;
+              setPreview((prev) =>
+                prev && prev.address === (sol.mint as `0x${string}`)
+                  ? {
+                      ...prev,
+                      name: meta.name,
+                      symbol: meta.symbol,
+                      // Keep the existing (placeholder) logo if none was found.
+                      logoUrl: meta.logoUrl ?? prev.logoUrl,
+                    }
+                  : prev,
+              );
+            })
+            .catch(() => {
+              // Enrichment is best-effort — no error banner for metadata.
+            })
+            .finally(() => {
+              if (!isStale()) setEnrichingMetadata(false);
+            });
+        }
       } catch (caught) {
+        if (isStale()) return;
         setError(caught instanceof Error ? caught.message : String(caught));
       } finally {
-        setLoadingPreview(false);
+        // Only the latest request owns the loading flag — a stale request must
+        // never flip the spinner off while a newer one is still running.
+        if (!isStale()) setLoadingPreview(false);
       }
       return;
     }
@@ -306,11 +359,13 @@ export function AddCustomTokenPage({
         ownerAddress: selectedAccount.address,
       });
 
+      if (isStale()) return;
       setPreview(nextPreview);
     } catch (caught) {
+      if (isStale()) return;
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setLoadingPreview(false);
+      if (!isStale()) setLoadingPreview(false);
     }
   }
 
@@ -457,9 +512,15 @@ export function AddCustomTokenPage({
             autoComplete="off"
             spellCheck={false}
             onChange={(event) => {
+              // Editing the mint abandons any in-flight preview: bump the
+              // request id so a late RPC response can't overwrite the new input,
+              // and drop the spinner since the running load is now irrelevant.
+              requestIdRef.current += 1;
               setTokenAddress(event.target.value);
               setPreview(null);
               setError(null);
+              setLoadingPreview(false);
+              setEnrichingMetadata(false);
               if (!touched && event.target.value.trim().length >= 4) {
                 setTouched(true);
               }
@@ -511,6 +572,11 @@ export function AddCustomTokenPage({
                 <div className="body">
                   <div className="nm">{preview.name}</div>
                   <div className="sub">{preview.symbol}</div>
+                  {enrichingMetadata ? (
+                    <div className="sub" style={{ opacity: 0.6 }}>
+                      Loading metadata…
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="num">

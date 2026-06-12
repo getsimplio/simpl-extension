@@ -126,6 +126,47 @@ export class CustomTokenService {
     return nextTokens;
   }
 
+  // Best-effort metadata patch for an ALREADY-imported token. Used to backfill
+  // logo/name/symbol resolved after import (e.g. tokens saved before logo support
+  // or whose metadata wasn't reachable at import time). Only the fields the caller
+  // passes are written, and only when they differ; never creates a new entry, so
+  // a no-op when the mint isn't in the store. Solana mints are matched verbatim
+  // (case-sensitive); EVM addresses are matched case-insensitively.
+  updateTokenMetadata(input: {
+    chainId: number;
+    address: string;
+    name?: string;
+    symbol?: string;
+    logoURI?: string;
+  }): void {
+    const current = this.getTokensByChainId(input.chainId);
+    const solana = isSolanaChainId(input.chainId);
+    const target = input.address.trim();
+    const matches = (addr: string): boolean =>
+      solana ? addr === target : addr.toLowerCase() === target.toLowerCase();
+
+    let changed = false;
+    const next = current.map((token) => {
+      if (!matches(token.address)) return token;
+      const patched: CustomToken = { ...token };
+      if (input.logoURI && patched.logoURI !== input.logoURI) {
+        patched.logoURI = input.logoURI;
+        changed = true;
+      }
+      if (input.name && patched.name !== input.name) {
+        patched.name = input.name;
+        changed = true;
+      }
+      if (input.symbol && patched.symbol !== input.symbol) {
+        patched.symbol = input.symbol;
+        changed = true;
+      }
+      return patched;
+    });
+
+    if (changed) this.saveTokens(input.chainId, next);
+  }
+
   removeToken(input: { chainId: number; address: string }): CustomToken[] {
     const normalizedAddress = normalizeTokenAddressForChain(
       input.chainId,

@@ -336,9 +336,12 @@ export function resolvePriceIdentity(
     platform,
     canHaveChart: canResolveChart(chainId, addr),
     isStable: known?.isStable ?? false,
-    // A spot price is resolvable when we have a coin id (native/known) or a
-    // contract address on a chain with a CoinGecko platform.
-    hasMarketData: coinGeckoId !== null || (addr !== null && platform !== null),
+    // A spot price is resolvable when we have a coin id (native/known) or ANY
+    // contract address. The gateway prices ERC-20s, Solana SPL mints and TRON
+    // tokens by chainId + address and decides server-side whether data exists,
+    // so we must NOT gate on the local CoinGecko-platform list — doing so
+    // silently denied imported SPL/TRON tokens (no platform) their market data.
+    hasMarketData: coinGeckoId !== null || addr !== null,
   };
 }
 

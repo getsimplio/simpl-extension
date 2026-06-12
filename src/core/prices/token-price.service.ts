@@ -88,9 +88,19 @@ export class TokenPriceService {
     addresses: string[];
   }): Promise<PriceMap> {
     const { chainId } = input;
-    const addresses = Array.from(
-      new Set(input.addresses.map((a) => a.toLowerCase()).filter(Boolean)),
-    );
+    // De-dupe by lowercase identity but KEEP each address's original casing for
+    // the gateway request. EVM 0x addresses are case-insensitive, but Solana SPL
+    // mints and TRON base58 addresses are CASE-SENSITIVE — lowercasing them
+    // corrupts the identity so the gateway can't price the token (this is what
+    // left imported SPL tokens stuck on "No price"). We map lowercase-key →
+    // original address and only ever send the original to the gateway.
+    const originalByKey = new Map<string, string>();
+    for (const raw of input.addresses) {
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (!originalByKey.has(key)) originalByKey.set(key, raw);
+    }
+    const addresses = Array.from(originalByKey.keys());
 
     if (addresses.length === 0) return {};
 
@@ -115,7 +125,9 @@ export class TokenPriceService {
     // 2. One batch request to the Simpl API Gateway for every stale address.
     try {
       const batch = await getBatchPrices(
-        stale.map((address) => ({ chainId, address })),
+        // Send the ORIGINAL-cased address so case-sensitive Solana/TRON mints
+        // reach the gateway intact; EVM addresses are canonicalized server-side.
+        stale.map((key) => ({ chainId, address: originalByKey.get(key) ?? key })),
         "usd",
       );
 

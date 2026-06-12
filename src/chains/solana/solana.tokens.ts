@@ -15,6 +15,14 @@ import { solanaErrorFor } from "./solana.errors";
 import { withSolanaRead } from "./solana.rpc";
 import type { SolanaTokenBalance } from "./solana.types";
 
+const isDev = Boolean((import.meta.env as { DEV?: boolean } | undefined)?.DEV);
+
+// Dev-only diagnostics for background metadata enrichment. No-op in production.
+// Never logs addresses' secret material — only the mint, names and status.
+function metaDebug(message: string, detail?: Record<string, unknown>): void {
+  if (isDev) console.debug(`[solana-meta] ${message}`, detail ?? {});
+}
+
 type KnownToken = {
   symbol: string;
   name: string;
@@ -41,7 +49,10 @@ export const KNOWN_SPL_TOKENS: Record<string, KnownToken> = {
   DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: {
     symbol: "BONK",
     name: "Bonk",
-    logoUrl: null,
+    // Canonical BONK logo from its Metaplex off-chain metadata. AssetIcon falls
+    // back to initials if this ever fails to load, so it's safe to seed here.
+    logoUrl:
+      "https://arweave.net/hQiPZOsRZXGXBJd_82PhVdlM_hACsT_q6wqwf5cSY7I",
   },
   EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm: {
     symbol: "WIF",
@@ -130,21 +141,41 @@ function parseMetaplexMetadata(data: Uint8Array): MetaplexOnChain | null {
 }
 
 // Read + parse the Metaplex metadata account for a mint. Returns null when there
-// is no metadata account (many tokens) or the account can't be parsed.
+// is no metadata account (many tokens) or the account can't be parsed. Fills the
+// dev diagnostic with the PDA, whether the account existed, and the parse result
+// / failure reason so an unresolved token is always explainable.
 async function loadMetaplexOnChainMetadata(
   config: SolanaChainConfig,
   mint: PublicKey,
+  diag: SolanaMetaDiag,
 ): Promise<MetaplexOnChain | null> {
   const pda = deriveMetadataPda(mint);
-  const account = await withSolanaRead(config, (connection) =>
-    connection.getAccountInfo(pda),
+  diag.metaplex.pda = pda.toBase58();
+  // Metadata is best-effort and must never hold up the preview, so use a shorter
+  // per-endpoint deadline than the critical mint read — a dead endpoint here
+  // fails fast and the preview still loads with the safe name/symbol fallback.
+  const account = await withSolanaRead(
+    config,
+    (connection) => connection.getAccountInfo(pda),
+    { timeoutMs: 4000 },
   );
-  if (!account || !account.data) return null;
+  if (!account || !account.data) {
+    diag.metaplex.accountExists = false;
+    diag.metaplex.reason = "account missing";
+    return null;
+  }
+  diag.metaplex.accountExists = true;
   const bytes =
     account.data instanceof Uint8Array
       ? account.data
       : new Uint8Array(account.data as ArrayBufferLike);
-  return parseMetaplexMetadata(bytes);
+  const parsed = parseMetaplexMetadata(bytes);
+  if (!parsed) {
+    diag.metaplex.reason = "parse failed";
+    return null;
+  }
+  diag.metaplex.parsed = { name: parsed.name, symbol: parsed.symbol, uri: parsed.uri };
+  return parsed;
 }
 
 // IPFS gateways tried in order. The first that returns valid JSON / a loadable
@@ -307,28 +338,158 @@ async function validateImageUrl(
   return null;
 }
 
-type ResolvedSplMetadata = {
+export type ResolvedSplMetadata = {
   symbol: string;
   name: string;
   logoUrl: string | null;
   isVerified: boolean;
 };
 
+// Token-2022 program — newer mints may carry their metadata inline via the SPL
+// Token Metadata extension instead of a classic Metaplex account. web3.js's
+// parsed account info surfaces those extensions under info.extensions, so we can
+// read name/symbol/uri without any extra dependency or manual TLV parsing.
+const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+type ParsedMintExtension = {
+  extension?: string;
+  state?: Record<string, unknown>;
+};
+
+// Read a Token-2022 mint's inline metadata extension (name/symbol/uri), if any.
+// Lightweight: one bounded parsed-account read, reusing the same RPC the critical
+// preview already uses. Returns null for classic SPL mints, mints without the
+// metadata extension, or a metadata-pointer-only mint (logged as unsupported).
+async function loadToken2022Metadata(
+  config: SolanaChainConfig,
+  mintKey: PublicKey,
+  diag: SolanaMetaDiag,
+): Promise<MetaplexOnChain | null> {
+  diag.token2022.attempted = true;
+  const info = await withSolanaRead(
+    config,
+    (connection) => connection.getParsedAccountInfo(mintKey),
+    { timeoutMs: 4000 },
+  );
+
+  const value = info.value;
+  diag.token2022.owner = value?.owner?.toBase58() ?? null;
+  diag.token2022.isToken2022 = diag.token2022.owner === TOKEN_2022_PROGRAM_ID;
+
+  const data = value?.data;
+  const parsedInfo =
+    data && typeof data === "object" && "parsed" in data
+      ? (data as { parsed?: { info?: { extensions?: unknown } } }).parsed?.info
+      : null;
+  const extensions = Array.isArray(parsedInfo?.extensions)
+    ? (parsedInfo?.extensions as ParsedMintExtension[])
+    : null;
+
+  if (!extensions) {
+    diag.token2022.result = "no-extensions";
+    return null;
+  }
+
+  const tokenMetadata = extensions.find((e) => e.extension === "tokenMetadata");
+  const pointer = extensions.find((e) => e.extension === "metadataPointer");
+  diag.token2022.hasPointer = Boolean(pointer);
+  diag.token2022.hasInlineMetadata = Boolean(tokenMetadata?.state);
+
+  if (tokenMetadata?.state) {
+    const state = tokenMetadata.state;
+    const result: MetaplexOnChain = {
+      name: asNonEmptyString(state.name) ?? "",
+      symbol: asNonEmptyString(state.symbol) ?? "",
+      uri: asNonEmptyString(state.uri) ?? "",
+    };
+    diag.token2022.result = "inline-metadata";
+    return result;
+  }
+
+  // A pointer to a separate metadata account would need raw TLV parsing — out of
+  // scope for this lightweight pass. Diagnose and fall through to fallback.
+  diag.token2022.result = pointer ? "pointer-only-unsupported" : "no-metadata";
+  return null;
+}
+
+// Final metadata source for diagnostics — which stage produced the name/symbol.
+type SolanaMetaSource =
+  | "known"
+  | "metaplex"
+  | "token2022"
+  | "offchain"
+  | "fallback";
+
+// Dev-only diagnostic record for one mint's metadata resolution. Built always
+// (cheap), logged only in DEV via metaDebug. Never shown in production UI.
+type SolanaMetaDiag = {
+  mint: string;
+  knownHit: boolean;
+  metaplex: {
+    pda: string | null;
+    accountExists: boolean;
+    parsed: { name: string; symbol: string; uri: string } | null;
+    reason: string | null;
+  };
+  token2022: {
+    attempted: boolean;
+    owner: string | null;
+    isToken2022: boolean;
+    hasPointer: boolean;
+    hasInlineMetadata: boolean;
+    result: string | null;
+  };
+  uriCandidates: string[];
+  jsonFetch: { ok: boolean; url: string | null };
+  imageCandidates: string[];
+  image: { ok: boolean; url: string | null };
+  finalSource: SolanaMetaSource;
+};
+
+function newMetaDiag(mint: string): SolanaMetaDiag {
+  return {
+    mint,
+    knownHit: false,
+    metaplex: { pda: null, accountExists: false, parsed: null, reason: null },
+    token2022: {
+      attempted: false,
+      owner: null,
+      isToken2022: false,
+      hasPointer: false,
+      hasInlineMetadata: false,
+      result: null,
+    },
+    uriCandidates: [],
+    jsonFetch: { ok: false, url: null },
+    imageCandidates: [],
+    image: { ok: false, url: null },
+    finalSource: "fallback",
+  };
+}
+
 // Resolve display metadata for a mint, in priority order:
 //   1. Local known list (resolveTokenMetadata) — verified tokens win outright.
-//   2. Metaplex on-chain name/symbol/uri.
-//   3. Off-chain JSON (name/symbol fallback + image/logo, multi-gateway).
-//   4. Safe fallback: shortened mint + "Solana Token" + no logo.
+//   2. Metaplex on-chain name/symbol/uri (classic metadata account).
+//   3. Token-2022 inline metadata extension (newer mints w/o a Metaplex account).
+//   4. Off-chain JSON for any URI found (name/symbol fallback + image/logo,
+//      multi-gateway).
+//   5. Safe fallback: shortened mint + "Solana Token" + no logo.
 // The logo URL is validated (it must actually serve an image) before being
 // returned, so callers can save/use it directly. Never throws — any metadata
-// failure degrades to the next source / fallback.
+// failure degrades to the next source / fallback. A full dev-only diagnostic is
+// logged so an unresolved token always has a clear reason.
 async function resolveSplTokenMetadata(
   config: SolanaChainConfig,
   mintKey: PublicKey,
   mint: string,
 ): Promise<ResolvedSplMetadata> {
+  const diag = newMetaDiag(mint);
+
   const known = resolveTokenMetadata(mint);
   if (known.isVerified) {
+    diag.knownHit = true;
+    diag.finalSource = "known";
+    metaDebug("resolution complete", diag);
     return {
       symbol: known.symbol,
       name: known.name,
@@ -341,45 +502,84 @@ async function resolveSplTokenMetadata(
   let symbol = shortenMint(mint);
   let name = "Solana Token";
   let logoUrl: string | null = null;
+  let haveName = false;
+  let haveSymbol = false;
+  let uri = "";
+  let source: SolanaMetaSource = "fallback";
 
   try {
-    const onChain = await loadMetaplexOnChainMetadata(config, mintKey);
+    // 2. Classic Metaplex metadata account.
+    const onChain = await loadMetaplexOnChainMetadata(config, mintKey, diag);
     if (onChain) {
-      if (onChain.name) name = onChain.name;
-      if (onChain.symbol) symbol = onChain.symbol;
+      if (onChain.name) {
+        name = onChain.name;
+        haveName = true;
+      }
+      if (onChain.symbol) {
+        symbol = onChain.symbol;
+        haveSymbol = true;
+      }
+      if (onChain.uri) uri = onChain.uri;
+      if (haveName || haveSymbol) source = "metaplex";
+    }
 
-      if (onChain.uri) {
-        // The on-chain uri may itself be a dead IPFS gateway — expand it to all
-        // gateway candidates and use the first that returns JSON.
-        const fetched = await fetchJsonWithTimeout(
-          normalizeMetadataUri(onChain.uri),
-        );
-        if (fetched) {
-          const { json, baseUrl } = fetched;
+    // 3. Token-2022 inline metadata — only when Metaplex gave us no name/symbol.
+    if (!haveName && !haveSymbol) {
+      const t22 = await loadToken2022Metadata(config, mintKey, diag);
+      if (t22) {
+        if (t22.name) {
+          name = t22.name;
+          haveName = true;
+        }
+        if (t22.symbol) {
+          symbol = t22.symbol;
+          haveSymbol = true;
+        }
+        if (!uri && t22.uri) uri = t22.uri;
+        if (haveName || haveSymbol) source = "token2022";
+      }
+    }
 
-          // Off-chain JSON fills name/symbol only when on-chain didn't provide
-          // them.
-          if (!onChain.name) {
-            const offName = asNonEmptyString(json.name);
-            if (offName) name = offName;
-          }
-          if (!onChain.symbol) {
-            const offSymbol = asNonEmptyString(json.symbol);
-            if (offSymbol) symbol = offSymbol;
-          }
+    // 4. Off-chain JSON for any URI found — fills missing name/symbol and the
+    //    image/logo. The on-chain uri may itself be a dead IPFS gateway, so it's
+    //    expanded to all gateway candidates and the first that returns JSON wins.
+    if (uri) {
+      const candidates = normalizeMetadataUri(uri);
+      diag.uriCandidates = candidates;
+      const fetched = await fetchJsonWithTimeout(candidates);
+      diag.jsonFetch = { ok: Boolean(fetched), url: fetched?.baseUrl ?? null };
+      if (fetched) {
+        const { json, baseUrl } = fetched;
 
-          // Image: accept the common field names, expand to gateway candidates,
-          // and keep only a URL that actually serves an image.
-          const rawImage =
-            asNonEmptyString(json.image) ??
-            asNonEmptyString(json.image_url) ??
-            asNonEmptyString(json.logoURI) ??
-            asNonEmptyString(json.logo);
-          if (rawImage) {
-            logoUrl = await validateImageUrl(
-              resolveTokenImageUrl(rawImage, baseUrl),
-            );
+        if (!haveName) {
+          const offName = asNonEmptyString(json.name);
+          if (offName) {
+            name = offName;
+            haveName = true;
+            if (source === "fallback") source = "offchain";
           }
+        }
+        if (!haveSymbol) {
+          const offSymbol = asNonEmptyString(json.symbol);
+          if (offSymbol) {
+            symbol = offSymbol;
+            haveSymbol = true;
+            if (source === "fallback") source = "offchain";
+          }
+        }
+
+        // Image: accept the common field names, expand to gateway candidates,
+        // and keep only a URL that actually serves an image.
+        const rawImage =
+          asNonEmptyString(json.image) ??
+          asNonEmptyString(json.image_url) ??
+          asNonEmptyString(json.logoURI) ??
+          asNonEmptyString(json.logo);
+        if (rawImage) {
+          const imageCandidates = resolveTokenImageUrl(rawImage, baseUrl);
+          diag.imageCandidates = imageCandidates;
+          logoUrl = await validateImageUrl(imageCandidates);
+          diag.image = { ok: Boolean(logoUrl), url: logoUrl };
         }
       }
     }
@@ -387,6 +587,9 @@ async function resolveSplTokenMetadata(
     // Metadata is best-effort — never block the preview on it.
     console.debug("Solana metadata resolution failed (using fallback):", error);
   }
+
+  diag.finalSource = source;
+  metaDebug("resolution complete", diag);
 
   return { symbol, name, logoUrl, isVerified: false };
 }
@@ -406,26 +609,12 @@ export type SplTokenPreview = {
   supply: string | null;
 };
 
-// Load a preview for a single SPL mint: on-chain decimals (proves it's a real
-// mint), display metadata (known mints get nice labels, unknown mints fall back
-// to a shortened mint + "Solana Token"), and the owner's balance for this mint
-// (0 when there's no token account). Reads go through withSolanaRead, so an RPC
-// failure throws a normalized Solana error — never an EVM error. The mint string
-// is used verbatim (base58 is case-sensitive and must not be lowercased).
-export async function loadSplTokenPreview(
+// Read the mint account and extract decimals (+ supply). Throws when the address
+// isn't a real SPL mint — this is the only critical, import-blocking read.
+async function readSplMintInfo(
   config: SolanaChainConfig,
-  ownerAddress: string | null,
-  mint: string,
-): Promise<SplTokenPreview> {
-  const trimmedMint = mint.trim();
-
-  if (!isValidSolanaAddress(trimmedMint)) {
-    throw solanaErrorFor("INVALID_SOLANA_ADDRESS");
-  }
-
-  const mintKey = new PublicKey(trimmedMint);
-
-  // 1. Read the mint account → decimals (+ supply). Confirms a real SPL mint.
+  mintKey: PublicKey,
+): Promise<{ decimals: number; supply: string | null }> {
   const mintInfo = await withSolanaRead(config, (connection) =>
     connection.getParsedAccountInfo(mintKey),
   );
@@ -453,44 +642,164 @@ export async function loadSplTokenPreview(
     );
   }
 
-  const decimals = parsed.info.decimals;
-  const supply =
-    typeof parsed.info.supply === "string" ? parsed.info.supply : null;
+  return {
+    decimals: parsed.info.decimals,
+    supply: typeof parsed.info.supply === "string" ? parsed.info.supply : null,
+  };
+}
 
-  // 2. Display metadata: local known list → Metaplex on-chain → off-chain JSON
-    //    → safe fallback. Best-effort; never blocks the preview.
-  const metadata = await resolveSplTokenMetadata(config, mintKey, trimmedMint);
-  const symbol = metadata.symbol;
-  const name = metadata.name;
-
-  // 3. Owner balance for this mint. Missing owner / token account → 0, no crash.
-  let rawAmount = 0n;
-  if (ownerAddress && isValidSolanaAddress(ownerAddress)) {
-    try {
-      const owner = new PublicKey(ownerAddress);
-      const accounts = await withSolanaRead(config, (connection) =>
-        connection.getParsedTokenAccountsByOwner(owner, { mint: mintKey }),
-      );
-      for (const entry of accounts.value) {
-        const amount = readParsedInfo(entry)?.tokenAmount?.amount;
-        if (amount != null) rawAmount += BigInt(amount);
-      }
-    } catch (error) {
-      // A balance read failure must not block the preview — default to 0.
-      console.debug("Solana SPL balance read failed (defaulting to 0):", error);
+// Owner balance for this mint. Missing owner / token account → 0, never throws:
+// a balance read failure must not block the preview.
+async function readOwnerSplBalance(
+  config: SolanaChainConfig,
+  ownerAddress: string | null,
+  mintKey: PublicKey,
+): Promise<bigint> {
+  if (!ownerAddress || !isValidSolanaAddress(ownerAddress)) return 0n;
+  try {
+    const owner = new PublicKey(ownerAddress);
+    const accounts = await withSolanaRead(config, (connection) =>
+      connection.getParsedTokenAccountsByOwner(owner, { mint: mintKey }),
+    );
+    let rawAmount = 0n;
+    for (const entry of accounts.value) {
+      const amount = readParsedInfo(entry)?.tokenAmount?.amount;
+      if (amount != null) rawAmount += BigInt(amount);
     }
+    return rawAmount;
+  } catch (error) {
+    console.debug("Solana SPL balance read failed (defaulting to 0):", error);
+    return 0n;
   }
+}
+
+// A critical preview plus a flag telling the caller whether its name/symbol/logo
+// are already final (a verified known token) or still need background enrichment.
+export type SplTokenCriticalPreview = SplTokenPreview & {
+  // true → metadata is already final (known list); no Stage-2 call is needed.
+  metadataResolved: boolean;
+};
+
+// Stage 1 — CRITICAL preview, returned fast. Validates the mint, proves it's a
+// real SPL mint (decimals/supply), reads the owner balance, and fills metadata
+// ONLY from the local known list (instant, no network metadata). Unknown mints
+// get the safe fallback (shortened mint + "Solana Token" + no logo) and are
+// enriched separately by loadSplTokenMetadata. Reads go through withSolanaRead,
+// so an RPC failure throws a normalized Solana error. The mint string is used
+// verbatim (base58 is case-sensitive and must not be lowercased).
+export async function loadSplTokenPreviewCritical(
+  config: SolanaChainConfig,
+  ownerAddress: string | null,
+  mint: string,
+): Promise<SplTokenCriticalPreview> {
+  const trimmedMint = mint.trim();
+
+  if (!isValidSolanaAddress(trimmedMint)) {
+    throw solanaErrorFor("INVALID_SOLANA_ADDRESS");
+  }
+
+  const mintKey = new PublicKey(trimmedMint);
+
+  const { decimals, supply } = await readSplMintInfo(config, mintKey);
+
+  // Metadata from the LOCAL known list only — instant, no network. Unknown mints
+  // keep the safe fallback until Stage-2 enrichment upgrades them.
+  const known = resolveTokenMetadata(trimmedMint);
+  const symbol = known.isVerified ? known.symbol : shortenMint(trimmedMint);
+  const name = known.isVerified ? known.name : "Solana Token";
+  const logoUrl = known.isVerified ? known.logoUrl : null;
+
+  const rawAmount = await readOwnerSplBalance(config, ownerAddress, mintKey);
 
   return {
     mint: trimmedMint,
     decimals,
     symbol,
     name,
-    logoUrl: metadata.logoUrl,
-    isVerified: metadata.isVerified,
+    logoUrl,
+    isVerified: known.isVerified,
     rawAmount,
     formatted: formatTokenAmount(rawAmount, decimals),
     supply,
+    metadataResolved: known.isVerified,
+  };
+}
+
+// Overall background budget for Stage-2 enrichment. Each sub-read already has its
+// own short per-endpoint / per-gateway timeout; this is the hard ceiling so the
+// whole enrichment can never run forever even if every gateway stalls.
+const METADATA_BUDGET_MS = 12_000;
+
+// Stage 2 — BEST-EFFORT background metadata enrichment for a mint already shown
+// in a Stage-1 preview. Resolves Metaplex name/symbol, off-chain JSON and a
+// validated logo URL, bounded by an overall budget. Never throws and never
+// blocks import — returns the safe fallback metadata when nothing better is
+// found (so the caller can merge unconditionally).
+export async function loadSplTokenMetadata(
+  config: SolanaChainConfig,
+  mint: string,
+  options?: { timeoutMs?: number },
+): Promise<ResolvedSplMetadata> {
+  const trimmedMint = mint.trim();
+  const fallback: ResolvedSplMetadata = {
+    symbol: shortenMint(trimmedMint),
+    name: "Solana Token",
+    logoUrl: null,
+    isVerified: false,
+  };
+
+  if (!isValidSolanaAddress(trimmedMint)) return fallback;
+
+  const mintKey = new PublicKey(trimmedMint);
+  const budgetMs = options?.timeoutMs ?? METADATA_BUDGET_MS;
+
+  metaDebug("enrichment started", { mint: trimmedMint, budgetMs });
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      resolveSplTokenMetadata(config, mintKey, trimmedMint),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Solana metadata budget exceeded")),
+          budgetMs,
+        );
+      }),
+    ]);
+  } catch (error) {
+    metaDebug("enrichment timed out / failed (using fallback)", {
+      mint: trimmedMint,
+      error: String(error),
+    });
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// Combined single-shot preview (critical + enrichment), kept for back-compat and
+// non-UI callers that want one resolved object. The Add Token screen uses the
+// two-stage API (critical then background metadata) for a snappier UI instead.
+export async function loadSplTokenPreview(
+  config: SolanaChainConfig,
+  ownerAddress: string | null,
+  mint: string,
+): Promise<SplTokenPreview> {
+  const critical = await loadSplTokenPreviewCritical(config, ownerAddress, mint);
+  const {
+    metadataResolved: _metadataResolved,
+    ...preview
+  } = critical;
+
+  if (critical.metadataResolved) return preview;
+
+  const metadata = await loadSplTokenMetadata(config, critical.mint);
+  return {
+    ...preview,
+    symbol: metadata.symbol,
+    name: metadata.name,
+    logoUrl: metadata.logoUrl,
+    isVerified: metadata.isVerified,
   };
 }
 

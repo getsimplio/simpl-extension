@@ -42,6 +42,7 @@ import { customTokenService } from "../../core/tokens/custom-token.service";
 import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
 import {
   getChainById,
+  getChainFamily,
   getNetworkDisplayName,
   getCompactNetworkName,
   isTronChainId,
@@ -50,6 +51,8 @@ import {
   SOLANA_DEVNET_CHAIN_ID,
 } from "../../core/networks/chain-registry";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
+import { getRequiredSolanaConfigByChainId } from "../../chains/solana/solana.config";
+import { loadSplTokenMetadata } from "../../chains/solana/solana.tokens";
 import {
   transactionHistoryService,
   type TransactionHistoryItem,
@@ -1097,6 +1100,72 @@ export function HomePage(props: HomePageProps) {
     };
   }, [assetDetails?.id]);
 
+  // Backfill a missing logo for an imported Solana SPL token's detail view. The
+  // portfolio maps known/stored metadata synchronously; tokens imported before
+  // logo support — or whose logo wasn't reachable at import — arrive with
+  // logoUrl === null. When such a token's detail opens we re-resolve metadata in
+  // the background (best-effort, bounded by loadSplTokenMetadata's own budget),
+  // update the live icon + list row, and persist the logo so it survives reload.
+  // Stale results are dropped via `active` when the asset changes (EVM/TRON and
+  // tokens that already have a logo are skipped entirely).
+  useEffect(() => {
+    const asset = assetDetails;
+    if (!asset || isNativeAsset(asset)) return;
+    if (!isSolanaChainId(asset.chainId) || asset.logoUrl) return;
+    const mint = asset.contractAddress;
+    if (!mint) return;
+
+    let active = true;
+    const assetId = asset.id;
+    const nameWasFallback = asset.name === "Solana Token";
+
+    void (async () => {
+      try {
+        const config = getRequiredSolanaConfigByChainId(asset.chainId);
+        const meta = await loadSplTokenMetadata(config, mint);
+        if (!active) return;
+
+        const logoUrl = meta.logoUrl;
+        const name = nameWasFallback && meta.name ? meta.name : null;
+        const symbol = nameWasFallback && meta.symbol ? meta.symbol : null;
+        if (!logoUrl && !name && !symbol) return; // nothing new resolved
+
+        const patch = {
+          ...(logoUrl ? { logoUrl } : {}),
+          ...(name ? { name } : {}),
+          ...(symbol ? { symbol } : {}),
+        };
+
+        // Live update: detail card.
+        setAssetDetails((prev) =>
+          prev && prev.id === assetId ? { ...prev, ...patch } : prev,
+        );
+        // Live update: list row + cache, so the logo shows on close/reload too.
+        const nextAssets = assetsRef.current.map((a) =>
+          a.id === assetId ? { ...a, ...patch } : a,
+        );
+        updateAssets(nextAssets);
+        if (cacheKey) writeCachedPortfolio(cacheKey, nextAssets);
+        // Persist to the custom-token store (no-op for non-imported tokens), so
+        // the backfilled logo survives a fresh portfolio fetch.
+        customTokenService.updateTokenMetadata({
+          chainId: asset.chainId,
+          address: mint,
+          ...(logoUrl ? { logoURI: logoUrl } : {}),
+          ...(name ? { name } : {}),
+          ...(symbol ? { symbol } : {}),
+        });
+      } catch (error) {
+        // Best-effort — a missing logo is never a user-facing error.
+        console.debug("Solana asset-detail logo enrichment failed:", error);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [assetDetails?.id]);
+
   function handleOpenAssetDetails(asset: WalletAssetBalance) {
     setAssetDetails(asset);
     setConfirmRemove(false);
@@ -1344,6 +1413,32 @@ export function HomePage(props: HomePageProps) {
       !showChartCard &&
       chartStatus !== "idle" &&
       (detailsPriceExpected || detailsPrice != null || volume24hUsd != null);
+
+    // No price, no history, no candles, no market identity: a truly unknown
+    // imported token. Show a compact, reassuring "unavailable" notice instead of
+    // a large empty chart card. Scoped to imported tokens — native assets always
+    // resolve a market, so this never affects them.
+    const showNoMarketData =
+      !isNative &&
+      !isTestnetAsset &&
+      !showChartCard &&
+      !showMarketFallback &&
+      chartStatus !== "idle";
+
+    // Swap routes through the EVM-only 0x proxy. For imported tokens on non-EVM
+    // chains (Solana SPL, TRON, BTC) it can't execute, so hide the action with a
+    // short note rather than offering a button that dead-ends. Native assets keep
+    // their existing behavior (governed solely by isTestnetAsset) untouched.
+    const swapAvailable =
+      !isTestnetAsset &&
+      (isNative || getChainFamily(asset.chainId) === "evm");
+    const showSwapUnavailableNote =
+      !isNative && !isTestnetAsset && !swapAvailable && !isWatchOnlyAccount;
+
+    // Address label is chain-aware: Solana mints vs EVM/TRON contracts.
+    const tokenAddressLabel = isSolanaChainId(asset.chainId)
+      ? "Mint address"
+      : "Contract address";
 
     return (
       <div className="ext-popup asset-details-page" data-screen-label="Asset">
@@ -1622,6 +1717,20 @@ export function HomePage(props: HomePageProps) {
                 ) : null}
                 <div className="asset-market-card__note">Chart unavailable</div>
               </section>
+            ) : showNoMarketData ? (
+              // Unknown imported token with no market data at all — keep it small
+              // and calm, never a big blank chart card.
+              <section className="asset-no-market">
+                <div className="asset-no-market__title">
+                  Market data unavailable
+                </div>
+                <p className="asset-no-market__text">
+                  No price data found for this token yet.
+                </p>
+                <p className="asset-no-market__sub">
+                  This does not affect your token balance.
+                </p>
+              </section>
             ) : null}
 
             {/* Contract / native info */}
@@ -1672,7 +1781,9 @@ export function HomePage(props: HomePageProps) {
             ) : asset.contractAddress ? (
               <section className="asset-details-info-card">
                 <div className="asset-details-info-row">
-                  <span className="asset-details-info-label">Contract</span>
+                  <span className="asset-details-info-label">
+                    {tokenAddressLabel}
+                  </span>
                   <span className="asset-details-info-value asset-details-info-address">
                     {truncateAddress(asset.contractAddress)}
                   </span>
@@ -1682,7 +1793,7 @@ export function HomePage(props: HomePageProps) {
                     onClick={() =>
                       void handleCopyAddress(asset.contractAddress!)
                     }
-                    aria-label="Copy contract address"
+                    aria-label={`Copy ${tokenAddressLabel.toLowerCase()}`}
                   >
                     {copied ? "Copied" : "Copy"}
                   </button>
@@ -1735,7 +1846,7 @@ export function HomePage(props: HomePageProps) {
                 >
                   Receive
                 </button>
-                {isTestnetAsset ? null : (
+                {swapAvailable ? (
                   <button
                     type="button"
                     className="asset-action-btn asset-action-btn--outline"
@@ -1743,9 +1854,16 @@ export function HomePage(props: HomePageProps) {
                   >
                     Swap
                   </button>
-                )}
+                ) : null}
               </div>
             )}
+
+            {showSwapUnavailableNote ? (
+              <p className="asset-details-swap-note">
+                Swap isn’t available on {getNetworkLabel(asset.chainId)} yet. You
+                can still send and receive {asset.symbol}.
+              </p>
+            ) : null}
 
             {/* Activity */}
             <section className="asset-details-activity">
@@ -1936,48 +2054,81 @@ export function HomePage(props: HomePageProps) {
           </div>
         )}
 
-        {(portfolioStatus === "error" || (portfolioStatus === "stale" && portfolioError !== null)) ? (
-          <div
-            style={{
-              margin: "0 12px 12px",
-              padding: "10px 12px",
-              borderRadius: 8,
-              background: "var(--danger-soft)",
-              color: "var(--danger)",
-              fontSize: 12,
-              lineHeight: 1.45,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-            }}
-          >
-            <span>
-              {isSolanaChainId(selectedChainId)
-                ? "Solana RPC is unavailable. Try again later."
-                : "Couldn't refresh balances."}
-            </span>
-            <button
-              type="button"
-              onClick={() => void syncPortfolio()}
-              disabled={isSyncing}
-              style={{
-                flexShrink: 0,
-                background: "transparent",
-                border: "1px solid currentColor",
-                borderRadius: 5,
-                color: "inherit",
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "3px 8px",
-                cursor: "pointer",
-                opacity: isSyncing ? 0.5 : 1,
-              }}
-            >
-              Try again
-            </button>
-          </div>
-        ) : null}
+        {(() => {
+          const solana = isSolanaChainId(selectedChainId);
+          const hardError = portfolioStatus === "error";
+          const staleError =
+            portfolioStatus === "stale" && portfolioError !== null;
+
+          // Solana shows the prominent red banner ONLY when nothing usable
+          // loaded (no cache → "error"). When cached/partial data is on screen
+          // ("stale"), a single failed/slow RPC is non-critical, so it degrades
+          // to a soft, non-alarming note with silent background retry instead of
+          // the scary red banner. EVM/TRON keep their existing behavior for both
+          // error and stale-with-error (unchanged).
+          const showCriticalBanner = solana
+            ? hardError
+            : hardError || staleError;
+          const showDegradedNote = solana && staleError;
+
+          if (showCriticalBanner) {
+            return (
+              <div
+                style={{
+                  margin: "0 12px 12px",
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  background: "var(--danger-soft)",
+                  color: "var(--danger)",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <span>
+                  {solana
+                    ? "Solana network is temporarily unavailable."
+                    : "Couldn't refresh balances."}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void syncPortfolio()}
+                  disabled={isSyncing}
+                  style={{
+                    flexShrink: 0,
+                    background: "transparent",
+                    border: "1px solid currentColor",
+                    borderRadius: 5,
+                    color: "inherit",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "3px 8px",
+                    cursor: "pointer",
+                    opacity: isSyncing ? 0.5 : 1,
+                  }}
+                >
+                  Try again
+                </button>
+              </div>
+            );
+          }
+
+          if (showDegradedNote) {
+            // Soft amber note: small, neutral copy, no scary red, no prominent
+            // button. A background retry is already scheduled and will clear the
+            // note on success.
+            return (
+              <div className="home-degraded-note">
+                Some Solana balances may be delayed. Showing available data.
+              </div>
+            );
+          }
+
+          return null;
+        })()}
 
         <div className="sect-head">
           <div className="lbl">Assets</div>

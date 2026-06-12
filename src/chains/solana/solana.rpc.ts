@@ -47,26 +47,97 @@ function logRpcFailure(
   );
 }
 
+// Default per-endpoint deadline for a single read. Long enough for a healthy
+// public RPC to answer, short enough that a dead/slow endpoint (504, hung
+// socket) rotates to the next one quickly instead of stalling the whole flow.
+const DEFAULT_RPC_TIMEOUT_MS = 6000;
+
+// Wrap fetch so each RPC HTTP call is bounded: it aborts at `timeoutMs` and
+// surfaces as a network error, which lets withSolanaRead rotate to the next
+// endpoint. Any caller-supplied abort signal is chained in so callers can still
+// cancel. SECURITY: never inspects or logs the request body.
+function createTimeoutFetch(timeoutMs: number): typeof fetch {
+  return (input, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const callerSignal = init?.signal;
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else
+        callerSignal.addEventListener("abort", () => controller.abort(), {
+          once: true,
+        });
+    }
+    return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+      clearTimeout(timer);
+    });
+  };
+}
+
 // A web3.js Connection for one endpoint. "confirmed" is a good wallet default
-// (fast, final enough for balances + sends).
-export function createSolanaConnection(rpcUrl: string): Connection {
+// (fast, final enough for balances + sends). When `timeoutMs` is given the
+// connection's HTTP calls are abort-bounded and web3.js's internal rate-limit
+// retry loop is disabled, so a slow endpoint fails fast and we move to the next
+// one (we do our own endpoint rotation in withSolanaRead).
+export function createSolanaConnection(
+  rpcUrl: string,
+  options?: { timeoutMs?: number },
+): Connection {
+  const timeoutMs = options?.timeoutMs;
+  if (timeoutMs && timeoutMs > 0) {
+    return new Connection(rpcUrl, {
+      commitment: "confirmed",
+      fetch: createTimeoutFetch(timeoutMs),
+      disableRetryOnRateLimit: true,
+    });
+  }
   return new Connection(rpcUrl, "confirmed");
 }
 
+// Reject if `promise` doesn't settle within `timeoutMs`. The underlying RPC call
+// is also abort-bounded via the connection's timeout fetch, so the timed-out
+// endpoint stops working shortly after we move on; its late result is ignored.
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Solana RPC request timed out")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // Run a READ-ONLY op against the config's endpoints in order, falling back to
-// the next on any failure (403/429/network/invalid response). Throws a single
-// normalized SolanaError only when every endpoint fails. Use ONLY for
-// idempotent reads — never for broadcasting a transaction.
+// the next on any failure (403/429/504/timeout/network/invalid response). Each
+// endpoint attempt is bounded by `timeoutMs` so a single slow/dead RPC can never
+// stall the whole flow. Throws a single normalized SolanaError only when every
+// endpoint fails. Use ONLY for idempotent reads — never for broadcasting a
+// transaction (a timeout mid-broadcast could otherwise double-send).
 export async function withSolanaRead<T>(
   config: SolanaChainConfig,
   op: (connection: Connection) => Promise<T>,
+  options?: { timeoutMs?: number },
 ): Promise<T> {
   const urls = getSolanaRpcUrls(config);
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
   let lastError: unknown = null;
 
   for (let index = 0; index < urls.length; index += 1) {
     try {
-      return await op(createSolanaConnection(urls[index]));
+      return await withTimeout(
+        op(createSolanaConnection(urls[index], { timeoutMs })),
+        timeoutMs,
+      );
     } catch (error) {
       lastError = error;
       logRpcFailure(urls[index], error, index, urls.length);

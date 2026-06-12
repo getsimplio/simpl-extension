@@ -68,30 +68,56 @@ export async function getSolanaPortfolio(
     source: "native",
   };
 
+  // Stored custom-token metadata keyed by mint (base58, case-sensitive). Used to
+  // backfill the logo (and name/symbol) for tokens the user imported but also
+  // holds on-chain — the on-chain scan resolves only the local known list, so
+  // without this an imported token's saved logoURI would be lost once it has a
+  // balance (the zero-balance import path below already maps logoURI → logoUrl).
+  const customByMint = new Map<string, { logoURI?: string; name: string; symbol: string }>();
+  try {
+    for (const token of customTokenService.getTokensByChainId(config.chainId)) {
+      customByMint.set(token.address, {
+        logoURI: token.logoURI,
+        name: token.name,
+        symbol: token.symbol,
+      });
+    }
+  } catch (error) {
+    console.debug("Solana custom-token read failed:", error);
+  }
+
   let tokenAssets: WalletAssetBalance[] = [];
   try {
     const tokens = await getSplTokenBalances(address, config);
-    tokenAssets = tokens.map((token) => ({
-      id: splAssetId(config, token.mint),
-      type: "spl",
-      chainId: config.chainId,
-      chainName: config.name,
-      name: token.name,
-      symbol: token.symbol,
-      decimals: token.decimals,
-      contractAddress: token.mint,
-      balanceRaw: token.rawAmount.toString(),
-      formatted: token.formatted,
-      updatedAt,
-      isTransferable: true,
-      visible: true,
-      usdPrice: null,
-      usdValue: null,
-      logoUrl: token.logoUrl,
-      isSpam: false,
-      isVerified: token.isVerified,
-      source: token.isVerified ? "registry" : "discovery",
-    }));
+    tokenAssets = tokens.map((token) => {
+      const custom = customByMint.get(token.mint);
+      return {
+        id: splAssetId(config, token.mint),
+        type: "spl",
+        chainId: config.chainId,
+        chainName: config.name,
+        // Prefer the user-imported name/symbol over a shortened-mint fallback
+        // for unknown tokens; verified known tokens keep their registry labels.
+        name: !token.isVerified && custom?.name ? custom.name : token.name,
+        symbol: !token.isVerified && custom?.symbol ? custom.symbol : token.symbol,
+        decimals: token.decimals,
+        contractAddress: token.mint,
+        balanceRaw: token.rawAmount.toString(),
+        formatted: token.formatted,
+        updatedAt,
+        isTransferable: true,
+        visible: true,
+        usdPrice: null,
+        usdValue: null,
+        // Known-list logo wins; otherwise fall back to the imported logoURI.
+        logoUrl: token.logoUrl ?? custom?.logoURI ?? null,
+        isSpam: false,
+        isVerified: token.isVerified,
+        // A held token the user explicitly imported is "custom" (so it stays
+        // removable/consistent with the zero-balance import path).
+        source: token.isVerified ? "registry" : custom ? "custom" : "discovery",
+      };
+    });
   } catch (error) {
     console.debug("Solana SPL balance read failed:", error);
     tokenAssets = [];
