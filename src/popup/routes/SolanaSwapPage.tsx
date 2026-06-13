@@ -607,7 +607,7 @@ export function SolanaSwapPage({
                     logoURI={fromToken.logoUrl}
                     address={fromToken.isNative ? null : fromToken.mint}
                     chainId={selectedChainId}
-                    size={20}
+                    size={28}
                     className="swap-token-pill__img"
                   />
                 ) : (
@@ -667,7 +667,7 @@ export function SolanaSwapPage({
                     logoURI={toToken.logoUrl}
                     address={toToken.isNative ? null : toToken.mint}
                     chainId={selectedChainId}
-                    size={20}
+                    size={28}
                     className="swap-token-pill__img"
                   />
                 ) : (

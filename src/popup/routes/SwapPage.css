@@ -1,6 +1,155 @@
 /* src/popup/routes/SwapPage.css */
 
 /* ============================================================
+   Chain-aware Swap — section selectors (token pill + chain pill)
+   Each half (From / To) carries a token pill and a compact chain pill in its
+   top row. The SAME structure is used for same-chain and cross-chain swaps so
+   the layout never jumps when the destination chain changes. The chain pill is
+   always the right-most element (predictable top-right position).
+   ============================================================ */
+
+.swap-half-selectors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+/* Token pill shrinks (symbol ellipsizes) so the chain pill always fits beside
+   it; the chain pill itself stays compact and never collapses. */
+.swap-half-selectors .swap-token-pill {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+/* Compact, rounded chain pill — icon + chain name. Shared by the source pill,
+   the destination pill (DestChainSelect) and the cross-chain panel pills so all
+   chain selectors look identical. */
+.swap-chain-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px 0 7px;
+  border: 1px solid var(--line, #e5e3dc);
+  border-radius: 999px;
+  background: var(--bg-muted, #f7f7f4);
+  color: var(--ink-1, #111111);
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 138px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.swap-chain-pill:hover:not(:disabled) {
+  background: var(--line, #e5e3dc);
+}
+
+.swap-chain-pill:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.swap-chain-pill__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Unified chain icon (ChainIcon): one shape + fallback for every chain, in the
+   pills and in the picker rows, so a chain looks identical everywhere. */
+.swap-chain-icon {
+  border-radius: 999px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg-surface, #ffffff);
+}
+
+.swap-chain-icon--fallback {
+  display: grid;
+  place-items: center;
+  background: var(--line, #e5e3dc);
+  color: var(--ink-2, #333333);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* Compact chain-picker rows + the subtle "Preview only" tag. */
+.swap-chain-row__tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-muted, #f1efe9);
+  color: var(--ink-3, #6f6f68);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+}
+
+/* Search field + empty state shared by the chain / token picker sheets. */
+.swap-picker-search {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #e5e3dc);
+  background: var(--bg-muted, #f7f7f4);
+  font-size: 13px;
+  color: var(--ink-1, #111111);
+  outline: none;
+}
+
+.swap-picker-search:focus {
+  border-color: var(--ink-3, #9b9b95);
+}
+
+.swap-picker-empty {
+  padding: 18px 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-3, #6f6f68);
+}
+
+/* Chain picker: a touch tighter than the token sheet so a short list never
+   leaves a big empty area. */
+.swap-chain-modal {
+  max-height: 70vh;
+}
+
+.swap-chain-modal .swap-token-list-item {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+/* Cross-chain helper copy under the pair card — calm, secondary, shown only on
+   cross-chain routes (different source/destination chains). */
+.swap-cross-helper {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-3, #6f6f68);
+  padding: 2px 4px;
+}
+
+/* Preview-only notice: a quote exists but execution isn't supported yet. */
+.swap-preview-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--simple-color-swap-fg, #7c3aed);
+  background: var(--simple-color-swap-bg, #f1eafe);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
+/* ============================================================
    PAGE HEADER (uses shared bar-top + icbtn from design kit)
    ============================================================ */
 
@@ -500,6 +649,21 @@
   padding: 11px 14px;
   font-size: 14px;
   line-height: 1.4;
+  /* Stay compact even if an unexpectedly long string slips through: wrap hard,
+     clamp height with internal scroll, and never blow up the review layout. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+/* Summary card and preview notice must never exceed the wallet surface. */
+.swap-quote-card,
+.swap-preview-note,
+.swap-cross-helper {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* ============================================================

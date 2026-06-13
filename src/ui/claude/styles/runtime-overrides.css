@@ -2003,7 +2003,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 
-/* Home actions: only Send / Receive / Swap */
+/* Home actions: Send / Receive / Swap */
 .actions {
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
 }

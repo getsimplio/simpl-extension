@@ -28,6 +28,49 @@ import { normalizeSolanaError, solanaErrorFor } from "./solana.errors";
 import type { SolanaActivityItem, SolanaSendResult } from "./solana.types";
 import type { TransactionHistoryStatus } from "../../core/transactions/transaction-history.service";
 
+// Binary-safe base64 → bytes (no reliance on a global Buffer polyfill).
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// --- Broadcast an already-signed serialized Solana transaction --------------
+//
+// Used by the cross-chain (LI.FI) Solana-source path: the provider supplies a
+// serialized transaction, the wallet signs it locally, and we submit the signed
+// bytes to a healthy Solana RPC. We deliberately DO NOT rebuild the transaction
+// (its blockhash + instructions come from the provider) and we never confirm
+// across endpoints (which could double-send). The returned signature is tracked
+// as "submitted"; final status comes from the gateway's /status endpoint.
+export async function sendRawSolanaTransaction(params: {
+  signedTransactionBase64: string;
+  config: SolanaChainConfig;
+}): Promise<SolanaSendResult> {
+  let rawTx: Uint8Array;
+  try {
+    rawTx = base64ToBytes(params.signedTransactionBase64);
+  } catch {
+    throw solanaErrorFor(
+      "BUILD_TX_FAILED",
+      "Could not prepare this route. Try again.",
+    );
+  }
+
+  const connection = await resolveHealthySolanaConnection(params.config);
+  try {
+    const signature = await connection.sendRawTransaction(rawTx, {
+      maxRetries: 3,
+    });
+    return { signature };
+  } catch (error) {
+    throw normalizeSolanaError(error, "BROADCAST_FAILED");
+  }
+}
+
 // --- Send native SOL -----------------------------------------------------
 
 export type SendSolTransactionParams = {

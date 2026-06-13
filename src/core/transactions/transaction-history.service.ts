@@ -1,6 +1,10 @@
 // src/core/transactions/transaction-history.service.ts
 
-export type TransactionHistoryDirection = "send" | "receive" | "swap";
+export type TransactionHistoryDirection =
+  | "send"
+  | "receive"
+  | "swap"
+  | "bridge";
 
 export type TransactionHistoryStatus = "submitted" | "confirmed" | "failed";
 
@@ -34,6 +38,19 @@ export type TransactionHistoryItem = {
   swapNetworkFee?: string;
   swapSlippage?: string;
   swapMinimumReceived?: string;
+
+  // Cross-chain bridge legs (direction "bridge"). Source/destination chains
+  // differ, so each leg carries its own chain id + name for display.
+  bridgeFromChainId?: number;
+  bridgeToChainId?: number;
+  bridgeFromChainName?: string;
+  bridgeToChainName?: string;
+  bridgeFromSymbol?: string;
+  bridgeFromAmount?: string;
+  bridgeToSymbol?: string;
+  bridgeToAmount?: string;
+  bridgeProvider?: string;
+  bridgeFee?: string;
 
   explorerUrl: string | null;
 

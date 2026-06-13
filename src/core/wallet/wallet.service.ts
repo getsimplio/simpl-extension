@@ -40,6 +40,7 @@ import {
 } from "../../chains/solana/solana.config";
 import { deriveSolanaAccountFromMnemonic } from "../../chains/solana/solana.derivation";
 import { signSolanaSwapTransaction } from "../../chains/solana/solana.swap";
+import { sendRawSolanaTransaction } from "../../chains/solana/solana.transactions";
 import { lamportsToSol } from "../../chains/solana/solana.format";
 import {
   getSolanaActivity,
@@ -1022,6 +1023,38 @@ export class WalletService {
       privateKey,
       fromAddress: selectedAccount.address,
       chainId: walletState.selectedChainId,
+      waitForReceipt: input.waitForReceipt,
+    });
+  }
+
+  // Like sendSelectedPreparedTransaction, but signs + broadcasts on an EXPLICIT
+  // chain rather than the globally-selected one. Used by the Bridge flow, whose
+  // source chain is chosen independently of the wallet's active network. The
+  // chain must be a registry EVM chain (an RPC must exist); the same private
+  // key derivation and watch-only guard apply — no vault/seed logic changes.
+  async sendPreparedTransactionForChain(input: {
+    transaction: PreparedTransactionRequest;
+    chainId: number;
+    waitForReceipt?: boolean;
+    password?: string;
+  }): Promise<SendPreparedTransactionResult> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+
+    if (selectedAccount.type === "watch") {
+      throw new Error("Watch-only wallet cannot send transactions.");
+    }
+
+    const privateKey = await this.getPrivateKeyForAccount(
+      selectedAccount,
+      input.password,
+    );
+
+    return sendAssetService.sendPreparedTransaction({
+      transaction: input.transaction,
+      privateKey,
+      fromAddress: selectedAccount.address,
+      chainId: input.chainId,
       waitForReceipt: input.waitForReceipt,
     });
   }
@@ -2183,6 +2216,46 @@ export class WalletService {
     });
 
     return { signedTransaction, address: material.address };
+  }
+
+  // Sign + broadcast a cross-chain (LI.FI) Solana-source transaction. Unlike the
+  // Jupiter same-chain path, this does NOT require the wallet's active network to
+  // be Solana (a cross-chain swap's source chain is chosen independently), and it
+  // broadcasts the signed bytes directly to a Solana RPC (the bridge proxy has no
+  // Solana execute endpoint). It reuses the SAME generic local signer and Solana
+  // key derivation — no vault/seed changes, and the Jupiter flow is untouched.
+  // Callers MUST only invoke this for a route the gateway marked executable with
+  // a "solana" transaction format.
+  async executeSelectedSolanaBridgeTransaction(input: {
+    transactionBase64: string;
+    password?: string;
+  }): Promise<{ signature: string; address: string }> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+
+    if (selectedAccount.type === "watch") {
+      throw new Error("Watch-only wallet cannot sign transactions.");
+    }
+
+    const payload = await this.getDecryptedPayloadForSensitiveOperation(
+      input.password,
+    );
+    const material = this.deriveSolanaMaterialForAccount(
+      selectedAccount,
+      payload,
+    );
+
+    const signedTransaction = signSolanaSwapTransaction({
+      transactionBase64: input.transactionBase64,
+      fromSecretKey: material.secretKey,
+    });
+
+    const { signature } = await sendRawSolanaTransaction({
+      signedTransactionBase64: signedTransaction,
+      config: SOLANA_MAINNET,
+    });
+
+    return { signature, address: material.address };
   }
 
   private async persistSolanaAddress(

@@ -38,7 +38,10 @@ import {
 } from "../../core/networks/chain-registry";
 import { AssetIcon } from "../components/AssetIcon";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
+import { ChainPillButton } from "../components/ChainPillButton";
+import { DestChainSelect } from "../components/DestChainSelect";
 import { SolanaSwapPage } from "./SolanaSwapPage";
+import { BridgePage } from "./BridgePage";
 import "./SwapPage.css";
 
 type SwapPageProps = {
@@ -882,7 +885,8 @@ function normalizeSwapError(error: unknown, context: SwapErrorContext): string {
     return "Could not check transaction status. The transaction may still be pending.";
   }
 
-  return rawMessage || "Something went wrong. Please try again.";
+  // Unknown failure — never surface the raw provider/ethers string to the UI.
+  return "Something went wrong. Please try again.";
 }
 
 
@@ -1011,6 +1015,12 @@ export function SwapPage({
   initialToAsset,
 }: SwapPageProps) {
   const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
+  // Destination chain for the chain-aware Swap. Equal to the source chain → a
+  // same-chain swap (existing 0x / Jupiter flow). Different → a cross-chain swap
+  // handled by the LI.FI-backed cross-chain panel.
+  const [destChainId, setDestChainId] = useState<number>(
+    walletState.selectedChainId,
+  );
   const [tokens, setTokens] = useState<SwapToken[]>([]);
   const [fromToken, setFromToken] = useState<SwapToken | null>(null);
   const [toToken, setToToken] = useState<SwapToken | null>(null);
@@ -1087,6 +1097,25 @@ export function SwapPage({
 
   const selectedChainId = walletState.selectedChainId;
   const simpleSwapFeeBps = getSimpleSwapFeeBps();
+
+  // Whenever the source network changes (header selector), default the
+  // destination back to the source so we land on a same-chain swap.
+  useEffect(() => {
+    setDestChainId(selectedChainId);
+  }, [selectedChainId]);
+
+  const isCrossChain = destChainId !== selectedChainId;
+
+  // The cross-chain panel collapsed its pair onto a single chain — return to the
+  // same-chain swap flow for that chain (0x / Jupiter). Switch the active
+  // network when needed so the right same-chain screen renders.
+  async function handleCrossChainCollapse(chainId: number) {
+    if (chainId !== selectedChainId) {
+      await walletService.setSelectedChainId(chainId);
+      await onChanged?.();
+    }
+    setDestChainId(chainId);
+  }
 
   // Switch the active network from the shared selector. Clears all quote /
   // approval / amount state (a quote is chain-specific and must not survive a
@@ -2386,8 +2415,28 @@ if (selectedAccount && fromToken && toToken) {
     );
   }
 
+  // Cross-chain swap: the chosen destination chain differs from the source.
+  // Hand off to the LI.FI-backed cross-chain panel (still titled "Swap"). When
+  // the user collapses the pair back to one chain, we return here to the
+  // same-chain flow so 0x / Jupiter always own same-chain routing.
+  if (isCrossChain) {
+    return (
+      <BridgePage
+        selectedAccount={selectedAccount}
+        walletState={walletState}
+        initialFromChainId={selectedChainId}
+        initialToChainId={destChainId}
+        onSameChainSelected={(chainId) => void handleCrossChainCollapse(chainId)}
+        onBridgeCompleted={onSwapCompleted}
+        onBack={() => setDestChainId(selectedChainId)}
+      />
+    );
+  }
+
   // Solana is not part of the EVM 0x swap flow — it has its own Simpl-API
-  // (Jupiter-backed) swap screen. Route it there instead of the EVM path.
+  // (Jupiter-backed) swap screen, left entirely unchanged. Solana-source
+  // cross-chain routes are reachable from the cross-chain panel's own From
+  // picker (which carries the correct LI.FI chain id).
   if (isSolanaChainId(selectedChainId)) {
     return (
       <SolanaSwapPage
@@ -2455,26 +2504,34 @@ if (selectedAccount && fromToken && toToken) {
           <div className="swap-half swap-half--from">
             <div className="swap-half-top">
               <span className="swap-half-label">From</span>
-              <button
-                className="swap-token-pill"
-                type="button"
-                onClick={() => setTokenPickerSide("from")}
-                disabled={isLoadingTokens && tokens.length === 0}
-              >
-                {fromToken ? (
-                  <AssetIcon
-                    ticker={fromToken.symbol}
-                    address={fromToken.type === "native" ? null : fromToken.address}
-                    chainId={selectedChainId}
-                    size={30}
-                    className="swap-token-pill__img"
-                  />
-                ) : (
-                  <span className="swap-token-pill__icon">?</span>
-                )}
-                <span className="swap-token-pill__sym">{fromToken?.symbol ?? "Select"}</span>
-                <span className="swap-token-pill__chevron">▾</span>
-              </button>
+              <div className="swap-half-selectors">
+                <button
+                  className="swap-token-pill"
+                  type="button"
+                  onClick={() => setTokenPickerSide("from")}
+                  disabled={isLoadingTokens && tokens.length === 0}
+                >
+                  {fromToken ? (
+                    <AssetIcon
+                      ticker={fromToken.symbol}
+                      address={fromToken.type === "native" ? null : fromToken.address}
+                      chainId={selectedChainId}
+                      size={28}
+                      className="swap-token-pill__img"
+                    />
+                  ) : (
+                    <span className="swap-token-pill__icon">?</span>
+                  )}
+                  <span className="swap-token-pill__sym">{fromToken?.symbol ?? "Select"}</span>
+                  <span className="swap-token-pill__chevron">▾</span>
+                </button>
+                <ChainPillButton
+                  chainId={selectedChainId}
+                  name={getNetworkLabel(selectedChainId)}
+                  onClick={() => setNetworkSelectorOpen(true)}
+                  ariaLabel={`Source chain: ${getNetworkLabel(selectedChainId)}`}
+                />
+              </div>
             </div>
 
             <input
@@ -2590,26 +2647,33 @@ if (selectedAccount && fromToken && toToken) {
           <div className="swap-half swap-half--to">
             <div className="swap-half-top">
               <span className="swap-half-label">To</span>
-              <button
-                className="swap-token-pill"
-                type="button"
-                onClick={() => setTokenPickerSide("to")}
-                disabled={isLoadingTokens && tokens.length === 0}
-              >
-                {toToken ? (
-                  <AssetIcon
-                    ticker={toToken.symbol}
-                    address={toToken.type === "native" ? null : toToken.address}
-                    chainId={selectedChainId}
-                    size={30}
-                    className="swap-token-pill__img"
-                  />
-                ) : (
-                  <span className="swap-token-pill__icon">?</span>
-                )}
-                <span className="swap-token-pill__sym">{toToken?.symbol ?? "Select"}</span>
-                <span className="swap-token-pill__chevron">▾</span>
-              </button>
+              <div className="swap-half-selectors">
+                <button
+                  className="swap-token-pill"
+                  type="button"
+                  onClick={() => setTokenPickerSide("to")}
+                  disabled={isLoadingTokens && tokens.length === 0}
+                >
+                  {toToken ? (
+                    <AssetIcon
+                      ticker={toToken.symbol}
+                      address={toToken.type === "native" ? null : toToken.address}
+                      chainId={selectedChainId}
+                      size={28}
+                      className="swap-token-pill__img"
+                    />
+                  ) : (
+                    <span className="swap-token-pill__icon">?</span>
+                  )}
+                  <span className="swap-token-pill__sym">{toToken?.symbol ?? "Select"}</span>
+                  <span className="swap-token-pill__chevron">▾</span>
+                </button>
+                <DestChainSelect
+                  sourceChainId={selectedChainId}
+                  value={destChainId}
+                  onChange={setDestChainId}
+                />
+              </div>
             </div>
 
             <input

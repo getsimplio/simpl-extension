@@ -174,12 +174,19 @@ type IconVariant = "send" | "receive" | "swap" | "failed";
 
 function getIconVariant(item: TransactionHistoryItem): IconVariant {
   if (item.status === "failed") return "failed";
-  if (item.direction === "swap") return "swap";
+  if (item.direction === "swap" || item.direction === "bridge") return "swap";
   if (item.direction === "receive") return "receive";
   return "send";
 }
 
 function getPageTitle(item: TransactionHistoryItem): string {
+  if (item.direction === "bridge") {
+    return `Cross-chain swap ${
+      item.bridgeFromSymbol ?? item.swapFromSymbol ?? "Token"
+    } ${item.bridgeFromChainName ?? ""} → ${
+      item.bridgeToChainName ?? ""
+    }`.trim();
+  }
   if (item.direction === "swap") {
     return `Swapped ${item.swapFromSymbol ?? "Token"} → ${item.swapToSymbol ?? "Token"}`;
   }
@@ -273,6 +280,7 @@ export function TransactionDetailsPage({
 
   const variant = getIconVariant(item);
   const isSwap = item.direction === "swap";
+  const isBridge = item.direction === "bridge";
 
   return (
     <div className="ext-popup" data-screen-label="Transaction Details">
@@ -324,7 +332,44 @@ export function TransactionDetailsPage({
             <span className="txd-val">{formatTimestamp(item.createdAt)}</span>
           </div>
 
-          {isSwap ? (
+          {isBridge ? (
+            <>
+              <div className="txd-row">
+                <span className="txd-key">From</span>
+                <span className="txd-val">
+                  {formatAmount(item.bridgeFromAmount ?? item.amount)}{" "}
+                  {item.bridgeFromSymbol ?? item.assetSymbol}
+                  {item.bridgeFromChainName
+                    ? ` · ${item.bridgeFromChainName}`
+                    : ""}
+                </span>
+              </div>
+
+              <div className="txd-row">
+                <span className="txd-key">To (est.)</span>
+                <span className="txd-val">
+                  {item.bridgeToAmount
+                    ? `${formatAmount(item.bridgeToAmount)} ${item.bridgeToSymbol ?? ""}`
+                    : "—"}
+                  {item.bridgeToChainName ? ` · ${item.bridgeToChainName}` : ""}
+                </span>
+              </div>
+
+              {item.bridgeProvider ? (
+                <div className="txd-row">
+                  <span className="txd-key">Provider</span>
+                  <span className="txd-val">{item.bridgeProvider}</span>
+                </div>
+              ) : null}
+
+              {item.bridgeFee ? (
+                <div className="txd-row">
+                  <span className="txd-key">Route fee</span>
+                  <span className="txd-val">{item.bridgeFee}</span>
+                </div>
+              ) : null}
+            </>
+          ) : isSwap ? (
             <>
               <div className="txd-row">
                 <span className="txd-key">Sent</span>

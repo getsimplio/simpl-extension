@@ -155,6 +155,13 @@ function formatAmount(value: string | null | undefined): string {
 // ── Row helpers ────────────────────────────────────────────────────
 
 function getRowTitle(item: TransactionHistoryItem): string {
+  if (item.direction === "bridge") {
+    return `Cross-chain swap ${
+      item.bridgeFromSymbol ?? item.swapFromSymbol ?? "Token"
+    } ${item.bridgeFromChainName ?? ""} → ${
+      item.bridgeToChainName ?? ""
+    }`.trim();
+  }
   if (item.direction === "swap") {
     return `Swapped ${item.swapFromSymbol ?? "Token"} → ${item.swapToSymbol ?? "Token"}`;
   }
@@ -165,6 +172,11 @@ function getRowTitle(item: TransactionHistoryItem): string {
 function getRowSecondary(item: TransactionHistoryItem): string {
   const ts = formatTimestamp(item.createdAt);
   const net = item.chainName || "";
+  if (item.direction === "bridge") {
+    const route =
+      item.bridgeProvider != null ? `via ${item.bridgeProvider}` : "";
+    return [route, ts].filter(Boolean).join(" · ");
+  }
   if (item.direction === "swap") {
     return [net, ts].filter(Boolean).join(" · ");
   }
@@ -175,6 +187,11 @@ function getRowSecondary(item: TransactionHistoryItem): string {
 }
 
 function getRowAmount(item: TransactionHistoryItem): string {
+  if (item.direction === "bridge") {
+    const from = formatAmount(item.bridgeFromAmount ?? item.amount);
+    const sym = item.bridgeFromSymbol ?? item.assetSymbol;
+    return `${from} ${sym}`;
+  }
   if (item.direction === "swap") {
     const from = formatAmount(item.swapFromAmount ?? item.amount);
     const sym = item.swapFromSymbol ?? item.assetSymbol;
@@ -186,7 +203,8 @@ function getRowAmount(item: TransactionHistoryItem): string {
 
 function getIconVariant(item: TransactionHistoryItem): "send" | "receive" | "swap" | "failed" {
   if (item.status === "failed") return "failed";
-  if (item.direction === "swap") return "swap";
+  // Bridges reuse the swap (cross-arrows) glyph — both move one asset to another.
+  if (item.direction === "swap" || item.direction === "bridge") return "swap";
   if (item.direction === "receive") return "receive";
   return "send";
 }
