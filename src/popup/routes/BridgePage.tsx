@@ -44,9 +44,13 @@ import {
   type ResolvedBalance,
 } from "../../core/balances/chain-balance.service";
 import { getNetworkDisplayName } from "../../core/networks/chain-registry";
-import { AssetIcon } from "../components/AssetIcon";
-import { ChainPillButton } from "../components/ChainPillButton";
-import { ChainIcon } from "../components/ChainIcon";
+import { TokenWithChainBadge } from "../components/TokenWithChainBadge";
+import {
+  CrossChainTokenPicker,
+  type PickerToken,
+} from "../components/CrossChainTokenPicker";
+import { SwapHeader } from "../components/SwapHeader";
+import { SwapRouteNotice } from "../components/SwapRouteNotice";
 import "./SwapPage.css";
 
 // Canonical network label fallback when the LI.FI chain entry hasn't loaded.
@@ -64,6 +68,17 @@ type BridgePageProps = {
   // Source/destination chains the parent Swap screen entered cross-chain with.
   initialFromChainId?: number;
   initialToChainId?: number;
+  // Destination token the user picked on another network from the same-chain
+  // Swap screen (preselected here so the route matches their choice).
+  initialToToken?: {
+    chainId: number;
+    address: string;
+    symbol: string;
+    name: string;
+    decimals: number;
+    isNative: boolean;
+    logoUrl?: string | null;
+  } | null;
   // Called when the user collapses the pair back to a single chain (From === To).
   // The parent returns to the same-chain Swap flow for that chain so same-chain
   // routing always uses 0x / Jupiter, never LI.FI.
@@ -72,7 +87,6 @@ type BridgePageProps = {
 
 type Step = "form" | "review" | "success";
 type Side = "from" | "to";
-type PickerKind = "chain" | "token";
 type ApprovalState =
   | "unknown"
   | "checking"
@@ -85,7 +99,6 @@ type SubmitStatus = "idle" | "signing" | "submitting" | "error";
 const SLIPPAGE_PRESETS = [10, 50, 100] as const;
 const DEFAULT_FROM_CHAIN = 8453; // Base
 const DEFAULT_TO_CHAIN = 56; // BNB Chain
-const TOKEN_LIST_DISPLAY_CAP = 80;
 
 // ── Amount helpers ──────────────────────────────────────────────────────────
 
@@ -143,10 +156,6 @@ function encodeErc20Approve(spender: string, amountBaseUnits: string): string {
   const addr = spender.toLowerCase().replace(/^0x/u, "").padStart(64, "0");
   const amt = BigInt(amountBaseUnits).toString(16).padStart(64, "0");
   return `0x${selector}${addr}${amt}`;
-}
-
-function isEvmChain(chain: BridgeChain | undefined): boolean {
-  return (chain?.chainType ?? "").toUpperCase() === "EVM";
 }
 
 // Map any failure to a short, user-facing message. NEVER returns the raw
@@ -234,6 +243,7 @@ export function BridgePage({
   onBridgeCompleted,
   initialFromChainId,
   initialToChainId,
+  initialToToken,
   onSameChainSelected,
 }: BridgePageProps) {
   const isWatchOnly = selectedAccount?.type === "watch";
@@ -270,15 +280,18 @@ export function BridgePage({
   const [fromTokens, setFromTokens] = useState<BridgeToken[]>([]);
   const [toTokens, setToTokens] = useState<BridgeToken[]>([]);
   const [fromToken, setFromToken] = useState<BridgeToken | null>(null);
-  const [toToken, setToToken] = useState<BridgeToken | null>(null);
+  const [toToken, setToToken] = useState<BridgeToken | null>(() =>
+    initialToToken && initialToToken.chainId === initialToChainId
+      ? { ...initialToToken, logoUrl: initialToToken.logoUrl ?? null, priceUsd: null }
+      : null,
+  );
 
   const [amount, setAmount] = useState("");
   const [slippageBps, setSlippageBps] = useState(50);
 
-  const [picker, setPicker] = useState<{ side: Side; kind: PickerKind } | null>(
-    null,
-  );
-  const [pickerSearch, setPickerSearch] = useState("");
+  // Which side's cross-chain token picker is open (token selection also drives
+  // that side's chain — chain follows token).
+  const [tokenPicker, setTokenPicker] = useState<Side | null>(null);
 
   const [step, setStep] = useState<Step>("form");
   const [quote, setQuote] = useState<BridgeQuote | null>(null);
@@ -408,7 +421,9 @@ export function BridgePage({
   useEffect(() => {
     let active = true;
     setFromTokens([]);
-    setFromToken(null);
+    // Preserve an explicitly-picked token that already matches the new chain
+    // (cross-network pick sets chain + token together); otherwise clear.
+    setFromToken((cur) => (cur && cur.chainId === fromChainId ? cur : null));
     void (async () => {
       try {
         const list = await getBridgeTokens(fromChainId);
@@ -427,7 +442,7 @@ export function BridgePage({
   useEffect(() => {
     let active = true;
     setToTokens([]);
-    setToToken(null);
+    setToToken((cur) => (cur && cur.chainId === toChainId ? cur : null));
     void (async () => {
       try {
         const list = await getBridgeTokens(toChainId);
@@ -452,22 +467,33 @@ export function BridgePage({
     if (step === "review") setStep("form");
   }
 
-  function handleSelectChain(chain: BridgeChain) {
-    if (!picker) return;
-    if (picker.side === "from") setFromChainId(chain.id);
-    else setToChainId(chain.id);
-    setPicker(null);
-    setPickerSearch("");
-    setAmount("");
-    resetQuote();
+  // A picked token carries its chain — set the chain and the token together so a
+  // cross-network pick automatically reshapes the route (different chains → a
+  // cross-chain LI.FI route; same chain on both sides hands back to same-chain).
+  function pickerToBridgeToken(p: PickerToken): BridgeToken {
+    return {
+      chainId: p.chainId,
+      address: p.address,
+      symbol: p.symbol,
+      name: p.name,
+      decimals: p.decimals,
+      logoUrl: p.logoUrl ?? null,
+      priceUsd: null,
+      isNative: p.isNative,
+    };
   }
 
-  function handleSelectToken(token: BridgeToken) {
-    if (!picker) return;
-    if (picker.side === "from") setFromToken(token);
-    else setToToken(token);
-    setPicker(null);
-    setPickerSearch("");
+  function handlePickToken(p: PickerToken) {
+    const token = pickerToBridgeToken(p);
+    if (tokenPicker === "from") {
+      if (p.chainId !== fromChainId) setFromChainId(p.chainId);
+      setFromToken(token);
+      setAmount("");
+    } else {
+      if (p.chainId !== toChainId) setToChainId(p.chainId);
+      setToToken(token);
+    }
+    setTokenPicker(null);
     resetQuote();
   }
 
@@ -552,7 +578,14 @@ export function BridgePage({
       setError("This account has no address for the source chain.");
       return;
     }
-    const toAddress = addressForChain(toChain) ?? fromAddress;
+    // Destination address MUST match the destination chain's family — never send
+    // an EVM address as a Solana recipient (or vice-versa). No cross-type
+    // fallback: if the account has no address for the destination chain, stop.
+    const toAddress = addressForChain(toChain);
+    if (!toAddress) {
+      setError("This account has no address for the destination chain.");
+      return;
+    }
 
     setError(null);
     setReviewLoading(true);
@@ -798,34 +831,6 @@ export function BridgePage({
     return formatBaseUnits(quote.toAmountBaseUnits, quote.toTokenDecimals);
   }, [quote, toToken]);
 
-  // ── Picker list (chains or tokens) ──
-  const pickerItems = useMemo(() => {
-    if (!picker) return null;
-    const q = pickerSearch.trim().toLowerCase();
-    if (picker.kind === "chain") {
-      const list = chains.filter(
-        (c) => !q || c.name.toLowerCase().includes(q),
-      );
-      return { kind: "chain" as const, chains: list };
-    }
-    const source = picker.side === "from" ? fromTokens : toTokens;
-    const selected = picker.side === "from" ? fromToken : toToken;
-    const filtered = source.filter((t) => {
-      if (!q) return true;
-      return (
-        t.symbol.toLowerCase().includes(q) ||
-        t.name.toLowerCase().includes(q) ||
-        t.address.toLowerCase().includes(q)
-      );
-    });
-    // Always keep the selected token visible even past the display cap.
-    const capped = filtered.slice(0, TOKEN_LIST_DISPLAY_CAP);
-    if (selected && !capped.some((t) => t.address === selected.address)) {
-      capped.unshift(selected);
-    }
-    return { kind: "token" as const, tokens: capped };
-  }, [picker, pickerSearch, chains, fromTokens, toTokens, fromToken, toToken]);
-
   // ── Success screen ──
   if (step === "success") {
     const statusTitle =
@@ -836,19 +841,7 @@ export function BridgePage({
           : "Cross-chain swap submitted";
     return (
       <div className="ext-popup swap-page" data-screen-label="Swap – Cross-chain">
-        <div className="bar-top">
-          <button
-            className="icbtn"
-            type="button"
-            onClick={onBack}
-            aria-label="Back to wallet"
-          >
-            <BackArrow />
-          </button>
-          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-            Swap
-          </div>
-        </div>
+        <SwapHeader title="Swap" subtitle="Cross-chain route" onBack={onBack} />
         <div className="screen-body">
           <div className="swap-quote-card" style={{ textAlign: "center", gap: 6 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink-1)" }}>
@@ -883,10 +876,10 @@ export function BridgePage({
               </strong>
             </div>
           </div>
-          <div className="swap-cross-helper">
+          <SwapRouteNotice>
             Cross-chain route powered by LI.FI. This may take longer than a
             same-chain swap.
-          </div>
+          </SwapRouteNotice>
           <div className="swap-review-cta" style={{ display: "grid", gap: 8 }}>
             {explorerUrl ? (
               <a
@@ -924,19 +917,11 @@ export function BridgePage({
 
   return (
     <div className="ext-popup swap-page" data-screen-label="Swap – Cross-chain">
-      <div className="bar-top">
-        <button
-          className="icbtn"
-          type="button"
-          onClick={step === "review" ? () => setStep("form") : onBack}
-          aria-label="Back"
-        >
-          <BackArrow />
-        </button>
-        <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          {step === "review" ? "Review swap" : "Swap"}
-        </div>
-      </div>
+      <SwapHeader
+        title={step === "review" ? "Review swap" : "Swap"}
+        subtitle="Cross-chain route"
+        onBack={step === "review" ? () => setStep("form") : onBack}
+      />
 
       <div className="screen-body">
         {chainsError ? <div className="swap-error">{chainsError}</div> : null}
@@ -953,19 +938,19 @@ export function BridgePage({
                   type="button"
                   onClick={() => {
                     if (step !== "form") return;
-                    setPicker({ side: "from", kind: "token" });
-                    setPickerSearch("");
+                    setTokenPicker("from");
                   }}
                   disabled={step !== "form"}
                 >
                   {fromToken ? (
-                    <AssetIcon
-                      ticker={fromToken.symbol}
-                      logoURI={fromToken.logoUrl}
-                      address={fromToken.isNative ? null : fromToken.address}
+                    <TokenWithChainBadge
+                      symbol={fromToken.symbol}
+                      tokenLogoUrl={fromToken.logoUrl}
+                      tokenAddress={fromToken.isNative ? null : fromToken.address}
                       chainId={fromChainId}
+                      chainName={fromChain?.name ?? getNetworkLabel(fromChainId)}
+                      chainLogoUrl={fromChain?.logoUrl}
                       size={28}
-                      className="swap-token-pill__img"
                     />
                   ) : (
                     <span className="swap-token-pill__icon">?</span>
@@ -975,17 +960,6 @@ export function BridgePage({
                   </span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
-                <ChainPillButton
-                  chainId={fromChainId}
-                  name={fromChain?.name ?? getNetworkLabel(fromChainId)}
-                  logoUrl={fromChain?.logoUrl}
-                  disabled={step !== "form"}
-                  onClick={() => {
-                    setPicker({ side: "from", kind: "chain" });
-                    setPickerSearch("");
-                  }}
-                  ariaLabel={`Source chain: ${fromChain?.name ?? ""}`}
-                />
               </div>
             </div>
             <input
@@ -1030,19 +1004,19 @@ export function BridgePage({
                   type="button"
                   onClick={() => {
                     if (step !== "form") return;
-                    setPicker({ side: "to", kind: "token" });
-                    setPickerSearch("");
+                    setTokenPicker("to");
                   }}
                   disabled={step !== "form"}
                 >
                   {toToken ? (
-                    <AssetIcon
-                      ticker={toToken.symbol}
-                      logoURI={toToken.logoUrl}
-                      address={toToken.isNative ? null : toToken.address}
+                    <TokenWithChainBadge
+                      symbol={toToken.symbol}
+                      tokenLogoUrl={toToken.logoUrl}
+                      tokenAddress={toToken.isNative ? null : toToken.address}
                       chainId={toChainId}
+                      chainName={toChain?.name ?? getNetworkLabel(toChainId)}
+                      chainLogoUrl={toChain?.logoUrl}
                       size={28}
-                      className="swap-token-pill__img"
                     />
                   ) : (
                     <span className="swap-token-pill__icon">?</span>
@@ -1052,17 +1026,6 @@ export function BridgePage({
                   </span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
-                <ChainPillButton
-                  chainId={toChainId}
-                  name={toChain?.name ?? getNetworkLabel(toChainId)}
-                  logoUrl={toChain?.logoUrl}
-                  disabled={step !== "form"}
-                  onClick={() => {
-                    setPicker({ side: "to", kind: "chain" });
-                    setPickerSearch("");
-                  }}
-                  ariaLabel={`Destination chain: ${toChain?.name ?? ""}`}
-                />
               </div>
             </div>
             <div
@@ -1081,10 +1044,10 @@ export function BridgePage({
           </div>
         </div>
 
-        <div className="swap-cross-helper">
+        <SwapRouteNotice>
           Cross-chain route powered by LI.FI. This may take longer than a
           same-chain swap.
-        </div>
+        </SwapRouteNotice>
 
         {/* Slippage (form only) */}
         {step === "form" ? (
@@ -1189,11 +1152,12 @@ export function BridgePage({
           </div>
         ) : null}
 
-        {/* Preview-only (non-executable) notice */}
+        {/* Preview-only (non-executable) notice — clean disabled state, never a
+            broken confirm button. */}
         {step === "review" && previewOnly ? (
-          <div className="swap-preview-note">
-            Route found, execution coming soon in Simpl.
-          </div>
+          <SwapRouteNotice variant="preview">
+            Route found, execution is not supported yet.
+          </SwapRouteNotice>
         ) : null}
 
         {error ? <div className="swap-error">{error}</div> : null}
@@ -1243,129 +1207,16 @@ export function BridgePage({
         </div>
       </div>
 
-      {/* Chain / token picker */}
-      {picker && pickerItems ? (
-        <div
-          className="swap-token-modal-backdrop"
-          onClick={() => {
-            setPicker(null);
-            setPickerSearch("");
-          }}
-        >
-          <div
-            className="swap-token-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="swap-token-modal-header">
-              <div>
-                <h2>
-                  {picker.kind === "chain" ? "Select chain" : "Select token"}
-                </h2>
-                <p>{picker.side === "from" ? "Source" : "Destination"}</p>
-              </div>
-              <button
-                className="icbtn"
-                type="button"
-                onClick={() => {
-                  setPicker(null);
-                  setPickerSearch("");
-                }}
-              >
-                ×
-              </button>
-            </div>
-            <input
-              className="swap-picker-search"
-              placeholder={
-                picker.kind === "chain" ? "Search chains" : "Search tokens"
-              }
-              value={pickerSearch}
-              onChange={(e) => setPickerSearch(e.target.value)}
-            />
-            <div className="swap-token-list">
-              {pickerItems.kind === "chain"
-                ? pickerItems.chains.map((chain) => (
-                    <button
-                      key={chain.id}
-                      className="swap-token-list-item"
-                      type="button"
-                      onClick={() => handleSelectChain(chain)}
-                    >
-                      <ChainIcon
-                        chainId={chain.id}
-                        name={chain.name}
-                        logoUrl={chain.logoUrl}
-                        size={28}
-                      />
-                      <span className="swap-token-list-body">
-                        <strong>
-                          {chain.name}
-                          {!chain.signable ? (
-                            <span className="swap-chain-row__tag">
-                              Preview only
-                            </span>
-                          ) : null}
-                        </strong>
-                        <span>
-                          {isEvmChain(chain)
-                            ? chain.signable
-                              ? "Executable"
-                              : "Cross-chain destination"
-                            : "Cross-chain destination"}
-                        </span>
-                      </span>
-                    </button>
-                  ))
-                : pickerItems.tokens.map((token) => (
-                    <button
-                      key={`${token.chainId}:${token.address}`}
-                      className="swap-token-list-item"
-                      type="button"
-                      onClick={() => handleSelectToken(token)}
-                    >
-                      <AssetIcon
-                        ticker={token.symbol}
-                        logoURI={token.logoUrl}
-                        address={token.isNative ? null : token.address}
-                        chainId={token.chainId}
-                        size={32}
-                        className="swap-token-list-img"
-                      />
-                      <span className="swap-token-list-body">
-                        <strong>{token.symbol}</strong>
-                        <span>{token.name}</span>
-                      </span>
-                    </button>
-                  ))}
-              {((pickerItems.kind === "chain" &&
-                pickerItems.chains.length === 0) ||
-                (pickerItems.kind === "token" &&
-                  pickerItems.tokens.length === 0)) && (
-                <div className="swap-picker-empty">No matches.</div>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Cross-network token picker — selecting a token sets that side's chain
+          too, so a different-chain pick reshapes the route automatically. */}
+      {tokenPicker ? (
+        <CrossChainTokenPicker
+          side={tokenPicker}
+          currentChainId={tokenPicker === "from" ? fromChainId : toChainId}
+          onSelect={handlePickToken}
+          onClose={() => setTokenPicker(null)}
+        />
       ) : null}
     </div>
-  );
-}
-
-function BackArrow() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M15 19l-7-7 7-7" />
-    </svg>
   );
 }

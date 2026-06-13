@@ -185,6 +185,31 @@ export async function getBridgeTokens(chainId: number): Promise<BridgeToken[]> {
     .filter((token): token is BridgeToken => token !== null);
 }
 
+// Fetch tokens for SEVERAL chains in one round-trip (LI.FI accepts a comma list)
+// and return them flattened, each tagged with its own chainId — the basis for
+// cross-network token search in the picker. Production chains only (callers pass
+// mainnet ids; no devnet/testnet ids are ever included).
+export async function getBridgeTokensForChains(
+  chainIds: number[],
+): Promise<BridgeToken[]> {
+  const unique = Array.from(new Set(chainIds.filter((id) => Number.isFinite(id))));
+  if (unique.length === 0) return [];
+  const search = new URLSearchParams({ chains: unique.join(",") });
+  const data = await fetchJson<{ tokens?: Record<string, RawLifiToken[]> }>(
+    `${API_BASE_URL}/v1/bridge/lifi/tokens?${search.toString()}`,
+  );
+  const byChain = data?.tokens ?? {};
+  const out: BridgeToken[] = [];
+  for (const id of unique) {
+    const list = byChain[String(id)] ?? [];
+    for (const raw of list) {
+      const token = normalizeToken(raw, id);
+      if (token) out.push(token);
+    }
+  }
+  return out;
+}
+
 // ── Quote ─────────────────────────────────────────────────────────────────
 
 export type BridgeQuoteParams = {

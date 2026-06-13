@@ -38,8 +38,12 @@ import {
 } from "../../core/networks/chain-registry";
 import { AssetIcon } from "../components/AssetIcon";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
-import { ChainPillButton } from "../components/ChainPillButton";
-import { DestChainSelect } from "../components/DestChainSelect";
+import { TokenWithChainBadge } from "../components/TokenWithChainBadge";
+import { SwapHeader } from "../components/SwapHeader";
+import {
+  CrossChainTokenPicker,
+  type PickerToken,
+} from "../components/CrossChainTokenPicker";
 import { SolanaSwapPage } from "./SolanaSwapPage";
 import { BridgePage } from "./BridgePage";
 import "./SwapPage.css";
@@ -1021,6 +1025,10 @@ export function SwapPage({
   const [destChainId, setDestChainId] = useState<number>(
     walletState.selectedChainId,
   );
+  // Cross-network "To" token picker + the token picked on another chain (handed
+  // to the cross-chain panel so the route matches the user's choice).
+  const [crossToPickerOpen, setCrossToPickerOpen] = useState(false);
+  const [pendingToToken, setPendingToToken] = useState<PickerToken | null>(null);
   const [tokens, setTokens] = useState<SwapToken[]>([]);
   const [fromToken, setFromToken] = useState<SwapToken | null>(null);
   const [toToken, setToToken] = useState<SwapToken | null>(null);
@@ -1102,6 +1110,7 @@ export function SwapPage({
   // destination back to the source so we land on a same-chain swap.
   useEffect(() => {
     setDestChainId(selectedChainId);
+    setPendingToToken(null);
   }, [selectedChainId]);
 
   const isCrossChain = destChainId !== selectedChainId;
@@ -1110,11 +1119,44 @@ export function SwapPage({
   // same-chain swap flow for that chain (0x / Jupiter). Switch the active
   // network when needed so the right same-chain screen renders.
   async function handleCrossChainCollapse(chainId: number) {
+    setPendingToToken(null);
     if (chainId !== selectedChainId) {
       await walletService.setSelectedChainId(chainId);
       await onChanged?.();
     }
     setDestChainId(chainId);
+  }
+
+  // Selecting a TO token from the cross-network picker. Same chain → the
+  // existing 0x same-chain To token; a different chain → switch the destination
+  // (and preselect that token) so the route becomes a cross-chain LI.FI swap.
+  function handlePickToToken(picked: PickerToken) {
+    setCrossToPickerOpen(false);
+    if (picked.chainId === selectedChainId) {
+      setPendingToToken(null);
+      setDestChainId(selectedChainId);
+      setToToken({
+        id: `cc-${picked.chainId}-${picked.address.toLowerCase()}`,
+        symbol: picked.symbol,
+        name: picked.name,
+        balance: "0",
+        decimals: picked.decimals,
+        type: picked.isNative ? "native" : "erc20",
+        address: picked.isNative ? ZERO_X_NATIVE_TOKEN_ADDRESS : picked.address,
+        iconText: getTokenIconText(picked.symbol),
+      });
+      setAmount("");
+      setReceiveAmount("");
+      setAmountMode("sell");
+      setPrice(null);
+      setPriceError(null);
+      setPriceStatus("idle");
+      resetTransientQuoteState();
+      return;
+    }
+    // Cross-chain: hand off to the LI.FI panel with this chain + token.
+    setPendingToToken(picked);
+    setDestChainId(picked.chainId);
   }
 
   // Switch the active network from the shared selector. Clears all quote /
@@ -2426,9 +2468,25 @@ if (selectedAccount && fromToken && toToken) {
         walletState={walletState}
         initialFromChainId={selectedChainId}
         initialToChainId={destChainId}
+        initialToToken={
+          pendingToToken && pendingToToken.chainId === destChainId
+            ? {
+                chainId: pendingToToken.chainId,
+                address: pendingToToken.address,
+                symbol: pendingToToken.symbol,
+                name: pendingToToken.name,
+                decimals: pendingToToken.decimals,
+                isNative: pendingToToken.isNative,
+                logoUrl: pendingToToken.logoUrl ?? null,
+              }
+            : null
+        }
         onSameChainSelected={(chainId) => void handleCrossChainCollapse(chainId)}
         onBridgeCompleted={onSwapCompleted}
-        onBack={() => setDestChainId(selectedChainId)}
+        onBack={() => {
+          setPendingToToken(null);
+          setDestChainId(selectedChainId);
+        }}
       />
     );
   }
@@ -2512,12 +2570,12 @@ if (selectedAccount && fromToken && toToken) {
                   disabled={isLoadingTokens && tokens.length === 0}
                 >
                   {fromToken ? (
-                    <AssetIcon
-                      ticker={fromToken.symbol}
-                      address={fromToken.type === "native" ? null : fromToken.address}
+                    <TokenWithChainBadge
+                      symbol={fromToken.symbol}
+                      tokenAddress={fromToken.type === "native" ? null : fromToken.address}
                       chainId={selectedChainId}
+                      chainName={getNetworkLabel(selectedChainId)}
                       size={28}
-                      className="swap-token-pill__img"
                     />
                   ) : (
                     <span className="swap-token-pill__icon">?</span>
@@ -2525,12 +2583,6 @@ if (selectedAccount && fromToken && toToken) {
                   <span className="swap-token-pill__sym">{fromToken?.symbol ?? "Select"}</span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
-                <ChainPillButton
-                  chainId={selectedChainId}
-                  name={getNetworkLabel(selectedChainId)}
-                  onClick={() => setNetworkSelectorOpen(true)}
-                  ariaLabel={`Source chain: ${getNetworkLabel(selectedChainId)}`}
-                />
               </div>
             </div>
 
@@ -2651,16 +2703,16 @@ if (selectedAccount && fromToken && toToken) {
                 <button
                   className="swap-token-pill"
                   type="button"
-                  onClick={() => setTokenPickerSide("to")}
+                  onClick={() => setCrossToPickerOpen(true)}
                   disabled={isLoadingTokens && tokens.length === 0}
                 >
                   {toToken ? (
-                    <AssetIcon
-                      ticker={toToken.symbol}
-                      address={toToken.type === "native" ? null : toToken.address}
+                    <TokenWithChainBadge
+                      symbol={toToken.symbol}
+                      tokenAddress={toToken.type === "native" ? null : toToken.address}
                       chainId={selectedChainId}
+                      chainName={getNetworkLabel(selectedChainId)}
                       size={28}
-                      className="swap-token-pill__img"
                     />
                   ) : (
                     <span className="swap-token-pill__icon">?</span>
@@ -2668,11 +2720,6 @@ if (selectedAccount && fromToken && toToken) {
                   <span className="swap-token-pill__sym">{toToken?.symbol ?? "Select"}</span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
-                <DestChainSelect
-                  sourceChainId={selectedChainId}
-                  value={destChainId}
-                  onChange={setDestChainId}
-                />
               </div>
             </div>
 
@@ -3208,25 +3255,27 @@ if (selectedAccount && fromToken && toToken) {
         </div>
       ) : null}
 
-      {/* ── Token picker modal with search + import ── */}
+      {/* ── Cross-network "To" token picker — selecting a token on another
+          network turns the swap into a cross-chain (LI.FI) route. ── */}
+      {crossToPickerOpen ? (
+        <CrossChainTokenPicker
+          side="to"
+          currentChainId={selectedChainId}
+          onSelect={handlePickToToken}
+          onClose={() => setCrossToPickerOpen(false)}
+        />
+      ) : null}
+
+      {/* ── Token picker modal with search + import (FROM, current network) ── */}
       {tokenPickerSide ? (
-        <div className="swap-token-modal-backdrop">
-          <div className="swap-token-modal" role="dialog" aria-modal="true">
-            <div className="swap-token-modal-header">
-              <div>
-                <h2>{pickerTitle}</h2>
-                <p>{getNetworkLabel(selectedChainId)}</p>
-              </div>
+        <div className="swap-token-picker-page" role="dialog" aria-modal="true">
+          <SwapHeader
+            title={pickerTitle}
+            subtitle={getNetworkLabel(selectedChainId)}
+            onBack={() => setTokenPickerSide(null)}
+          />
 
-              <button
-                className="icbtn"
-                type="button"
-                onClick={() => setTokenPickerSide(null)}
-              >
-                ×
-              </button>
-            </div>
-
+          <div className="cc-picker-sticky">
             {/* Search input */}
             <div className="swap-picker-search">
               <input
@@ -3242,7 +3291,9 @@ if (selectedAccount && fromToken && toToken) {
                 }}
               />
             </div>
+          </div>
 
+          <div className="cc-picker-body">
             {/* Import flow — replaces list when active */}
             {tokenImportStatus !== "idle" ? (
               <div className="swap-token-import-panel">

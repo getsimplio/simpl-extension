@@ -30,6 +30,9 @@ import {
   type SolanaSwapOrder,
 } from "../../core/swaps/solana-swap.service";
 import { AssetIcon } from "../components/AssetIcon";
+import { TokenWithChainBadge } from "../components/TokenWithChainBadge";
+import { SwapHeader } from "../components/SwapHeader";
+import { SwapRouteNotice } from "../components/SwapRouteNotice";
 import "./SwapPage.css";
 
 type SolanaSwapPageProps = {
@@ -523,12 +526,7 @@ export function SolanaSwapPage({
   if (step === "success") {
     return (
       <div className="ext-popup swap-page" data-screen-label="Swap – Solana">
-        <div className="bar-top">
-          <button className="icbtn" type="button" onClick={onBack} aria-label="Back to wallet">
-            <BackArrow />
-          </button>
-          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>Swap</div>
-        </div>
+        <SwapHeader title="Swap" subtitle="Solana" onBack={onBack} />
         <div className="screen-body">
           <div className="swap-quote-card" style={{ textAlign: "center", gap: 6 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink-1)" }}>
@@ -575,19 +573,11 @@ export function SolanaSwapPage({
   // ── Form / Review ──
   return (
     <div className="ext-popup swap-page" data-screen-label="Swap – Solana">
-      <div className="bar-top">
-        <button
-          className="icbtn"
-          type="button"
-          onClick={step === "review" ? () => setStep("form") : onBack}
-          aria-label="Back"
-        >
-          <BackArrow />
-        </button>
-        <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          {step === "review" ? "Review swap" : "Swap"}
-        </div>
-      </div>
+      <SwapHeader
+        title={step === "review" ? "Review swap" : "Swap"}
+        subtitle="Solana"
+        onBack={step === "review" ? () => setStep("form") : onBack}
+      />
 
       <div className="screen-body">
         {/* From / To pair */}
@@ -602,13 +592,13 @@ export function SolanaSwapPage({
                 disabled={step !== "form"}
               >
                 {fromToken ? (
-                  <AssetIcon
-                    ticker={fromToken.symbol}
-                    logoURI={fromToken.logoUrl}
-                    address={fromToken.isNative ? null : fromToken.mint}
+                  <TokenWithChainBadge
+                    symbol={fromToken.symbol}
+                    tokenLogoUrl={fromToken.logoUrl}
+                    tokenAddress={fromToken.isNative ? null : fromToken.mint}
                     chainId={selectedChainId}
+                    chainName="Solana"
                     size={28}
-                    className="swap-token-pill__img"
                   />
                 ) : (
                   <span className="swap-token-pill__icon">?</span>
@@ -662,13 +652,13 @@ export function SolanaSwapPage({
                 disabled={step !== "form"}
               >
                 {toToken ? (
-                  <AssetIcon
-                    ticker={toToken.symbol}
-                    logoURI={toToken.logoUrl}
-                    address={toToken.isNative ? null : toToken.mint}
+                  <TokenWithChainBadge
+                    symbol={toToken.symbol}
+                    tokenLogoUrl={toToken.logoUrl}
+                    tokenAddress={toToken.isNative ? null : toToken.mint}
                     chainId={selectedChainId}
+                    chainName="Solana"
                     size={28}
-                    className="swap-token-pill__img"
                   />
                 ) : (
                   <span className="swap-token-pill__icon">?</span>
@@ -697,11 +687,11 @@ export function SolanaSwapPage({
           </div>
         </div>
 
-        {/* MVP helper: makes the Exact-In behavior obvious — only the From field
-            is editable; the receive amount is a quoted estimate. */}
-        <div className="swap-notice">
+        {/* Compact, shared route notice (no longer the large green block) —
+            makes the Exact-In behavior obvious without dominating the screen. */}
+        <SwapRouteNotice>
           Enter the amount you want to pay. The receive amount is estimated.
-        </div>
+        </SwapRouteNotice>
 
         {/* Slippage presets (form only) */}
         {step === "form" ? (
@@ -812,70 +802,43 @@ export function SolanaSwapPage({
         </div>
       </div>
 
-      {/* Token picker */}
+      {/* Token picker — a real wallet screen (not a modal), matching the shared
+          cross-chain picker shell: SwapHeader with a back button, no backdrop. */}
       {picker ? (
-        <div className="swap-token-modal-backdrop" onClick={() => setPicker(null)}>
-          <div
-            className="swap-token-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="swap-token-modal-header">
-              <div>
-                <h2>Select token</h2>
-                <p>{picker === "from" ? "You pay" : "You receive"}</p>
-              </div>
-              <button className="icbtn" type="button" onClick={() => setPicker(null)}>
-                ×
+        <div className="swap-token-picker-page" role="dialog" aria-modal="true">
+          <SwapHeader
+            title={picker === "from" ? "Select token to sell" : "Select token to receive"}
+            subtitle="Solana"
+            onBack={() => setPicker(null)}
+          />
+          <div className="cc-picker-body">
+            {tokens.map((token) => (
+              <button
+                key={token.id}
+                className="swap-token-list-item"
+                type="button"
+                onClick={() => handleSelectToken(token)}
+              >
+                <AssetIcon
+                  ticker={token.symbol}
+                  logoURI={token.logoUrl}
+                  address={token.isNative ? null : token.mint}
+                  chainId={selectedChainId}
+                  size={32}
+                  className="swap-token-list-img"
+                />
+                <span className="swap-token-list-body">
+                  <strong>{token.symbol}</strong>
+                  <span>{token.name}</span>
+                </span>
+                <span className="swap-token-list-balance">
+                  {balancesKnown ? token.balance : "—"}
+                </span>
               </button>
-            </div>
-            <div className="swap-token-list">
-              {tokens.map((token) => (
-                <button
-                  key={token.id}
-                  className="swap-token-list-item"
-                  type="button"
-                  onClick={() => handleSelectToken(token)}
-                >
-                  <AssetIcon
-                    ticker={token.symbol}
-                    logoURI={token.logoUrl}
-                    address={token.isNative ? null : token.mint}
-                    chainId={selectedChainId}
-                    size={32}
-                    className="swap-token-list-img"
-                  />
-                  <span className="swap-token-list-body">
-                    <strong>{token.symbol}</strong>
-                    <span>{token.name}</span>
-                  </span>
-                  <span className="swap-token-list-balance">
-                    {balancesKnown ? token.balance : "—"}
-                  </span>
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
       ) : null}
     </div>
-  );
-}
-
-function BackArrow() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M15 19l-7-7 7-7" />
-    </svg>
   );
 }
