@@ -243,6 +243,34 @@ export function classifyAddressType(
   return "unknown";
 }
 
+// A short, MASKED address for diagnostics — keeps only the first/last 4 chars so
+// the chain + format are visible without logging the full address. Prefixed by
+// type: "Txxxx…xxxx" (TRON), "0xab…cdef" (EVM), "Solana xxxx…xxxx" (SVM).
+export function maskAddressForDebug(address: string | null | undefined): string {
+  if (!address) return "none";
+  const type = classifyAddressType(address);
+  const short =
+    address.length > 10
+      ? `${address.slice(0, 4)}…${address.slice(-4)}`
+      : address;
+  if (type === "solana") return `Solana ${short}`;
+  return short;
+}
+
+// Whether an address is well-formed for the given chain's VM family. Used purely
+// for diagnostics (fromAddressValid / toAddressValid) — the gateway is the
+// authority on acceptance.
+export function isValidAddressForChain(
+  address: string | null | undefined,
+  chainId: number,
+): boolean {
+  if (!address) return false;
+  const family = bridgeChainType(chainId);
+  if (family === "EVM") return /^0x[0-9a-fA-F]{40}$/u.test(address);
+  if (family === "TVM") return /^T[1-9A-HJ-NP-Za-km-z]{33}$/u.test(address);
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/u.test(address); // SVM
+}
+
 // VM family for the supported production chain set. Solana (SVM) and TRON (TVM)
 // are the non-EVM source/destinations the bridge offers; everything else is EVM.
 // UTXO / other VMs are not offered, so they fall through to "EVM" and are gated
@@ -254,6 +282,28 @@ export function bridgeChainType(chainId: number): "EVM" | "SVM" | "TVM" {
 }
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+// HTTP error from the gateway that PRESERVES the response body (a non-2xx is
+// thrown, not swallowed) so callers can surface the actual safe reason instead of
+// a bare "400 Bad Request". `message` stays "<status> <statusText>" so existing
+// 404/"not found" detection keeps working.
+export class BridgeHttpError extends Error {
+  readonly status: number;
+  readonly bodyText: string | null;
+  readonly bodyJson: Record<string, unknown> | null;
+  constructor(
+    status: number,
+    statusText: string,
+    bodyText: string | null,
+    bodyJson: Record<string, unknown> | null,
+  ) {
+    super(`${status} ${statusText}`);
+    this.name = "BridgeHttpError";
+    this.status = status;
+    this.bodyText = bodyText;
+    this.bodyJson = bodyJson;
+  }
+}
 
 async function fetchJson<T>(
   url: string,
@@ -269,7 +319,31 @@ async function fetchJson<T>(
       headers: { accept: "application/json", ...(rest.headers ?? {}) },
     });
     if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`);
+      // Read the body ONCE (text), then best-effort JSON-parse it, so callers can
+      // classify the failure from the gateway/provider's own message.
+      let bodyText: string | null = null;
+      let bodyJson: Record<string, unknown> | null = null;
+      try {
+        bodyText = await response.text();
+      } catch {
+        bodyText = null;
+      }
+      if (bodyText) {
+        try {
+          const parsed = JSON.parse(bodyText);
+          if (parsed && typeof parsed === "object") {
+            bodyJson = parsed as Record<string, unknown>;
+          }
+        } catch {
+          bodyJson = null;
+        }
+      }
+      throw new BridgeHttpError(
+        response.status,
+        response.statusText,
+        bodyText,
+        bodyJson,
+      );
     }
     return (await response.json()) as T;
   } finally {
@@ -445,6 +519,11 @@ export type BridgeQuoteParams = {
   denyBridges?: string[];
   allowExchanges?: string[];
   denyExchanges?: string[];
+  // Display-only token metadata, used ONLY for the safe request diagnostics
+  // ([bridge:lifi] quote-request-safe). Never sent to the gateway.
+  fromTokenSymbol?: string;
+  toTokenSymbol?: string;
+  fromTokenDecimals?: number;
 };
 
 // An EVM transaction the wallet can sign + send for an executable route. Only
@@ -544,6 +623,12 @@ export const LIFI_SOLANA_CHAIN_ID = 1151111081099710;
 // key (TRON_MAINNET_CHAIN_ID, 0x2b6653dc) — LI.FI returns Tron under this id with
 // chainType "TVM". Used to detect TRON-source / TRON-destination routes.
 export const LIFI_TRON_CHAIN_ID = 728126428;
+
+// LI.FI's sentinel address for NATIVE TRX. Unlike EVM/SVM natives (the 0x000…0
+// zero address), LI.FI identifies native TRX by this specific base58 address —
+// using the EVM zero address for TRON native would be rejected. Used to seed the
+// token picker's TRX entry so it matches LI.FI's canonical identifier.
+export const LIFI_TRON_NATIVE_ADDRESS = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 
 type RawGasCost = {
   amount?: string;
@@ -1111,6 +1196,125 @@ export class NoBridgeRouteError extends Error {
   }
 }
 
+// A classified, NON-RETRYABLE quote failure (a 4xx the gateway/provider won't
+// satisfy on a re-POST with the same inputs). `message` is already display-safe.
+export type BridgeQuoteErrorCode =
+  | "unsupportedTronRoute"
+  | "invalidDestination"
+  | "invalidToken"
+  | "amountTooLow"
+  | "failed";
+
+export class BridgeQuoteError extends Error {
+  readonly code: BridgeQuoteErrorCode;
+  readonly status: number | null;
+  constructor(code: BridgeQuoteErrorCode, message: string, status: number | null = null) {
+    super(message);
+    this.name = "BridgeQuoteError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+// Extract a safe, value-free view of the gateway's error body for diagnostics
+// (never raw tx/signatures — the gateway never returns those, but we still cap +
+// pick known fields). JSON fields when present, else the first 500 chars of text.
+function safeErrorBody(err: BridgeHttpError): Record<string, unknown> {
+  const body = err.bodyJson;
+  if (body) {
+    return {
+      status: err.status,
+      errorCode: body.code ?? body.errorCode ?? null,
+      message: typeof body.message === "string" ? body.message.slice(0, 300) : null,
+      error: typeof body.error === "string" ? body.error.slice(0, 200) : null,
+      details: typeof body.details === "string" ? body.details.slice(0, 300) : body.details ?? null,
+      validationErrors: body.validationErrors ?? body.errors ?? null,
+      providerErrorCode: body.providerErrorCode ?? null,
+      providerMessage:
+        typeof body.providerMessage === "string"
+          ? body.providerMessage.slice(0, 300)
+          : null,
+    };
+  }
+  return {
+    status: err.status,
+    message: null,
+    text: err.bodyText ? err.bodyText.slice(0, 500) : null,
+  };
+}
+
+// Classify a gateway HTTP error into a precise, non-retryable BridgeQuoteError —
+// or NoBridgeRouteError for a genuine "no route". Reads the gateway/provider's own
+// message; order matters (most specific first). The TRON-as-EVM gateway rejection
+// ("chain <id> is EVM, expected an EVM (0x) address") means TRON isn't supported
+// by the proxy yet — a stable "not available yet", never a retry loop.
+function classifyQuoteError(
+  err: BridgeHttpError,
+  params: BridgeQuoteParams,
+): NoBridgeRouteError | BridgeQuoteError {
+  const body = err.bodyJson ?? {};
+  const msg = (
+    (typeof body.message === "string" ? body.message : "") +
+    " " +
+    (typeof body.error === "string" ? body.error : "") +
+    " " +
+    (err.bodyText ?? "")
+  ).toLowerCase();
+  const tronInvolved =
+    params.fromChainId === LIFI_TRON_CHAIN_ID ||
+    params.toChainId === LIFI_TRON_CHAIN_ID;
+
+  if (err.status === 404 || msg.includes("no route") || msg.includes("not found")) {
+    return new NoBridgeRouteError();
+  }
+  // Gateway rejects the TRON address because its chain-type table treats TRON as
+  // EVM — the proxy does not support TRON routes yet. Stable unsupported message.
+  if (
+    tronInvolved &&
+    (msg.includes("is evm, expected an evm") ||
+      msg.includes("expected an evm") ||
+      (msg.includes("address") && msg.includes("invalid")))
+  ) {
+    return new BridgeQuoteError(
+      "unsupportedTronRoute",
+      "This TRON route is not available yet.",
+      err.status,
+    );
+  }
+  if (msg.includes("toaddress") && msg.includes("invalid")) {
+    return new BridgeQuoteError(
+      "invalidDestination",
+      "TRON destination address is invalid.",
+      err.status,
+    );
+  }
+  if (
+    (msg.includes("token") || msg.includes("totoken") || msg.includes("fromtoken")) &&
+    (msg.includes("invalid") || msg.includes("not supported") || msg.includes("unsupported"))
+  ) {
+    return new BridgeQuoteError(
+      "invalidToken",
+      "This TRON token is not supported for bridging.",
+      err.status,
+    );
+  }
+  if (
+    msg.includes("amount") &&
+    (msg.includes("too low") ||
+      msg.includes("too small") ||
+      msg.includes("minimum") ||
+      msg.includes("min amount") ||
+      msg.includes("below"))
+  ) {
+    return new BridgeQuoteError(
+      "amountTooLow",
+      "Amount is too small for this bridge route.",
+      err.status,
+    );
+  }
+  return new BridgeQuoteError("failed", "Could not get a bridge quote.", err.status);
+}
+
 export async function getBridgeQuote(
   params: BridgeQuoteParams,
 ): Promise<BridgeQuote> {
@@ -1153,6 +1357,30 @@ export async function getBridgeQuote(
     toAddressType: classifyAddressType(params.toAddress),
   });
 
+  // Safe request shape — the exact (masked) inputs that produced the quote, so a
+  // gateway 4xx can be diagnosed without the raw addresses leaving the device.
+  lifiShapeLog("quote-request-safe", {
+    fromChain: params.fromChainId,
+    toChain: params.toChainId,
+    sourceChainType: bridgeChainType(params.fromChainId),
+    destinationChainType: bridgeChainType(params.toChainId),
+    fromTokenSymbol: params.fromTokenSymbol ?? null,
+    fromTokenAddress: params.fromTokenAddress,
+    toTokenSymbol: params.toTokenSymbol ?? null,
+    toTokenAddress: params.toTokenAddress,
+    fromAmount: params.fromAmountBaseUnits,
+    fromAmountDecimals: params.fromTokenDecimals ?? null,
+    fromAddressType: classifyAddressType(params.fromAddress),
+    toAddressType: classifyAddressType(params.toAddress),
+    fromAddressValid: isValidAddressForChain(params.fromAddress, params.fromChainId),
+    toAddressValid: params.toAddress
+      ? isValidAddressForChain(params.toAddress, params.toChainId)
+      : null,
+    fromAddressMasked: maskAddressForDebug(params.fromAddress),
+    toAddressMasked: maskAddressForDebug(params.toAddress),
+    slippageBps: params.slippageBps ?? null,
+  });
+
   let raw: RawBridgeQuote;
   try {
     raw = await fetchJson<RawBridgeQuote>(
@@ -1164,14 +1392,16 @@ export async function getBridgeQuote(
       },
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     bridgeDebugLog("quote:error", {
       fromChain: params.fromChainId,
       toChain: params.toChainId,
     });
-    // A 404 from the gateway means "no route" — surface the friendly variant.
-    if (/\b404\b/u.test(message) || /not\s*found/iu.test(message)) {
-      throw new NoBridgeRouteError();
+    // Preserve + surface the gateway's own safe error body, then classify into a
+    // precise, NON-RETRYABLE reason (TRON-unsupported / invalid token / amount
+    // too low / …). A 404 / "no route" maps to the friendly empty state.
+    if (error instanceof BridgeHttpError) {
+      lifiShapeLog("quote-error-body", safeErrorBody(error));
+      throw classifyQuoteError(error, params);
     }
     throw error;
   }
@@ -1296,7 +1526,12 @@ export async function prepareBridgeTransaction(
     return {
       ok: false,
       code: "failed",
-      message: "Could not refresh this route. Try again.",
+      // Surface a classified quote reason (e.g. "This TRON route is not available
+      // yet.") rather than a generic line when the gateway gave one.
+      message:
+        error instanceof BridgeQuoteError
+          ? error.message
+          : "Could not refresh this route. Try again.",
     };
   }
 

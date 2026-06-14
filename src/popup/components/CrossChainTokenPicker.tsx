@@ -23,7 +23,7 @@ import {
   getBridgeTokensForChains,
   LIFI_SOLANA_CHAIN_ID,
   LIFI_TRON_CHAIN_ID,
-  LIFI_NATIVE_ADDRESS,
+  LIFI_TRON_NATIVE_ADDRESS,
   type BridgeToken,
 } from "../../core/bridge/lifi-bridge.service";
 import { TRON_TOKENS } from "../../chains/tron/tron.tokens";
@@ -81,13 +81,15 @@ function isEvmChain(chainId: number): boolean {
 
 // TRON tokens from the local registry (TRX native + USDT TRC-20), as picker rows.
 // Seeded into the catalog so TRON always offers its core assets even when the
-// LI.FI token list for TVM is sparse/unavailable. The native TRX uses LI.FI's
-// native sentinel address; USDT uses its base58 TRC-20 contract. Provider tokens
-// (when present) win on merge, so provider decimals/logos are preferred.
+// LI.FI token list for TVM is sparse/unavailable. CRITICAL: native TRX uses LI.FI's
+// TRON-specific base58 sentinel (NOT the EVM 0x000…0 zero address, which LI.FI
+// rejects for TRON); USDT uses its base58 TRC-20 contract. Provider tokens (when
+// present) win on merge, so provider decimals/logos are preferred and the seed
+// address matches LI.FI's so there is no duplicate TRX row.
 const TRON_REGISTRY_TOKENS: PickerToken[] = TRON_TOKENS.map((t) => ({
   chainId: LIFI_TRON_CHAIN_ID,
   chainName: "TRON",
-  address: t.contractAddress ?? LIFI_NATIVE_ADDRESS,
+  address: t.contractAddress ?? LIFI_TRON_NATIVE_ADDRESS,
   isNative: t.type === "native",
   symbol: t.symbol,
   name: t.name,

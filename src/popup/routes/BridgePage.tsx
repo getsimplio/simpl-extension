@@ -29,6 +29,7 @@ import {
   isSignableSourceChain,
   readErc20Allowance,
   NoBridgeRouteError,
+  BridgeQuoteError,
   LIFI_SOLANA_CHAIN_ID,
   LIFI_TRON_CHAIN_ID,
   bridgeDebugLog,
@@ -216,6 +217,11 @@ function formatDuration(seconds: number | null): string | null {
 function friendlyError(error: unknown): string {
   if (error instanceof NoBridgeRouteError) {
     return "No route found for this pair. Try another token, chain, or amount.";
+  }
+  // Classified, non-retryable quote failures carry a curated, display-safe
+  // message ("This TRON route is not available yet.", "Amount is too small…").
+  if (error instanceof BridgeQuoteError) {
+    return error.message;
   }
   // Coded Solana execution errors carry curated, display-safe messages (they
   // never embed the raw cause / key material). Surface a precise reason for each
@@ -469,14 +475,25 @@ function isTronNativeSource(
   return chainId === LIFI_TRON_CHAIN_ID && Boolean(token?.isNative);
 }
 
-// True when the destination chain is TRON (by LI.FI chainType or chain id).
-function isTronDestination(
+// Safe [bridge:tron] address-resolution diagnostics, behind simpl.debug.bridge.
+// Logs address TYPES (evm/solana/tron/none) and booleans — never a raw address,
+// private key, seed or derivation material. Silent for production users.
+function tronAddressResolveLog(data: Record<string, unknown>): void {
+  if (!isBridgeDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.info("[bridge:tron] address-resolve", data);
+}
+
+// True when a chain is TRON (by chain id, LI.FI chainType, or key) — used for
+// both source and destination TRON checks and the TRON address path.
+function chainIsTron(
   chain: BridgeChain | undefined,
   chainId: number,
 ): boolean {
   return (
     chainId === LIFI_TRON_CHAIN_ID ||
-    (chain?.chainType?.toUpperCase() === "TVM")
+    chain?.chainType?.toUpperCase() === "TVM" ||
+    chain?.key === "tron"
   );
 }
 
@@ -572,10 +589,20 @@ export function BridgePage({
     selectedAccount && "solanaAddress" in selectedAccount
       ? selectedAccount.solanaAddress ?? null
       : null;
-  const tronAddress =
+  // The account's PERSISTED TRON address, if any. Accounts created before TRON
+  // support won't have it yet — it is derived + persisted on demand (see the
+  // resolution effect below), so the bridge can target/sign TRON without first
+  // visiting a TRON screen.
+  const persistedTronAddress =
     selectedAccount && "tronAddress" in selectedAccount
       ? selectedAccount.tronAddress ?? null
       : null;
+  // On-demand derived TRON address (m/44'/195'), filled when a route involves
+  // TRON and no persisted address exists yet. Reset when the account changes.
+  const [derivedTronAddress, setDerivedTronAddress] = useState<string | null>(
+    null,
+  );
+  const tronAddress = persistedTronAddress ?? derivedTronAddress;
 
   const [chains, setChains] = useState<BridgeChain[]>([]);
   const [chainsError, setChainsError] = useState<string | null>(null);
@@ -605,6 +632,12 @@ export function BridgePage({
 
   const [amount, setAmount] = useState("");
   const [slippageBps, setSlippageBps] = useState(50);
+
+  // Anti-spam guard: the last request SIGNATURE that produced a classified,
+  // non-retryable quote failure (e.g. a TRON route the gateway doesn't support
+  // yet), with its stable message. An identical re-submit short-circuits instead
+  // of re-POSTing the same 4xx. Cleared when inputs change (resetQuote).
+  const lastFailedQuoteRef = useRef<{ sig: string; message: string } | null>(null);
 
   // Which side's cross-chain token picker is open (token selection also drives
   // that side's chain — chain follows token).
@@ -637,7 +670,10 @@ export function BridgePage({
     [chains, toChainId],
   );
 
-  // The signing address for a given chain depends on its family.
+  // The signing/recipient address for a given chain depends on its family. TRON
+  // (TVM) MUST return the base58 T… address — never the EVM 0x address or the
+  // Solana pubkey. When the account has no persisted TRON address yet, this
+  // returns null until the resolution effect below derives it on demand.
   function addressForChain(chain: BridgeChain | undefined): string | null {
     if (!chain) return evmAddress;
     const type = chain.chainType.toUpperCase();
@@ -646,6 +682,76 @@ export function BridgePage({
     if (type === "TVM" || chain.key === "tron") return tronAddress;
     return evmAddress;
   }
+
+  // Resolve a chain's address for a quote, deriving the TRON address on demand
+  // when the route involves TRON and it isn't cached yet. EVM/Solana are returned
+  // synchronously (unchanged). Emits [bridge:tron] address-resolve diagnostics
+  // for TRON (safe metadata only — address TYPES, never raw addresses/keys).
+  async function resolveAddressForChain(
+    chain: BridgeChain | undefined,
+    chainId: number,
+    role: "source" | "destination",
+  ): Promise<string | null> {
+    const isTron = chainIsTron(chain, chainId);
+    let resolved = addressForChain(chain);
+    if (isTron && (!resolved || !isValidTronAddress(resolved))) {
+      try {
+        const addr = await walletService.getSelectedTronAddress();
+        if (addr) {
+          setDerivedTronAddress(addr);
+          resolved = addr;
+        }
+      } catch {
+        // Locked/unavailable — leave resolved null; the caller shows the precise
+        // "TRON address is not available" message.
+      }
+    }
+    if (isTron) {
+      tronAddressResolveLog({
+        chainId,
+        role,
+        hasSelectedAccount: Boolean(selectedAccount),
+        evmAddress: classifyAddressType(evmAddress),
+        solanaAddress: classifyAddressType(solanaAddress),
+        tronAddressExists: Boolean(resolved),
+        tronAddressValid: resolved ? isValidTronAddress(resolved) : false,
+        resolvedType: classifyAddressType(resolved),
+      });
+    }
+    return resolved;
+  }
+
+  // Reset the on-demand TRON address whenever the active account changes, so a
+  // derived address from a previous account is never reused.
+  useEffect(() => {
+    setDerivedTronAddress(null);
+  }, [selectedAccount?.id]);
+
+  // Derive + cache the active account's TRON address as soon as a route involves
+  // TRON and we don't already have a valid one. Uses the in-memory unlocked vault
+  // (no password prompt). Keeps the SAME m/44'/195' derivation as the rest of the
+  // wallet — BridgePage never derives addresses itself.
+  useEffect(() => {
+    if (!selectedAccount || selectedAccount.type === "watch") return;
+    const tronInvolved =
+      fromChainId === LIFI_TRON_CHAIN_ID || toChainId === LIFI_TRON_CHAIN_ID;
+    if (!tronInvolved) return;
+    if (tronAddress && isValidTronAddress(tronAddress)) return;
+    let active = true;
+    void walletService
+      .getSelectedTronAddress()
+      .then((addr) => {
+        if (active && addr) setDerivedTronAddress(addr);
+      })
+      .catch(() => {
+        // Locked vault / no key material — validation surfaces the precise
+        // "TRON address is not available" message; never crash the picker.
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fromChainId, toChainId, selectedAccount, persistedTronAddress, derivedTronAddress]);
 
   // Chain-aware balances for the selected From / To tokens. These carry an
   // explicit state (loading / loaded / unavailable / error) so the UI never
@@ -813,6 +919,9 @@ export function BridgePage({
     setError(null);
     setApprovalState("unknown");
     setSubmitStatus("idle");
+    // Inputs changed → a previously unsupported request may now differ; allow a
+    // fresh attempt.
+    lastFailedQuoteRef.current = null;
     if (step === "review") setStep("form");
   }
 
@@ -956,31 +1065,75 @@ export function BridgePage({
       setError(validation);
       return;
     }
-    const fromAddress = addressForChain(fromChain);
+    // Source address — resolved per chain family (TRON derived on demand).
+    const fromAddress = await resolveAddressForChain(
+      fromChain,
+      fromChainId,
+      "source",
+    );
     if (!fromAddress) {
-      setError("This account has no address for the source chain.");
+      setError(
+        chainIsTron(fromChain, fromChainId)
+          ? "TRON address is not available for this account."
+          : "This account has no address for the source chain.",
+      );
+      return;
+    }
+    if (chainIsTron(fromChain, fromChainId) && !isValidTronAddress(fromAddress)) {
+      setError("TRON source address is invalid.");
       return;
     }
     // Destination address MUST match the destination chain's family — never send
-    // an EVM address as a Solana recipient (or vice-versa). No cross-type
+    // an EVM address as a Solana/TRON recipient (or vice-versa). No cross-type
     // fallback: if the account has no address for the destination chain, stop.
-    const toAddress = addressForChain(toChain);
+    const toAddress = await resolveAddressForChain(
+      toChain,
+      toChainId,
+      "destination",
+    );
     if (!toAddress) {
-      setError("This account has no address for the destination chain.");
+      setError(
+        chainIsTron(toChain, toChainId)
+          ? "TRON address is not available for this account."
+          : "This account has no address for the destination chain.",
+      );
       return;
     }
     // TRON destination must be a valid base58 T… address — never an EVM 0x or a
-    // Solana pubkey. The source still signs on its own chain (EVM/Solana/TRON).
-    if (isTronDestination(toChain, toChainId) && !isValidTronAddress(toAddress)) {
-      setError("TRON destination address is missing or invalid.");
+    // Solana pubkey.
+    if (chainIsTron(toChain, toChainId) && !isValidTronAddress(toAddress)) {
+      setError("TRON destination address is invalid.");
+      return;
+    }
+
+    // Parse the amount once; build the request signature for the anti-spam guard.
+    let amountBase: bigint;
+    try {
+      amountBase = decimalToBaseUnits(amount, fromToken.decimals);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Enter a valid amount.");
+      return;
+    }
+    const requestSig = [
+      fromChainId,
+      toChainId,
+      fromToken.address,
+      toToken.address,
+      amountBase.toString(),
+      fromAddress,
+      toAddress,
+      slippageBps,
+    ].join("|");
+    // Identical to a request that already failed with a non-retryable reason →
+    // show the stable message without re-POSTing (stops the 400 retry loop).
+    if (lastFailedQuoteRef.current?.sig === requestSig) {
+      setError(lastFailedQuoteRef.current.message);
       return;
     }
 
     setError(null);
     setReviewLoading(true);
     try {
-      const amountBase = decimalToBaseUnits(amount, fromToken.decimals);
-
       // Insufficient-balance is already gated by `validation` against the real
       // loaded balance (never a fake zero), so no extra balance read here.
 
@@ -993,8 +1146,14 @@ export function BridgePage({
         fromAddress,
         toAddress,
         slippageBps,
+        // Display-only metadata for the safe request diagnostics.
+        fromTokenSymbol: fromToken.symbol,
+        toTokenSymbol: toToken.symbol,
+        fromTokenDecimals: fromToken.decimals,
       });
 
+      // Success → clear any cached failure for this route.
+      lastFailedQuoteRef.current = null;
       setQuote(nextQuote);
       setStep("review");
 
@@ -1052,7 +1211,14 @@ export function BridgePage({
         setApprovalState("notNeeded");
       }
     } catch (e) {
-      setError(friendlyError(e));
+      const message = friendlyError(e);
+      // A classified, non-retryable failure (TRON unsupported / invalid token /
+      // amount too low) is cached against this exact request so an unchanged
+      // re-submit won't re-POST the same 400.
+      if (e instanceof BridgeQuoteError) {
+        lastFailedQuoteRef.current = { sig: requestSig, message };
+      }
+      setError(message);
     } finally {
       setReviewLoading(false);
     }
@@ -1112,21 +1278,42 @@ export function BridgePage({
   // the reason / new amount).
   async function refreshBeforeSign(): Promise<BridgeQuote | null> {
     if (!quote || !fromToken || !toToken) return null;
-    const fromAddress = addressForChain(fromChain);
-    const toAddress = addressForChain(toChain);
+    const fromAddress = await resolveAddressForChain(
+      fromChain,
+      fromChainId,
+      "source",
+    );
+    const toAddress = await resolveAddressForChain(
+      toChain,
+      toChainId,
+      "destination",
+    );
     if (!fromAddress) {
       setSubmitStatus("error");
-      setError("This account has no address for the source chain.");
+      setError(
+        chainIsTron(fromChain, fromChainId)
+          ? "TRON address is not available for this account."
+          : "This account has no address for the source chain.",
+      );
       return null;
     }
     if (!toAddress) {
       setSubmitStatus("error");
-      setError("This account has no address for the destination chain.");
+      setError(
+        chainIsTron(toChain, toChainId)
+          ? "TRON address is not available for this account."
+          : "This account has no address for the destination chain.",
+      );
       return null;
     }
-    if (isTronDestination(toChain, toChainId) && !isValidTronAddress(toAddress)) {
+    if (chainIsTron(fromChain, fromChainId) && !isValidTronAddress(fromAddress)) {
       setSubmitStatus("error");
-      setError("TRON destination address is missing or invalid.");
+      setError("TRON source address is invalid.");
+      return null;
+    }
+    if (chainIsTron(toChain, toChainId) && !isValidTronAddress(toAddress)) {
+      setSubmitStatus("error");
+      setError("TRON destination address is invalid.");
       return null;
     }
 
@@ -1140,6 +1327,9 @@ export function BridgePage({
       fromAddress,
       toAddress,
       slippageBps,
+      fromTokenSymbol: fromToken.symbol,
+      toTokenSymbol: toToken.symbol,
+      fromTokenDecimals: fromToken.decimals,
       previousToAmountBaseUnits: quote.toAmountBaseUnits,
       previousToAmountMinBaseUnits: quote.toAmountMinBaseUnits,
     });
