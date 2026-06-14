@@ -43,6 +43,47 @@ function resolveApiBaseUrl(): string {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
+// ── Monetization (LI.FI integrator + fee) ───────────────────────────────────
+//
+// LI.FI attributes both VOLUME and COLLECTABLE FEES to an `integrator` string
+// plus a `fee` — a DECIMAL FRACTION of the route (0.005 = 0.5%, NOT 5%). The
+// gateway already injects the integrator/API key server-side, which is why the
+// LI.FI Portal shows TX history under "simpl" — but no `fee` was ever sent, so
+// Collectable Fees = $0. We now send BOTH on every quote so the gateway can
+// forward them to LI.FI.
+//
+// ► To change the commission, set VITE_LIFI_FEE (a fraction, e.g. 0.005 = 0.5%)
+//   or edit DEFAULT_LIFI_FEE below. The integrator is VITE_LIFI_INTEGRATOR.
+//
+// IMPORTANT: the fee only ACCRUES once a fee wallet is configured for the
+// "simpl" integrator in the LI.FI Portal. And if the gateway whitelists request
+// fields (strips client params), the fee must ALSO be added on the gateway/
+// backend — these client params are forwarded, never authoritative.
+
+const DEFAULT_LIFI_INTEGRATOR = "simpl";
+// 0.005 = 0.5%. Kept well under a 5% sanity cap (see resolveLifiFee).
+const DEFAULT_LIFI_FEE = 0.005;
+// Hard upper bound so a misconfigured ENV (e.g. "5" meaning 5, or 0.5 meaning
+// 50%) can never silently apply an absurd fee — out-of-range → no fee at all.
+const MAX_LIFI_FEE = 0.05; // 5%
+
+const LIFI_INTEGRATOR =
+  ((import.meta.env.VITE_LIFI_INTEGRATOR as string | undefined) ?? "")
+    .trim() || DEFAULT_LIFI_INTEGRATOR;
+
+// Resolve the configured fee FRACTION defensively. Missing/empty → the default
+// 0.5%. Anything non-numeric, negative, or above the sanity cap → null, so the
+// `fee` field is OMITTED and the quote is never broken by bad config.
+function resolveLifiFee(): number | null {
+  const raw = import.meta.env.VITE_LIFI_FEE as string | undefined;
+  const value = raw == null || raw.trim() === "" ? DEFAULT_LIFI_FEE : Number(raw);
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0 || value > MAX_LIFI_FEE) return null;
+  return value;
+}
+
+const LIFI_FEE = resolveLifiFee();
+
 // LI.FI's sentinel for a chain's native asset (ETH / BNB / MATIC …).
 export const LIFI_NATIVE_ADDRESS =
   "0x0000000000000000000000000000000000000000";
@@ -1416,7 +1457,16 @@ export async function getBridgeQuote(
     toToken: params.toTokenAddress,
     fromAmount: params.fromAmountBaseUnits,
     fromAddress: params.fromAddress,
+    // Monetization: attribute volume + collect the integrator fee. The gateway
+    // forwards these to LI.FI (and may also inject the integrator server-side —
+    // same value, so harmless). `fee` is a decimal fraction (0.005 = 0.5%) and is
+    // only added when it resolved to a valid number, so bad config never breaks a
+    // quote.
+    integrator: LIFI_INTEGRATOR,
   };
+  if (LIFI_FEE != null) {
+    body.fee = LIFI_FEE;
+  }
   if (params.toAddress) {
     body.toAddress = params.toAddress;
   }
@@ -1443,6 +1493,9 @@ export async function getBridgeQuote(
     toToken: params.toTokenAddress,
     fromAddressType: classifyAddressType(params.fromAddress),
     toAddressType: classifyAddressType(params.toAddress),
+    // Monetization params actually sent (verify integrator=simpl + fee=0.005).
+    integrator: LIFI_INTEGRATOR,
+    fee: LIFI_FEE,
   });
 
   // Safe request shape — the exact (masked) inputs that produced the quote, so a
