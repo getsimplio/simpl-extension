@@ -30,12 +30,16 @@ import {
   readErc20Allowance,
   NoBridgeRouteError,
   LIFI_SOLANA_CHAIN_ID,
+  LIFI_TRON_CHAIN_ID,
   bridgeDebugLog,
   classifyAddressType,
   type BridgeChain,
   type BridgeToken,
   type BridgeQuote,
 } from "../../core/bridge/lifi-bridge.service";
+import { readTrc20Allowance } from "../../chains/tron/tron.bridge";
+import { TronError } from "../../chains/tron/tron.errors";
+import { isValidTronAddress } from "../../chains/tron/tron.address";
 import {
   SOLANA_MAINNET,
   SOL_FEE_RESERVE_LAMPORTS,
@@ -50,6 +54,8 @@ import {
 } from "../../chains/solana/solana.bridge";
 import { getSolBalance } from "../../chains/solana/solana.balance";
 import { getSplTokenBalanceByMint } from "../../chains/solana/solana.tokens";
+import { getTrxBalance, getTrc20Balance } from "../../chains/tron/tron.balance";
+import { fromBaseUnits as tronFromBaseUnits } from "../../chains/tron/tron.format";
 import { SOL_WSOL_MINT } from "../../core/swaps/solana-swap.service";
 import {
   resolveChainTokenBalance,
@@ -141,6 +147,12 @@ const DEFAULT_TO_CHAIN = 56; // BNB Chain
 const SOLANA_NATIVE_MAX_RESERVE_LAMPORTS = 3_500_000n;
 // Lamports reserve used by the wSOL setup balance gate (setup tx fee + buffer).
 const WSOL_SETUP_FEE_RESERVE_LAMPORTS = 10_000n;
+
+// MAX reserve (sun) for a native-TRX source: TRON contract calls (a bridge is a
+// TriggerSmartContract) are paid in TRX for energy/bandwidth. Keep a buffer so a
+// MAX-entered amount still leaves TRX to cover the network fee. 5 TRX = 5_000_000
+// sun — conservative without burning a large slice of the balance.
+const TRON_NATIVE_MAX_RESERVE_SUN = 5_000_000n;
 
 // ── Amount helpers ──────────────────────────────────────────────────────────
 
@@ -265,6 +277,31 @@ function friendlyError(error: unknown): string {
         return "Solana RPC is temporarily unavailable. Please try again.";
       case "WATCH_ONLY":
         return "Watch-only accounts cannot swap.";
+      default:
+        return error.message;
+    }
+  }
+  // Coded TRON execution errors carry curated, display-safe messages.
+  if (error instanceof TronError) {
+    switch (error.code) {
+      case "INSUFFICIENT_TRX_BALANCE":
+        return "Not enough TRX for network fees.";
+      case "INSUFFICIENT_TOKEN_BALANCE":
+        return "Insufficient balance for this TRON route.";
+      case "INVALID_TRON_ADDRESS":
+        return "TRON destination address is missing or invalid.";
+      case "TRON_BUILD_TX_FAILED":
+        return "TRON transaction format is not supported yet.";
+      case "TRON_SIGN_REJECTED":
+        return "TRON transaction rejected.";
+      case "TRON_SIGN_FAILED":
+        return "Could not sign the TRON transaction.";
+      case "TRON_BROADCAST_FAILED":
+        return "Failed to broadcast the TRON transaction. Try again.";
+      case "TRON_NETWORK_ERROR":
+        return "TRON network is temporarily unavailable. Please try again.";
+      case "TRON_TX_FAILED":
+        return "The TRON transaction failed. Get a fresh quote and try again.";
       default:
         return error.message;
     }
@@ -403,6 +440,26 @@ function isSolanaNativeSource(
   );
 }
 
+// True when the source is native TRX on the TRON chain — used to keep a TRX fee
+// reserve on MAX and to read native TRX decimals (6), never the EVM 18.
+function isTronNativeSource(
+  chainId: number,
+  token: BridgeToken | null,
+): boolean {
+  return chainId === LIFI_TRON_CHAIN_ID && Boolean(token?.isNative);
+}
+
+// True when the destination chain is TRON (by LI.FI chainType or chain id).
+function isTronDestination(
+  chain: BridgeChain | undefined,
+  chainId: number,
+): boolean {
+  return (
+    chainId === LIFI_TRON_CHAIN_ID ||
+    (chain?.chainType?.toUpperCase() === "TVM")
+  );
+}
+
 // Resolve a Solana source-token balance using the Solana RPC (never the EVM
 // loaders): native SOL via getSolBalance, SPL via getSplTokenBalanceByMint. A
 // missing SPL token account is a real zero, not a permanent dash.
@@ -433,6 +490,38 @@ async function resolveSolanaSourceBalance(params: {
       status: "loaded",
       baseUnits: balance.rawAmount.toString(),
       formatted: balance.uiAmountString,
+    };
+  } catch {
+    return { status: "error", baseUnits: null, formatted: null };
+  }
+}
+
+// Resolve a TRON source-token balance via the TRON adapter (TronGrid), never the
+// EVM loaders: native TRX via getTrxBalance (sun, 6 decimals), TRC-20 via
+// getTrc20Balance. A failed read is surfaced as a retryable "error", not "0".
+async function resolveTronSourceBalance(params: {
+  owner: string | null;
+  token: BridgeToken;
+}): Promise<ResolvedBalance> {
+  if (!params.owner) return UNAVAILABLE_BALANCE;
+  try {
+    if (params.token.isNative) {
+      const sun = await getTrxBalance(params.owner);
+      return {
+        status: "loaded",
+        baseUnits: sun.toString(),
+        formatted: tronFromBaseUnits(sun, params.token.decimals),
+      };
+    }
+    const base = await getTrc20Balance(
+      params.owner,
+      params.token.address,
+      params.token.decimals,
+    );
+    return {
+      status: "loaded",
+      baseUnits: base.toString(),
+      formatted: tronFromBaseUnits(base, params.token.decimals),
     };
   } catch {
     return { status: "error", baseUnits: null, formatted: null };
@@ -556,12 +645,14 @@ export function BridgePage({
       return;
     }
     setFromBalance(LOADING_BALANCE);
-    // Solana source → read the real SOL / SPL balance off the Solana RPC with
-    // the account's Solana address; never the EVM loaders.
+    // Solana / TRON source → read the real balance off that chain's RPC with the
+    // account's chain-specific address; never the EVM loaders.
     const resolver =
       fromChainId === LIFI_SOLANA_CHAIN_ID
         ? resolveSolanaSourceBalance({ owner, chainId: fromChainId, token: fromToken })
-        : resolveChainTokenBalance({
+        : fromChainId === LIFI_TRON_CHAIN_ID
+          ? resolveTronSourceBalance({ owner, token: fromToken })
+          : resolveChainTokenBalance({
             owner,
             chainId: fromChainId,
             tokenAddress: fromToken.isNative ? null : fromToken.address,
@@ -784,6 +875,13 @@ export function BridgePage({
         ) {
           return "Keep some SOL for network fees";
         }
+        // Native TRX source: keep a TRX reserve for the energy/bandwidth fee.
+        if (
+          isTronNativeSource(fromChainId, fromToken) &&
+          amountBase + TRON_NATIVE_MAX_RESERVE_SUN > balanceBase
+        ) {
+          return "Not enough TRX for network fees.";
+        }
       } catch {
         // ignore — fall through to allow
       }
@@ -822,6 +920,13 @@ export function BridgePage({
       if (maxBase <= SOLANA_NATIVE_MAX_RESERVE_LAMPORTS) return;
       maxBase = maxBase - SOLANA_NATIVE_MAX_RESERVE_LAMPORTS;
     }
+    // Native TRX source: subtract a TRX reserve so MAX still leaves fee headroom.
+    // A TRC-20 MAX uses the full token balance but still needs TRX for fees (a
+    // separate balance, gated at execution with a clear message).
+    if (isTronNativeSource(fromChainId, fromToken)) {
+      if (maxBase <= TRON_NATIVE_MAX_RESERVE_SUN) return;
+      maxBase = maxBase - TRON_NATIVE_MAX_RESERVE_SUN;
+    }
     setAmount(formatBaseUnits(maxBase.toString(), fromToken.decimals));
     resetQuote();
   }
@@ -842,6 +947,12 @@ export function BridgePage({
     const toAddress = addressForChain(toChain);
     if (!toAddress) {
       setError("This account has no address for the destination chain.");
+      return;
+    }
+    // TRON destination must be a valid base58 T… address — never an EVM 0x or a
+    // Solana pubkey. The source still signs on its own chain (EVM/Solana/TRON).
+    if (isTronDestination(toChain, toChainId) && !isValidTronAddress(toAddress)) {
+      setError("TRON destination address is missing or invalid.");
       return;
     }
 
@@ -901,6 +1012,22 @@ export function BridgePage({
         setApprovalState(
           allowance != null && allowance >= amountBase ? "notNeeded" : "needed",
         );
+      } else if (
+        nextQuote.executable &&
+        nextQuote.txFormat === "tron" &&
+        !fromToken.isNative &&
+        nextQuote.approvalAddress
+      ) {
+        // TRON-source TRC-20: check the live TRC-20 allowance (never EVM code).
+        setApprovalState("checking");
+        const allowance = await readTrc20Allowance({
+          owner: fromAddress,
+          contractAddress: fromToken.address,
+          spender: nextQuote.approvalAddress,
+        });
+        setApprovalState(
+          allowance != null && allowance >= amountBase ? "notNeeded" : "needed",
+        );
       } else {
         setApprovalState("notNeeded");
       }
@@ -917,6 +1044,17 @@ export function BridgePage({
     setApprovalState("approving");
     try {
       const amountBase = decimalToBaseUnits(amount, fromToken.decimals);
+      // TRON-source TRC-20 approval goes through the TRON adapter (build → sign →
+      // broadcast → confirm); never the EVM approve calldata path.
+      if (quote.txFormat === "tron") {
+        await walletService.executeSelectedTronBridgeApproval({
+          contractAddress: fromToken.address,
+          spender: quote.approvalAddress,
+          amountBaseUnits: amountBase.toString(),
+        });
+        setApprovalState("approved");
+        return;
+      }
       const data = encodeErc20Approve(
         quote.approvalAddress,
         amountBase.toString(),
@@ -950,6 +1088,11 @@ export function BridgePage({
     if (!toAddress) {
       setSubmitStatus("error");
       setError("This account has no address for the destination chain.");
+      return null;
+    }
+    if (isTronDestination(toChain, toChainId) && !isValidTronAddress(toAddress)) {
+      setSubmitStatus("error");
+      setError("TRON destination address is missing or invalid.");
       return null;
     }
 
@@ -1032,6 +1175,27 @@ export function BridgePage({
         ),
         historyFromAddress: solResult.address,
         historyToAddress: solResult.address,
+      };
+    }
+    if (active.txFormat === "tron") {
+      // TRON-source execution gate: format tron + an extracted raw_data_hex + a
+      // TRON signer + the LI.FI TRON source chain.
+      if (
+        !active.tronTransactionData ||
+        fromChainId !== LIFI_TRON_CHAIN_ID ||
+        !tronAddress
+      ) {
+        throw new Error("Route found, execution coming soon in Simpl.");
+      }
+      const tronResult = await walletService.executeSelectedTronBridgeTransaction({
+        rawDataHex: active.tronTransactionData,
+        quoteFromAddress: active.tronFromAddress,
+      });
+      return {
+        resultHash: tronResult.txId,
+        resultExplorerUrl: tronResult.explorerUrl,
+        historyFromAddress: tronResult.address,
+        historyToAddress: addressForChain(toChain) ?? tronResult.address,
       };
     }
     // EVM source.
@@ -1397,6 +1561,31 @@ export function BridgePage({
       } catch {
         // Allowance read failed — fall through; the send will surface a precise
         // allowance error if it's genuinely missing.
+      }
+    }
+
+    // TRON ERC-20-equivalent: re-validate the TRC-20 allowance against the
+    // refreshed spender/amount before signing. Never reuse EVM allowance code.
+    if (
+      prepared.txFormat === "tron" &&
+      !fromToken.isNative &&
+      prepared.approvalAddress
+    ) {
+      try {
+        const amountBase = decimalToBaseUnits(amount, fromToken.decimals);
+        const allowance = await readTrc20Allowance({
+          owner: tronAddress ?? "",
+          contractAddress: fromToken.address,
+          spender: prepared.approvalAddress,
+        });
+        if (allowance == null || allowance < amountBase) {
+          setApprovalState("needed");
+          setSubmitStatus("idle");
+          setError("TRC-20 approval required.");
+          return;
+        }
+      } catch {
+        // Allowance read failed — fall through; execution surfaces a precise error.
       }
     }
 

@@ -68,3 +68,55 @@ export async function buildTrc20TransferTransaction(
     throw normalizeTronError(error, { isToken: true });
   }
 }
+
+export type BuildTrc20ApproveInput = {
+  contractAddress: string;
+  fromAddress: string;
+  spender: string;
+  // Allowance to grant, in token base units (already scaled by decimals).
+  amount: bigint | string;
+  feeLimit?: number;
+};
+
+// Build an unsigned TRC-20 `approve(address spender, uint256 amount)` transaction.
+// Used by the bridge flow when a TRON-source route requires the bridge contract
+// to be approved to spend the source token first. Returns the unsigned tx for the
+// signer to sign + broadcast; this function never touches the private key.
+export async function buildTrc20ApproveTransaction(
+  input: BuildTrc20ApproveInput,
+): Promise<Types.Transaction> {
+  if (!isValidTronAddress(input.spender)) {
+    throw tronError("INVALID_TRON_ADDRESS", "Invalid approval address.");
+  }
+
+  const amount = BigInt(input.amount);
+  if (amount < 0n) {
+    throw tronError("INVALID_AMOUNT", "Approval amount must not be negative.");
+  }
+
+  try {
+    const tronWeb = getTronWeb();
+
+    const { transaction } = await tronWeb.transactionBuilder.triggerSmartContract(
+      input.contractAddress,
+      "approve(address,uint256)",
+      {
+        feeLimit: input.feeLimit ?? TRC20_DEFAULT_FEE_LIMIT_SUN,
+        callValue: 0,
+      },
+      [
+        { type: "address", value: input.spender },
+        { type: "uint256", value: amount.toString() },
+      ],
+      input.fromAddress,
+    );
+
+    if (!transaction) {
+      throw tronError("TRON_BUILD_TX_FAILED", "Could not build the approval.");
+    }
+
+    return transaction;
+  } catch (error) {
+    throw normalizeTronError(error, { isToken: true });
+  }
+}

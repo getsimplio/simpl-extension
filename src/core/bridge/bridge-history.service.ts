@@ -18,10 +18,15 @@ import {
   transactionHistoryService,
   type TransactionHistoryItem,
 } from "../transactions/transaction-history.service";
-import { getBridgeStatus, LIFI_SOLANA_CHAIN_ID } from "./lifi-bridge.service";
+import {
+  getBridgeStatus,
+  LIFI_SOLANA_CHAIN_ID,
+  LIFI_TRON_CHAIN_ID,
+} from "./lifi-bridge.service";
 import { getSolanaTransactionStatus } from "../../chains/solana/solana.transactions";
 import { SOLANA_MAINNET } from "../../chains/solana/solana.config";
 import { isBridgeDebugEnabled } from "../../chains/solana/solana.bridge";
+import { getTronActivityStatus } from "../../chains/tron/tron.adapter";
 
 // Dev-only, prefixed [bridge:history], behind the simpl.debug.bridge flag.
 // Safe metadata only — tx hash (public), statuses, chain + provider names.
@@ -36,6 +41,20 @@ function isSolanaSourceBridge(item: TransactionHistoryItem): boolean {
     item.bridgeFromChainId === LIFI_SOLANA_CHAIN_ID ||
     item.chainId === LIFI_SOLANA_CHAIN_ID
   );
+}
+
+function isTronSourceBridge(item: TransactionHistoryItem): boolean {
+  return (
+    item.bridgeFromChainId === LIFI_TRON_CHAIN_ID ||
+    item.chainId === LIFI_TRON_CHAIN_ID
+  );
+}
+
+// Non-EVM (Solana/TRON) sources land asynchronously and we poll the source tx
+// directly — so the cross-chain provider status should only be polled AFTER the
+// source tx confirms (EVM sources are polled immediately by tx hash).
+function isNonEvmSourceBridge(item: TransactionHistoryItem): boolean {
+  return isSolanaSourceBridge(item) || isTronSourceBridge(item);
 }
 
 // True for bridge rows that aren't already in a terminal state.
@@ -65,24 +84,32 @@ export async function reconcilePendingBridgeTransactions(
 
   const results = await Promise.allSettled(
     pending.map(async (item) => {
-      // 1) Source-chain tx status (Solana → resilient HTTP polling).
+      // 1) Source-chain tx status. Solana → resilient HTTP getSignatureStatus
+      // polling; TRON → TronGrid getTransactionInfo (both never fabricate a
+      // "failed" on a transient RPC error — they report "submitted"/"pending").
       let sourceTxStatus: "submitted" | "confirmed" | "failed" =
         item.bridgeSourceTxStatus ?? "submitted";
-      if (
-        sourceTxStatus !== "confirmed" &&
-        sourceTxStatus !== "failed" &&
-        isSolanaSourceBridge(item)
-      ) {
-        sourceTxStatus = await getSolanaTransactionStatus(
-          SOLANA_MAINNET,
-          item.hash,
-        );
-        historyDebugLog("source-status", {
-          hash: item.hash,
-          chain: item.bridgeFromChainName ?? item.chainName,
-          old: item.bridgeSourceTxStatus ?? "submitted",
-          new: sourceTxStatus,
-        });
+      if (sourceTxStatus !== "confirmed" && sourceTxStatus !== "failed") {
+        if (isSolanaSourceBridge(item)) {
+          sourceTxStatus = await getSolanaTransactionStatus(
+            SOLANA_MAINNET,
+            item.hash,
+          );
+          historyDebugLog("source-status", {
+            hash: item.hash,
+            chain: item.bridgeFromChainName ?? item.chainName,
+            old: item.bridgeSourceTxStatus ?? "submitted",
+            new: sourceTxStatus,
+          });
+        } else if (isTronSourceBridge(item)) {
+          sourceTxStatus = await getTronActivityStatus(item.hash);
+          historyDebugLog("source-status", {
+            hash: item.hash,
+            chain: item.bridgeFromChainName ?? item.chainName,
+            old: item.bridgeSourceTxStatus ?? "submitted",
+            new: sourceTxStatus,
+          });
+        }
       }
 
       // 2) Cross-chain provider status. For Solana sources we wait until the
@@ -93,7 +120,7 @@ export async function reconcilePendingBridgeTransactions(
       const shouldPollProvider =
         bridgeStatus !== "completed" &&
         bridgeStatus !== "failed" &&
-        (!isSolanaSourceBridge(item) || sourceTxStatus === "confirmed");
+        (!isNonEvmSourceBridge(item) || sourceTxStatus === "confirmed");
       if (shouldPollProvider) {
         try {
           const res = await getBridgeStatus({

@@ -93,8 +93,15 @@ import {
 } from "../../chains/tron/tron.wc";
 import { tronError } from "../../chains/tron/tron.errors";
 import { sunToTrx } from "../../chains/tron/tron.format";
-import { getTronAddressExplorerUrl } from "../../chains/tron/tron.config";
+import {
+  getTronAddressExplorerUrl,
+  getTronTransactionExplorerUrl,
+} from "../../chains/tron/tron.config";
 import { getTrxBalance } from "../../chains/tron/tron.balance";
+import {
+  executeTronBridgeTransaction,
+  executeTronBridgeApproval,
+} from "../../chains/tron/tron.bridge";
 import {
   getTronActivityStatus,
   getTronPortfolio,
@@ -2293,6 +2300,103 @@ export class WalletService {
     });
 
     return { signature, address: material.address, wsolAta };
+  }
+
+  // Sign + broadcast a cross-chain (LI.FI) TRON-source transaction. The provider
+  // returns the TRON tx body as raw_data_hex; the TRON adapter signs the txID
+  // locally and broadcasts via /wallet/broadcasthex — NEVER through the EVM
+  // signer. Like the Solana bridge path, the active network need not be TRON.
+  // Callers MUST only invoke this for a route the gateway marked executable with
+  // a "tron" transaction format. The private key is derived here and never leaves
+  // the wallet service. A short native-TRX pre-check surfaces the fee shortfall
+  // with a precise message before broadcasting.
+  async executeSelectedTronBridgeTransaction(input: {
+    rawDataHex: string;
+    quoteFromAddress?: string | null;
+    password?: string;
+  }): Promise<{ txId: string; address: string; explorerUrl: string | null }> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+
+    if (selectedAccount.type === "watch") {
+      throw new Error("Watch-only wallet cannot sign transactions.");
+    }
+
+    const payload = await this.getDecryptedPayloadForSensitiveOperation(
+      input.password,
+    );
+    const { address, privateKey } = this.deriveTronMaterialForAccount(
+      selectedAccount,
+      payload,
+    );
+
+    // TRON contract calls (bridge / TRC-20) are paid in TRX for energy/bandwidth.
+    // Block early with a clear, coded message when the account has no TRX at all,
+    // rather than letting the bridge tx land and fail on-chain for fees.
+    const trxBalance = await getTrxBalance(address);
+    if (trxBalance <= 0n) {
+      throw tronError(
+        "INSUFFICIENT_TRX_BALANCE",
+        "Not enough TRX for network fees.",
+      );
+    }
+
+    const { txId } = await executeTronBridgeTransaction({
+      rawDataHex: input.rawDataHex,
+      privateKey,
+      expectedFromAddress: address,
+      quoteFromAddress: input.quoteFromAddress ?? null,
+    });
+
+    return {
+      txId,
+      address,
+      explorerUrl: getTronTransactionExplorerUrl(txId),
+    };
+  }
+
+  // Build → sign → broadcast a TRC-20 approve for a TRON-source bridge whose
+  // provider requires the bridge contract to be approved to spend the source
+  // token first. Best-effort waits for the approve tx to confirm so a subsequent
+  // bridge quote refresh sees the allowance. Reuses the SAME TRON key derivation.
+  async executeSelectedTronBridgeApproval(input: {
+    contractAddress: string;
+    spender: string;
+    amountBaseUnits: string;
+    password?: string;
+  }): Promise<{ txId: string; address: string }> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+
+    if (selectedAccount.type === "watch") {
+      throw new Error("Watch-only wallet cannot sign transactions.");
+    }
+
+    const payload = await this.getDecryptedPayloadForSensitiveOperation(
+      input.password,
+    );
+    const { address, privateKey } = this.deriveTronMaterialForAccount(
+      selectedAccount,
+      payload,
+    );
+
+    const { txId } = await executeTronBridgeApproval({
+      contractAddress: input.contractAddress,
+      spender: input.spender,
+      amountBaseUnits: BigInt(input.amountBaseUnits),
+      privateKey,
+      fromAddress: address,
+    });
+
+    // Best-effort confirmation wait — never blocks the flow on a timeout; the UI
+    // re-checks the live allowance before signing the bridge tx.
+    try {
+      await this.waitForTronTransaction(txId, 60_000);
+    } catch {
+      // Confirmation is best-effort; allowance is re-validated before bridging.
+    }
+
+    return { txId, address };
   }
 
   private async persistSolanaAddress(

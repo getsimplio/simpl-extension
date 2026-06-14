@@ -25,6 +25,10 @@ import {
   logSolanaInvalidTx,
   type SolanaTxShapeSummary,
 } from "../../chains/solana/solana.bridge";
+import {
+  extractTronTransactionRequest,
+  logTronInvalidTx,
+} from "../../chains/tron/tron.bridge";
 
 // Resolve the gateway base URL exactly like the market-data client: prefer the
 // explicit Simpl API var, fall back to the swap-proxy var, then production.
@@ -123,6 +127,9 @@ function summarizeRawQuoteShape(raw: unknown): Record<string, unknown> {
       txReq && typeof txReq.format === "string" ? txReq.format : null,
     transactionRequestFieldTypes: txReq
       ? {
+          to: shapeOf(txReq.to),
+          from: shapeOf(txReq.from),
+          chainId: shapeOf(txReq.chainId),
           data: shapeOf(txReq.data),
           serializedTransaction: shapeOf(txReq.serializedTransaction),
           transaction: shapeOf(txReq.transaction),
@@ -130,6 +137,9 @@ function summarizeRawQuoteShape(raw: unknown): Record<string, unknown> {
           rawTransaction: shapeOf(txReq.rawTransaction),
           swapTransaction: shapeOf(txReq.swapTransaction),
           instructions: shapeOf(txReq.instructions),
+          // TRON (TVM): raw_data_hex / raw_data are where TRON tx bodies appear.
+          raw_data_hex: shapeOf(txReq.raw_data_hex),
+          raw_data: shapeOf(txReq.raw_data),
         }
       : null,
     transactionRequestStringLengths: txReq
@@ -140,8 +150,18 @@ function summarizeRawQuoteShape(raw: unknown): Record<string, unknown> {
           tx: strLen(txReq.tx),
           rawTransaction: strLen(txReq.rawTransaction),
           swapTransaction: strLen(txReq.swapTransaction),
+          raw_data_hex: strLen(txReq.raw_data_hex),
         }
       : null,
+    // First hex chars of the EVM-looking `data` field — for TRON routes this is
+    // the protobuf tag (0a…) that confirms it's a TRON raw_data, not EVM calldata.
+    transactionRequestDataFirstBytes:
+      typeof txReq?.data === "string"
+        ? txReq.data.replace(/^0x/u, "").slice(0, 4)
+        : null,
+    sourceChainType: bridgeChainType(
+      action && typeof action.fromChainId === "number" ? action.fromChainId : 0,
+    ),
     actionType: shapeOf(r.action),
     estimateKeys: keyNames(r.estimate),
     // ── Destination amount / token diagnostics (safe; values are not secrets) ──
@@ -210,20 +230,27 @@ if (isBridgeDebugEnabled()) {
 }
 
 // Classify an address by type WITHOUT exposing the address itself — so callers
-// can log "fromAddress type" safely.
+// can log "fromAddress type" safely. TRON is checked BEFORE Solana: a TRON base58
+// address (T… + 33 base58 chars) is also valid base58 of Solana's length, so the
+// order matters.
 export function classifyAddressType(
   address: string | null | undefined,
-): "evm" | "solana" | "none" | "unknown" {
+): "evm" | "solana" | "tron" | "none" | "unknown" {
   if (!address) return "none";
   if (/^0x[0-9a-fA-F]{40}$/u.test(address)) return "evm";
+  if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/u.test(address)) return "tron";
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/u.test(address)) return "solana";
   return "unknown";
 }
 
-// EVM vs SVM family for the supported production chain set (Solana is the only
-// non-EVM source/destination the bridge offers; everything else is EVM).
-export function bridgeChainType(chainId: number): "EVM" | "SVM" {
-  return chainId === LIFI_SOLANA_CHAIN_ID ? "SVM" : "EVM";
+// VM family for the supported production chain set. Solana (SVM) and TRON (TVM)
+// are the non-EVM source/destinations the bridge offers; everything else is EVM.
+// UTXO / other VMs are not offered, so they fall through to "EVM" and are gated
+// out of execution by isSignableSourceChain instead.
+export function bridgeChainType(chainId: number): "EVM" | "SVM" | "TVM" {
+  if (chainId === LIFI_SOLANA_CHAIN_ID) return "SVM";
+  if (chainId === LIFI_TRON_CHAIN_ID) return "TVM";
+  return "EVM";
 }
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -459,8 +486,9 @@ export type BridgeQuote = {
   // Present only for executable EVM source routes.
   transactionRequest: BridgeTransactionRequest | null;
   // Transaction format the route's source step needs: "evm" (EVM tx request),
-  // "solana" (serialized SVM transaction), or "other" (unsupported VM).
-  txFormat: "evm" | "solana" | "other";
+  // "solana" (serialized SVM transaction), "tron" (TVM raw_data_hex), or "other"
+  // (unsupported VM).
+  txFormat: "evm" | "solana" | "tron" | "other";
   // Canonical, standard-base64 serialized Solana transaction — present ONLY when
   // txFormat is "solana" AND a provider payload was extracted and successfully
   // deserialized (the single source of truth for Solana executability). Never a
@@ -472,6 +500,22 @@ export type BridgeQuote = {
   solanaTransactionFormat: "versioned" | "legacy" | null;
   // Decoded byte length of the canonical serialized Solana tx.
   solanaTransactionByteLength: number | null;
+  // TRON (TVM) source payload — present ONLY when txFormat is "tron" AND a TRON
+  // raw_data_hex was extracted from the provider quote (the single source of truth
+  // for TRON executability). The hex has NO 0x prefix. Never a raw provider blob.
+  tronTransactionData: string | null;
+  // Provider field the TRON tx was extracted from (diagnostics / invariant).
+  tronTransactionSourceField: string | null;
+  // How the provider represented the TRON tx (rawDataHex | tronTxObject | serialized).
+  tronTransactionShape: string | null;
+  // The base58 owner (`from`) the route was built for, when the provider exposed
+  // it — used as a final signer-match guard before broadcast.
+  tronFromAddress: string | null;
+  // feeLimit (sun) the provider set, when available (informational).
+  tronFeeLimit: string | null;
+  // True when a TRON-SOURCE route's token requires a TRC-20 approval first (the
+  // provider returned an approvalAddress). The UI checks the live allowance.
+  tronNeedsApproval: boolean;
   // True when the wallet can sign + send this route locally right now.
   executable: boolean;
   // Coarse execution readiness for the UI / diagnostics:
@@ -482,12 +526,17 @@ export type BridgeQuote = {
   // Short, human-readable, display-safe reason behind executionStatus.
   executionReason: string;
   // Source / destination chain family, for branching and diagnostics.
-  sourceChainType: "EVM" | "SVM";
-  destinationChainType: "EVM" | "SVM";
+  sourceChainType: "EVM" | "SVM" | "TVM";
+  destinationChainType: "EVM" | "SVM" | "TVM";
 };
 
 // LI.FI's Solana (SVM) chain id. Used to detect Solana-source routes.
 export const LIFI_SOLANA_CHAIN_ID = 1151111081099710;
+
+// LI.FI's TRON (TVM) chain id. Identical to the wallet's canonical TRON routing
+// key (TRON_MAINNET_CHAIN_ID, 0x2b6653dc) — LI.FI returns Tron under this id with
+// chainType "TVM". Used to detect TRON-source / TRON-destination routes.
+export const LIFI_TRON_CHAIN_ID = 728126428;
 
 type RawGasCost = {
   amount?: string;
@@ -514,6 +563,11 @@ type RawTxRequest = {
   // Solana payload: the gateway returns the serialized SVM transaction here and
   // may also mirror it into `data`. Prefer this field for Solana execution.
   serializedTransaction?: string | null;
+  // TRON payload: LI.FI returns the TRON tx body as hex-encoded raw_data in
+  // `data` (an EVM-looking wrapper with a base58 `to`); some providers expose it
+  // as raw_data_hex / a nested transaction object. Probed by the TRON extractor.
+  raw_data_hex?: string | null;
+  from?: string;
 };
 
 type RawBridgeQuote = {
@@ -655,12 +709,20 @@ function normalizeTxRequest(
 function detectTxFormat(
   raw: RawTxRequest | null | undefined,
   fromChainId: number,
-): "evm" | "solana" | "other" {
+): "evm" | "solana" | "tron" | "other" {
   const fmt =
     raw && typeof raw.format === "string" ? raw.format.toLowerCase() : "";
+  const txChainId = raw && typeof raw.chainId === "number" ? raw.chainId : null;
   if (fmt === "solana" || fmt === "svm") return "solana";
+  if (fmt === "tron" || fmt === "tvm") return "tron";
+  // CRITICAL: a TRON route's transactionRequest LOOKS EVM (it has `to` + `data`)
+  // and may even carry a chainId, so the TVM check must come BEFORE the EVM shape
+  // inference. The source chain OR the tx's own chainId being TRON is decisive.
+  if (txChainId === LIFI_TRON_CHAIN_ID || fromChainId === LIFI_TRON_CHAIN_ID) {
+    return "tron";
+  }
   if (fmt === "evm") return "evm";
-  if (fmt) return "other"; // explicit non-evm / tron / etc.
+  if (fmt) return "other"; // explicit other non-evm VM
   // No explicit hint — the SOURCE chain is the authority for the VM family, so a
   // Solana-source route is always "solana" (extraction decides if it's
   // executable). Only then fall back to inferring EVM from the tx shape.
@@ -784,15 +846,25 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
   // estimate.toAmount(/Min), fall back to root toAmount(/Min). CRITICAL: for a
   // Solana destination, native SOL is 9 decimals — never the EVM 18 default,
   // which truncated the received SOL amount to "0".
+  // …and for a TRON destination, native TRX is 6 decimals — never the EVM 18
+  // default. When the provider omits token info we fall back per-VM, never to 18
+  // for a non-EVM destination (which would mis-scale the received amount).
   const toTokenInfo = action.toToken ?? raw.toToken ?? null;
   const toTokenDecimals =
     typeof toTokenInfo?.decimals === "number"
       ? toTokenInfo.decimals
       : destinationChainType === "SVM"
         ? 9
-        : 18;
+        : destinationChainType === "TVM"
+          ? 6
+          : 18;
   const toTokenSymbol =
-    toTokenInfo?.symbol ?? (destinationChainType === "SVM" ? "SOL" : "");
+    toTokenInfo?.symbol ??
+    (destinationChainType === "SVM"
+      ? "SOL"
+      : destinationChainType === "TVM"
+        ? "TRX"
+        : "");
   // null when the provider didn't return an amount → surfaced as "—" (NOT "0").
   const toAmountStr =
     toBaseUnitString(estimate.toAmount) ?? toBaseUnitString(raw.toAmount);
@@ -839,6 +911,37 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     }
   }
 
+  // TRON source: extract the provider's raw_data_hex (LI.FI returns it in the
+  // EVM-looking `data` field). The route is executable only when a TRON tx body
+  // actually surfaces — otherwise it degrades to a quote preview. Never a raw
+  // provider payload; the executor signs THIS exact hex.
+  let tronTransactionData: string | null = null;
+  let tronTransactionSourceField: string | null = null;
+  let tronTransactionShape: string | null = null;
+  let tronFromAddress: string | null = null;
+  let tronFeeLimit: string | null = null;
+  // True when the provider returned a TRON route that needs a separate build step
+  // (unsigned-build object) rather than a ready raw_data_hex.
+  let tronRequiresBuild = false;
+  if (txFormat === "tron") {
+    const extraction = extractTronTransactionRequest(raw);
+    if (extraction.ok) {
+      tronTransactionData = extraction.rawDataHex;
+      tronTransactionSourceField = extraction.sourceField;
+      tronTransactionShape = extraction.txShape;
+      tronFromAddress = extraction.fromAddress;
+      tronFeeLimit = extraction.feeLimit;
+    } else {
+      tronRequiresBuild = extraction.requiresBuild;
+      logTronInvalidTx(extraction.shapeSummary, "quote");
+    }
+  }
+  // TRON-source TRC-20 routes expose an approvalAddress when the bridge contract
+  // must be approved to spend the source token first. EVM allowance code is never
+  // reused for TRON — the UI checks the live TRC-20 allowance instead.
+  const tronNeedsApproval =
+    txFormat === "tron" && typeof estimate.approvalAddress === "string";
+
   // A route is executable only when the gateway didn't flag it quote-only AND:
   //   • EVM:    an EVM tx request came back and the source chain is signable, OR
   //   • Solana: the source is the LI.FI Solana chain, the format is "solana",
@@ -855,7 +958,18 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     fromChainId === LIFI_SOLANA_CHAIN_ID &&
     txFormat === "solana" &&
     solanaTransactionData !== null;
-  const executable = evmExecutable || solanaExecutable;
+  // TRON: the source is the LI.FI TRON chain, the format is "tron", a raw_data_hex
+  // was extracted, AND the route's `from` (when the provider exposed it) is a
+  // base58 T… address. The signer-match is enforced again at execution time.
+  const tronFromIsBase58 =
+    tronFromAddress == null || /^T[1-9A-HJ-NP-Za-km-z]{33}$/u.test(tronFromAddress);
+  const tronExecutable =
+    !flaggedQuoteOnly &&
+    fromChainId === LIFI_TRON_CHAIN_ID &&
+    txFormat === "tron" &&
+    tronTransactionData !== null &&
+    tronFromIsBase58;
+  const executable = evmExecutable || solanaExecutable || tronExecutable;
 
   // Derive a coarse, display-safe execution status + reason. "unsupported" is
   // reserved for a tx format the wallet can never sign (e.g. TRON / unknown VM);
@@ -867,10 +981,21 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     executionReason =
       txFormat === "solana"
         ? "Executable Solana transaction."
-        : "Executable EVM transaction.";
+        : txFormat === "tron"
+          ? "Executable TRON transaction."
+          : "Executable EVM transaction.";
   } else if (txFormat === "other") {
     executionStatus = "unsupported";
     executionReason = "This route's transaction format isn't supported yet.";
+  } else if (txFormat === "tron" && tronTransactionData === null) {
+    if (tronRequiresBuild) {
+      executionStatus = "unsupported";
+      executionReason =
+        "Provider route requires TRON transaction build support not implemented yet.";
+    } else {
+      executionStatus = "quoteOnly";
+      executionReason = "TRON route is quote only.";
+    }
   } else if (txFormat === "solana" && solanaTransactionData === null) {
     if (solanaRequiresBuild) {
       executionStatus = "unsupported";
@@ -924,6 +1049,12 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     solanaTransactionSourceField,
     solanaTransactionFormat,
     solanaTransactionByteLength,
+    tronTransactionData,
+    tronTransactionSourceField,
+    tronTransactionShape,
+    tronFromAddress,
+    tronFeeLimit,
+    tronNeedsApproval,
     executable,
     executionStatus,
     executionReason,
