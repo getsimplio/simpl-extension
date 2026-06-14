@@ -200,6 +200,47 @@ function getStatusLabel(status: string): string {
   return "Pending";
 }
 
+// Bridge-aware overall badge: source-confirmed-but-not-completed reads as
+// "In progress" rather than a bare "Pending". Maps to the txd-status CSS classes.
+function getBridgeBadge(item: TransactionHistoryItem): {
+  label: string;
+  variant: "submitted" | "confirmed" | "failed";
+} {
+  if (
+    item.status === "failed" ||
+    item.bridgeStatus === "failed" ||
+    item.bridgeSourceTxStatus === "failed"
+  ) {
+    return { label: "Failed", variant: "failed" };
+  }
+  if (item.bridgeStatus === "completed" || item.status === "confirmed") {
+    return { label: "Completed", variant: "confirmed" };
+  }
+  if (item.bridgeSourceTxStatus === "confirmed") {
+    return { label: "In progress", variant: "submitted" };
+  }
+  return { label: "Pending", variant: "submitted" };
+}
+
+// Human labels for the per-leg detail rows.
+function sourceTxLabel(item: TransactionHistoryItem): string {
+  if (item.bridgeSourceTxStatus === "confirmed") return "Confirmed";
+  if (item.bridgeSourceTxStatus === "failed") return "Failed";
+  if (item.status === "failed") return "Failed";
+  return "Pending";
+}
+
+function bridgeLegLabel(item: TransactionHistoryItem): string {
+  if (item.bridgeStatus === "completed" || item.status === "confirmed") {
+    return "Completed";
+  }
+  if (item.bridgeStatus === "failed" || item.status === "failed") {
+    return "Failed";
+  }
+  if (item.bridgeSourceTxStatus === "confirmed") return "In progress";
+  return item.bridgeStatus === "unknown" ? "Unknown" : "In progress";
+}
+
 // ── Sub-components ───────────────────────────────────────────────────
 
 function TxIconLarge({ variant }: { variant: IconVariant }) {
@@ -317,7 +358,18 @@ export function TransactionDetailsPage({
         <div className="txd-hero">
           <TxIconLarge variant={variant} />
           <div className="txd-hero-title">{getPageTitle(item)}</div>
-          <StatusBadge status={item.status} />
+          {isBridge ? (
+            (() => {
+              const badge = getBridgeBadge(item);
+              return (
+                <span className={`txd-status txd-status--${badge.variant}`}>
+                  {badge.label}
+                </span>
+              );
+            })()
+          ) : (
+            <StatusBadge status={item.status} />
+          )}
         </div>
 
         {/* Details card */}
@@ -368,6 +420,16 @@ export function TransactionDetailsPage({
                   <span className="txd-val">{item.bridgeFee}</span>
                 </div>
               ) : null}
+
+              <div className="txd-row">
+                <span className="txd-key">Source tx</span>
+                <span className="txd-val">{sourceTxLabel(item)}</span>
+              </div>
+
+              <div className="txd-row">
+                <span className="txd-key">Bridge</span>
+                <span className="txd-val">{bridgeLegLabel(item)}</span>
+              </div>
             </>
           ) : isSwap ? (
             <>

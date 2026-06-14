@@ -24,6 +24,7 @@ import {
   getBridgeChains,
   getBridgeTokens,
   getBridgeQuote,
+  prepareBridgeTransaction,
   getBridgeStatus,
   isSignableSourceChain,
   readErc20Allowance,
@@ -37,8 +38,16 @@ import {
 } from "../../core/bridge/lifi-bridge.service";
 import {
   SOLANA_MAINNET,
+  SOL_FEE_RESERVE_LAMPORTS,
   getSolanaTransactionExplorerUrl,
 } from "../../chains/solana/solana.config";
+import { SolanaError } from "../../chains/solana/solana.errors";
+import {
+  logSolanaInvariantAfterGating,
+  getLastSolanaInstructionFailure,
+  isBridgeDebugEnabled,
+  detectWsolSetupNeed,
+} from "../../chains/solana/solana.bridge";
 import { getSolBalance } from "../../chains/solana/solana.balance";
 import { getSplTokenBalanceByMint } from "../../chains/solana/solana.tokens";
 import { SOL_WSOL_MINT } from "../../core/swaps/solana-swap.service";
@@ -112,11 +121,26 @@ type ApprovalState =
   | "approving"
   | "approved"
   | "notNeeded";
-type SubmitStatus = "idle" | "signing" | "submitting" | "error";
+type SubmitStatus =
+  | "idle"
+  | "preparingAccount"
+  | "preparing"
+  | "signing"
+  | "submitting"
+  | "error";
 
 const SLIPPAGE_PRESETS = [10, 50, 100] as const;
 const DEFAULT_FROM_CHAIN = 8453; // Base
 const DEFAULT_TO_CHAIN = 56; // BNB Chain
+
+// MAX reserve for a native-SOL source: must cover the bridge tx fee AND a
+// possible wSOL setup tx (idempotent ATA create ≈ 0.00204 SOL rent + tx fee) so
+// a MAX-entered amount still leaves enough SOL to prepare + execute the route.
+// ~0.0035 SOL — bigger than the plain send reserve (SOL_FEE_RESERVE_LAMPORTS),
+// deliberately, because a native-SOL bridge may need wSOL wrapping.
+const SOLANA_NATIVE_MAX_RESERVE_LAMPORTS = 3_500_000n;
+// Lamports reserve used by the wSOL setup balance gate (setup tx fee + buffer).
+const WSOL_SETUP_FEE_RESERVE_LAMPORTS = 10_000n;
 
 // ── Amount helpers ──────────────────────────────────────────────────────────
 
@@ -183,6 +207,68 @@ function friendlyError(error: unknown): string {
   if (error instanceof NoBridgeRouteError) {
     return "No route found for this pair. Try another token, chain, or amount.";
   }
+  // Coded Solana execution errors carry curated, display-safe messages (they
+  // never embed the raw cause / key material). Surface a precise reason for each
+  // so a Solana-source bridge failure is never collapsed into the generic line.
+  if (error instanceof SolanaError) {
+    switch (error.code) {
+      case "BLOCKHASH_EXPIRED":
+        return "This route expired before signing. I refreshed it — try again.";
+      case "PROVIDER_STALE_TX":
+        return "This route keeps expiring before it can be signed. Please try again in a moment.";
+      case "WRONG_SIGNER":
+        return "This route needs a different Solana signer than your active account.";
+      // ── Route-level (the tx is valid; the route failed on-chain) ──
+      case "SOLANA_ROUTE_SIMULATION_FAILED":
+        return "The bridge route failed Solana simulation. Try a fresh quote, another amount, or another route.";
+      case "SOLANA_PROGRAM_ERROR":
+      case "PROGRAM_ERROR":
+        return "The Mayan bridge program rejected this route during simulation.";
+      case "SOLANA_ACCOUNT_ERROR":
+        return "The bridge route references an invalid Solana account.";
+      case "SOLANA_TOKEN_ACCOUNT_ERROR":
+        return "The bridge route references an invalid Solana token account.";
+      case "SOLANA_BRIDGE_PROGRAM_ACCOUNT_ERROR":
+        return "The Mayan bridge program rejected one of the route accounts.";
+      // ── wSOL setup tx (native SOL → wSOL preparation) ──
+      case "WSOL_SETUP_SIMULATION_FAILED":
+        return "Could not prepare the wrapped SOL account.";
+      case "WSOL_SETUP_SEND_FAILED":
+        return "Could not send the wrapped SOL setup transaction.";
+      case "WSOL_SETUP_CONFIRM_FAILED":
+        return "Wrapped SOL setup was submitted but confirmation timed out. Check the transaction before trying again.";
+      case "WSOL_SETUP_INSUFFICIENT_SOL":
+        return "Not enough SOL to prepare the wrapped SOL account and pay network fees.";
+      case "WSOL_SETUP_BLOCKHASH_EXPIRED":
+        return "The wrapped SOL setup expired before it landed. Try again.";
+      case "WSOL_SETUP_RPC_UNAVAILABLE":
+        return "Solana RPC is temporarily unavailable. Please try again.";
+      case "ALT_LOOKUP_FAILED":
+        return "An address lookup table required by this route is unavailable.";
+      case "SIMULATION_FAILED":
+        return "The bridge route failed Solana simulation. Try a fresh quote, another amount, or another route.";
+      // ── Genuinely unsupported tx format (decode/deserialize failed) ──
+      case "UNSUPPORTED_SOLANA_TX_FORMAT":
+      case "INVALID_ROUTE_TX":
+        return "The bridge provider returned a Solana transaction format Simpl cannot execute yet.";
+      case "INSUFFICIENT_SOL_FOR_FEE":
+        return "Not enough SOL left for network fees. Lower the amount or add SOL.";
+      case "INSUFFICIENT_BALANCE":
+        return "Insufficient SOL for this amount plus the network fee.";
+      case "BUILD_TX_FAILED":
+        return "The bridge returned a transaction we couldn't read. Get a fresh quote and try again.";
+      case "SIGNING_FAILED":
+        return "Could not sign the bridge transaction.";
+      case "BROADCAST_FAILED":
+        return "Solana rejected the transaction on broadcast. Get a fresh quote and try again.";
+      case "SOLANA_NETWORK_ERROR":
+        return "Solana RPC is temporarily unavailable. Please try again.";
+      case "WATCH_ONLY":
+        return "Watch-only accounts cannot swap.";
+      default:
+        return error.message;
+    }
+  }
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : "";
   const lower = message.toLowerCase();
@@ -244,8 +330,34 @@ function friendlyError(error: unknown): string {
   if (lower.includes("no route") || lower.includes("not found")) {
     return "No route found for this pair. Try another token, chain, or amount.";
   }
+  if (lower.includes("different chain") || lower.includes("wrong chain")) {
+    return "This route is for a different network. Get a fresh quote and try again.";
+  }
   // Unknown provider failure — generic only, never the raw message.
   return "Could not prepare this route. Try again.";
+}
+
+// friendlyError + an OPT-IN dev detail for Solana simulation/account/program
+// failures: "(dev: instruction #N failed with <reason> in <program>.)". Only
+// appended when bridge debug is enabled — production users see the clean message.
+function describeBridgeError(error: unknown): string {
+  const base = friendlyError(error);
+  if (!isBridgeDebugEnabled() || !(error instanceof SolanaError)) return base;
+  const routeCodes = new Set<string>([
+    "SOLANA_ACCOUNT_ERROR",
+    "SOLANA_TOKEN_ACCOUNT_ERROR",
+    "SOLANA_BRIDGE_PROGRAM_ACCOUNT_ERROR",
+    "SOLANA_PROGRAM_ERROR",
+    "PROGRAM_ERROR",
+    "SOLANA_ROUTE_SIMULATION_FAILED",
+    "SIMULATION_FAILED",
+  ]);
+  if (!routeCodes.has(error.code)) return base;
+  const f = getLastSolanaInstructionFailure();
+  if (!f) return base;
+  const where =
+    f.programLabel && f.programLabel !== "unknown" ? ` in ${f.programLabel}` : "";
+  return `${base} (dev: instruction #${f.instructionIndex} failed with ${f.reason}${where}.)`;
 }
 
 // Balance row copy following the no-fake-zero rules: loading → "loading…",
@@ -258,6 +370,9 @@ function balanceLabel(
   if (balance.status === "loaded") {
     return `Balance: ${balance.formatted}${symbol ? ` ${symbol}` : ""}`;
   }
+  // "error" = the read failed across every RPC endpoint (retryable);
+  // "unavailable" = no address/token to read yet.
+  if (balance.status === "error") return "Balance unavailable";
   return "Balance: —";
 }
 
@@ -394,6 +509,11 @@ export function BridgePage({
   const [approvalState, setApprovalState] = useState<ApprovalState>("unknown");
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
+  // Source-chain wSOL setup tx signature (native-SOL Solana routes), tracked in a
+  // ref so finalizeBridgeSuccess reads the just-set value within the same handler
+  // (state would be stale until the next render). Recorded in history alongside —
+  // never as — the main bridge tx.
+  const wsolSetupSigRef = useRef<string | null>(null);
   const [explorerUrl, setExplorerUrl] = useState<string | null>(null);
   const [bridgeProgress, setBridgeProgress] = useState<
     "pending" | "confirmed" | "failed"
@@ -425,6 +545,8 @@ export function BridgePage({
     useState<ResolvedBalance>(UNAVAILABLE_BALANCE);
   const [toBalance, setToBalance] =
     useState<ResolvedBalance>(UNAVAILABLE_BALANCE);
+  // Bumped to force a fresh From-balance read (manual retry after an RPC error).
+  const [balanceReloadKey, setBalanceReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -453,7 +575,7 @@ export function BridgePage({
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromToken, fromChainId, evmAddress, solanaAddress, tronAddress]);
+  }, [fromToken, fromChainId, evmAddress, solanaAddress, tronAddress, balanceReloadKey]);
 
   useEffect(() => {
     let active = true;
@@ -647,11 +769,20 @@ export function BridgePage({
     if (fromBalance.status === "loading") return "Loading balance";
     if (fromBalance.status === "loaded" && fromBalance.baseUnits != null) {
       try {
-        if (amountBase > BigInt(fromBalance.baseUnits)) {
+        const balanceBase = BigInt(fromBalance.baseUnits);
+        if (amountBase > balanceBase) {
           const sym = isSolanaNativeSource(fromChainId, fromToken)
             ? "SOL"
             : fromToken.symbol;
           return `Insufficient ${sym}`;
+        }
+        // Native SOL source: keep a small lamport reserve for the network fee —
+        // bridging the entire balance would leave nothing to pay for the tx.
+        if (
+          isSolanaNativeSource(fromChainId, fromToken) &&
+          amountBase + SOL_FEE_RESERVE_LAMPORTS > balanceBase
+        ) {
+          return "Keep some SOL for network fees";
         }
       } catch {
         // ignore — fall through to allow
@@ -683,7 +814,15 @@ export function BridgePage({
     ) {
       return;
     }
-    setAmount(formatBaseUnits(fromBalance.baseUnits, fromToken.decimals));
+    let maxBase = BigInt(fromBalance.baseUnits);
+    // Native SOL source: leave a reserve covering bridge fee + a possible wSOL
+    // setup (rent + tx fee). If the reserve exceeds the balance, MAX is a no-op
+    // (validation will already show "Keep some SOL for network fees").
+    if (isSolanaNativeSource(fromChainId, fromToken)) {
+      if (maxBase <= SOLANA_NATIVE_MAX_RESERVE_LAMPORTS) return;
+      maxBase = maxBase - SOLANA_NATIVE_MAX_RESERVE_LAMPORTS;
+    }
+    setAmount(formatBaseUnits(maxBase.toString(), fromToken.decimals));
     resetQuote();
   }
 
@@ -794,119 +933,545 @@ export function BridgePage({
     }
   }
 
+  // Refresh + validate an executable route immediately before signing, so the
+  // wallet never broadcasts a stale transaction (an expired Solana blockhash, or
+  // EVM calldata that aged out while the user reviewed). Returns the FRESH quote
+  // to sign, or null when we shouldn't sign (the UI has already been updated with
+  // the reason / new amount).
+  async function refreshBeforeSign(): Promise<BridgeQuote | null> {
+    if (!quote || !fromToken || !toToken) return null;
+    const fromAddress = addressForChain(fromChain);
+    const toAddress = addressForChain(toChain);
+    if (!fromAddress) {
+      setSubmitStatus("error");
+      setError("This account has no address for the source chain.");
+      return null;
+    }
+    if (!toAddress) {
+      setSubmitStatus("error");
+      setError("This account has no address for the destination chain.");
+      return null;
+    }
+
+    const amountBase = decimalToBaseUnits(amount, fromToken.decimals);
+    const result = await prepareBridgeTransaction({
+      fromChainId,
+      toChainId,
+      fromTokenAddress: fromToken.address,
+      toTokenAddress: toToken.address,
+      fromAmountBaseUnits: amountBase.toString(),
+      fromAddress,
+      toAddress,
+      slippageBps,
+      previousToAmountBaseUnits: quote.toAmountBaseUnits,
+      previousToAmountMinBaseUnits: quote.toAmountMinBaseUnits,
+    });
+
+    bridgeDebugLog("page:prepare", {
+      fromChain: fromChainId,
+      toChain: toChainId,
+      ok: result.ok,
+      code: result.ok ? "executable" : result.code,
+    });
+
+    if (result.ok) {
+      // Adopt the fresh quote so the review numbers + status match what we sign.
+      setQuote(result.quote);
+      return result.quote;
+    }
+
+    // Not signable right now — surface the reason and update the visible quote.
+    if (result.code === "quoteOnly" || result.code === "unsupported") {
+      setQuote(result.quote);
+      setSubmitStatus("idle");
+      setError(null);
+      return null;
+    }
+    if (result.code === "materialChange") {
+      // Show the updated amount/min-received and require an explicit re-confirm —
+      // never silently sign a quote the user didn't review.
+      setQuote(result.quote);
+      setApprovalState((s) => (s === "approved" ? s : "unknown"));
+      setSubmitStatus("idle");
+      setError(result.message);
+      return null;
+    }
+    // noRoute / failed
+    setSubmitStatus("error");
+    setError(result.message);
+    return null;
+  }
+
+  // Sign + broadcast a freshly-prepared route. Throws a coded error on failure
+  // so the caller can classify it (and auto-refresh on a stale Solana blockhash).
+  async function executeBridgeTx(active: BridgeQuote): Promise<{
+    resultHash: string;
+    resultExplorerUrl: string | null;
+    historyFromAddress: string;
+    historyToAddress: string;
+  }> {
+    if (active.txFormat === "solana") {
+      // Solana-source execution gate: format solana + serialized data + a Solana
+      // signer + the LI.FI Solana source chain.
+      if (
+        !active.solanaTransactionData ||
+        fromChainId !== LIFI_SOLANA_CHAIN_ID ||
+        !solanaAddress
+      ) {
+        throw new Error("Route found, execution coming soon in Simpl.");
+      }
+      const solResult =
+        await walletService.executeSelectedSolanaBridgeTransaction({
+          transactionBase64: active.solanaTransactionData,
+        });
+      return {
+        resultHash: solResult.signature,
+        resultExplorerUrl: getSolanaTransactionExplorerUrl(
+          SOLANA_MAINNET,
+          solResult.signature,
+        ),
+        historyFromAddress: solResult.address,
+        historyToAddress: solResult.address,
+      };
+    }
+    // EVM source.
+    if (!active.transactionRequest) {
+      throw new Error("The bridge returned no transaction to sign.");
+    }
+    // Never broadcast a route's tx to a different chain than its source — the
+    // prepared calldata is only valid on the chain it was built for.
+    if (active.transactionRequest.chainId !== fromChainId) {
+      throw new Error("Route transaction is for a different chain.");
+    }
+    const result = await walletService.sendPreparedTransactionForChain({
+      transaction: {
+        to: active.transactionRequest.to,
+        data: active.transactionRequest.data,
+        value: active.transactionRequest.value,
+      },
+      chainId: fromChainId,
+    });
+    return {
+      resultHash: result.hash,
+      resultExplorerUrl: result.explorerUrl,
+      historyFromAddress: evmAddress ?? "",
+      historyToAddress: active.transactionRequest.to,
+    };
+  }
+
+  // Record the submitted bridge in history and move to the success screen.
+  function finalizeBridgeSuccess(
+    active: BridgeQuote,
+    exec: {
+      resultHash: string;
+      resultExplorerUrl: string | null;
+      historyFromAddress: string;
+      historyToAddress: string;
+    },
+  ): void {
+    if (!fromToken || !toToken) return;
+    const estReceive = formatBaseUnits(
+      active.toAmountBaseUnits,
+      active.toTokenDecimals,
+    );
+    const feeDisplay =
+      active.feeCostBaseUnits && active.feeCostSymbol
+        ? `${formatBaseUnits(active.feeCostBaseUnits, active.feeCostDecimals)} ${active.feeCostSymbol}`
+        : undefined;
+    // Record native SOL as "SOL" in activity, not LI.FI's wSOL label.
+    const fromSym = isSolanaNativeSource(fromChainId, fromToken)
+      ? "SOL"
+      : fromToken.symbol;
+
+    try {
+      transactionHistoryService.addTransaction({
+        hash: exec.resultHash,
+        chainId: fromChainId,
+        chainName: fromChain?.name ?? `Chain ${fromChainId}`,
+        direction: "bridge",
+        status: "submitted",
+        assetType: "bridge",
+        assetSymbol: `${fromSym} → ${toToken.symbol}`,
+        assetName: `Cross-chain swap ${fromSym} to ${toChain?.name ?? "destination"}`,
+        contractAddress: null,
+        amount: `${amount} ${fromSym}`,
+        fromAddress: exec.historyFromAddress,
+        toAddress: exec.historyToAddress,
+        explorerUrl: exec.resultExplorerUrl,
+        createdAt: new Date().toISOString(),
+        bridgeFromChainId: fromChainId,
+        bridgeToChainId: toChainId,
+        bridgeFromChainName: fromChain?.name,
+        bridgeToChainName: toChain?.name,
+        bridgeFromSymbol: fromSym,
+        bridgeFromAmount: amount,
+        bridgeToSymbol: toToken.symbol,
+        bridgeToAmount: estReceive,
+        bridgeProvider: active.toolName,
+        ...(feeDisplay ? { bridgeFee: feeDisplay } : {}),
+        ...(wsolSetupSigRef.current
+          ? { bridgeSetupTxHash: wsolSetupSigRef.current }
+          : {}),
+      });
+    } catch {
+      // History is best-effort — never block a successful swap on it.
+    }
+
+    bridgeDebugLog("page:submitted", {
+      fromChain: fromChainId,
+      toChain: toChainId,
+      txFormat: active.txFormat,
+      // The on-chain tx hash / Solana signature is a public identifier — safe to
+      // log (it is not a secret), and the explorer link uses it anyway.
+      txHash: exec.resultHash,
+    });
+
+    setTxHash(exec.resultHash);
+    setExplorerUrl(exec.resultExplorerUrl);
+    setBridgeProgress("pending");
+    setSubmitStatus("idle");
+    setStep("success");
+    void onBridgeCompleted?.();
+  }
+
+  // Force the current quote to a non-executable state. Used when execution
+  // rejects a Solana payload the quote gating had accepted (an invariant
+  // violation) — the UI must never keep showing "Execution supported" for a tx
+  // we can't actually run. This flips the status row and disables Confirm.
+  function degradeQuoteToUnsupported(active: BridgeQuote, reason: string): void {
+    setQuote({
+      ...active,
+      executable: false,
+      executionStatus: "unsupported",
+      executionReason: reason,
+      solanaTransactionData: null,
+      solanaTransactionFormat: null,
+      solanaTransactionSourceField: null,
+      solanaTransactionByteLength: null,
+    });
+  }
+
+  // Degrade ONLY for a genuinely unsupported tx format (extraction succeeded at
+  // gating but execution couldn't deserialize it — an invariant violation). A
+  // simulation/program/account failure is NOT a format problem and must NOT
+  // degrade an executable route. Returns true when it handled the error.
+  function degradeOnUnsupportedFormat(
+    active: BridgeQuote,
+    error: unknown,
+  ): boolean {
+    if (
+      !(error instanceof SolanaError) ||
+      error.code !== "UNSUPPORTED_SOLANA_TX_FORMAT"
+    ) {
+      return false;
+    }
+    logSolanaInvariantAfterGating({
+      sourceField: active.solanaTransactionSourceField,
+      byteLength: active.solanaTransactionByteLength,
+      format: active.solanaTransactionFormat,
+      executionStatus: active.executionStatus,
+      code: error.code,
+    });
+    degradeQuoteToUnsupported(
+      active,
+      "Provider returned a Solana transaction format Simpl cannot execute yet.",
+    );
+    setSubmitStatus("idle");
+    setError(
+      "The bridge provider returned a Solana transaction format Simpl cannot execute yet.",
+    );
+    return true;
+  }
+
+  // Native-SOL routes only: if the provider tx expects a funded wSOL ATA that
+  // doesn't exist for this wallet, send a SEPARATE setup tx (idempotent ATA →
+  // wrap lamports → SyncNative), then refresh the quote and return the fresh
+  // executable route. Returns the (possibly refreshed) quote to sign, or null
+  // when we've set an error/preview state and must abort. Never mutates the
+  // provider tx; only fires for the wallet's exact expected wSOL ATA.
+  async function maybePrepareWsolAndRefresh(
+    active: BridgeQuote,
+  ): Promise<BridgeQuote | null> {
+    if (
+      active.txFormat !== "solana" ||
+      !fromToken ||
+      !isSolanaNativeSource(fromChainId, fromToken) ||
+      !solanaAddress ||
+      !active.solanaTransactionData
+    ) {
+      return active; // not a native-SOL Solana route — nothing to prepare.
+    }
+
+    let fromAmountLamports: bigint;
+    try {
+      fromAmountLamports = decimalToBaseUnits(amount, fromToken.decimals);
+    } catch {
+      return active;
+    }
+
+    let need;
+    try {
+      need = await detectWsolSetupNeed({
+        transactionBase64: active.solanaTransactionData,
+        walletAddress: solanaAddress,
+        fromAmountLamports: fromAmountLamports.toString(),
+      });
+    } catch {
+      // Detection failed (RPC) — proceed; simulation will surface the real error.
+      return active;
+    }
+
+    // Required SOL = ONLY the top-up to wrap (lamportsToWrap, 0 when the wSOL ATA
+    // is already funded) + ATA rent (0 when the ATA already exists) + the setup
+    // tx fee + a bridge-tx fee reserve. We never add the full bridge amount again
+    // (it IS the wrap) and never double-count rent. When no setup is needed,
+    // lamportsToWrap and rent are 0 → required is just the fee reserve.
+    const lamportsToWrap = BigInt(need.lamportsToWrap);
+    const rentLamports = BigInt(need.rentLamports);
+    const totalRequired =
+      lamportsToWrap +
+      rentLamports +
+      WSOL_SETUP_FEE_RESERVE_LAMPORTS +
+      SOL_FEE_RESERVE_LAMPORTS;
+
+    const balanceLoaded =
+      fromBalance.status === "loaded" && fromBalance.baseUnits != null;
+    const balanceLamports = balanceLoaded
+      ? BigInt(fromBalance.baseUnits as string)
+      : null;
+    const remainingAfterRequired =
+      balanceLamports != null ? balanceLamports - totalRequired : null;
+
+    // Always log the fee-reserve math for native-SOL routes (whether or not a
+    // wSOL setup is needed) so the exact numbers are visible before any
+    // insufficient-fee outcome.
+    if (isBridgeDebugEnabled()) {
+      // eslint-disable-next-line no-console
+      console.info("[bridge:solana] fee-reserve-check", {
+        route: `${fromChain?.name ?? fromChainId} → ${toChain?.name ?? toChainId}`,
+        walletBalanceLamports: balanceLamports?.toString() ?? "unknown",
+        balanceStatus: fromBalance.status,
+        fromAmountLamports: fromAmountLamports.toString(),
+        isNativeSolSource: true,
+        wsolSetupNeeded: need.needed,
+        wsolAtaReferenced: need.referenced,
+        wsolAtaExists: need.exists,
+        currentWrappedAmount: need.currentWrappedAmount,
+        lamportsToWrap: lamportsToWrap.toString(),
+        rentLamports: rentLamports.toString(),
+        setupFeeReserveLamports: WSOL_SETUP_FEE_RESERVE_LAMPORTS.toString(),
+        bridgeFeeReserveLamports: SOL_FEE_RESERVE_LAMPORTS.toString(),
+        totalRequiredLamports: totalRequired.toString(),
+        remainingAfterRequired: remainingAfterRequired?.toString() ?? "unknown",
+        // We only ever block on a balance we actually loaded — never on a
+        // missing/errored balance; on-chain simulation stays authoritative.
+        reason: !need.needed
+          ? "no wSOL setup required for this route"
+          : balanceLamports == null
+            ? "balance unavailable — not gating; simulation is authoritative"
+            : balanceLamports < totalRequired
+              ? "insufficient: balance < lamportsToWrap + rent + fees"
+              : "sufficient",
+      });
+    }
+
+    if (!need.needed) return active;
+
+    // Block ONLY when we have a real loaded balance that's genuinely short — a
+    // missing/errored balance must never be reported as "insufficient fees".
+    if (balanceLamports != null && balanceLamports < totalRequired) {
+      setSubmitStatus("error");
+      setError(
+        rentLamports > 0n
+          ? "This route needs a wrapped SOL account. Lower the amount to keep SOL for fees."
+          : "Not enough SOL left for network fees. Lower the amount or add SOL.",
+      );
+      return null;
+    }
+
+    setSubmitStatus("preparingAccount");
+    try {
+      const setup = await walletService.executeSelectedSolanaWsolSetup({
+        lamportsToWrap: need.lamportsToWrap,
+      });
+      wsolSetupSigRef.current = setup.signature;
+      bridgeDebugLog("page:wsol-setup", {
+        wsolAta: need.wsolAta,
+        exists: need.exists,
+        lamportsToWrap: need.lamportsToWrap,
+        // The signature is a public identifier — safe to log.
+        txHash: setup.signature,
+      });
+    } catch (e) {
+      setSubmitStatus("error");
+      setError(describeBridgeError(e));
+      return null;
+    }
+
+    // Setup changed on-chain state and consumed a blockhash — get a FRESH bridge
+    // route before signing rather than reusing the pre-setup transaction.
+    setSubmitStatus("preparing");
+    return refreshBeforeSign();
+  }
+
   async function handleConfirm() {
     if (!quote?.executable || !fromToken || !toToken) return;
     setError(null);
-    setSubmitStatus("submitting");
+    wsolSetupSigRef.current = null; // start clean — no stale setup hash.
+    setSubmitStatus("preparing");
+
+    // a–c: refresh + validate an executable route immediately before signing.
+    let prepared: BridgeQuote | null;
     try {
-      let resultHash: string;
-      let resultExplorerUrl: string | null;
-      let historyFromAddress: string;
-      let historyToAddress: string;
-
-      if (quote.txFormat === "solana") {
-        // Solana-source execution gate (req 7): executable + format solana +
-        // serialized data + a Solana signer + the LI.FI Solana source chain.
-        if (
-          !quote.solanaTransactionData ||
-          fromChainId !== LIFI_SOLANA_CHAIN_ID ||
-          !solanaAddress
-        ) {
-          setSubmitStatus("error");
-          setError("Route found, execution coming soon in Simpl.");
-          return;
-        }
-        const solResult =
-          await walletService.executeSelectedSolanaBridgeTransaction({
-            transactionBase64: quote.solanaTransactionData,
-          });
-        resultHash = solResult.signature;
-        resultExplorerUrl = getSolanaTransactionExplorerUrl(
-          SOLANA_MAINNET,
-          solResult.signature,
-        );
-        historyFromAddress = solResult.address;
-        historyToAddress = solResult.address;
-      } else {
-        // EVM source (existing path) — unchanged.
-        if (!quote.transactionRequest) return;
-        const result = await walletService.sendPreparedTransactionForChain({
-          transaction: {
-            to: quote.transactionRequest.to,
-            data: quote.transactionRequest.data,
-            value: quote.transactionRequest.value,
-          },
-          chainId: fromChainId,
-        });
-        resultHash = result.hash;
-        resultExplorerUrl = result.explorerUrl;
-        historyFromAddress = evmAddress ?? "";
-        historyToAddress = quote.transactionRequest.to;
-      }
-
-      const estReceive = formatBaseUnits(
-        quote.toAmountBaseUnits,
-        quote.toTokenDecimals,
-      );
-      const feeDisplay =
-        quote.feeCostBaseUnits && quote.feeCostSymbol
-          ? `${formatBaseUnits(quote.feeCostBaseUnits, quote.feeCostDecimals)} ${quote.feeCostSymbol}`
-          : undefined;
-      // Record native SOL as "SOL" in activity, not LI.FI's wSOL label.
-      const fromSym = isSolanaNativeSource(fromChainId, fromToken)
-        ? "SOL"
-        : fromToken.symbol;
-
-      try {
-        transactionHistoryService.addTransaction({
-          hash: resultHash,
-          chainId: fromChainId,
-          chainName: fromChain?.name ?? `Chain ${fromChainId}`,
-          direction: "bridge",
-          status: "submitted",
-          assetType: "bridge",
-          assetSymbol: `${fromSym} → ${toToken.symbol}`,
-          assetName: `Cross-chain swap ${fromSym} to ${toChain?.name ?? "destination"}`,
-          contractAddress: null,
-          amount: `${amount} ${fromSym}`,
-          fromAddress: historyFromAddress,
-          toAddress: historyToAddress,
-          explorerUrl: resultExplorerUrl,
-          createdAt: new Date().toISOString(),
-          bridgeFromChainId: fromChainId,
-          bridgeToChainId: toChainId,
-          bridgeFromChainName: fromChain?.name,
-          bridgeToChainName: toChain?.name,
-          bridgeFromSymbol: fromSym,
-          bridgeFromAmount: amount,
-          bridgeToSymbol: toToken.symbol,
-          bridgeToAmount: estReceive,
-          bridgeProvider: quote.toolName,
-          ...(feeDisplay ? { bridgeFee: feeDisplay } : {}),
-        });
-      } catch {
-        // History is best-effort — never block a successful swap on it.
-      }
-
-      bridgeDebugLog("page:submitted", {
-        fromChain: fromChainId,
-        toChain: toChainId,
-        txFormat: quote.txFormat,
-        // The on-chain tx hash / Solana signature is a public identifier — safe
-        // to log (it is not a secret), and the explorer link uses it anyway.
-        txHash: resultHash,
-      });
-
-      setTxHash(resultHash);
-      setExplorerUrl(resultExplorerUrl);
-      setBridgeProgress("pending");
-      setSubmitStatus("idle");
-      setStep("success");
-      void onBridgeCompleted?.();
+      prepared = await refreshBeforeSign();
     } catch (e) {
       setSubmitStatus("error");
       setError(friendlyError(e));
+      return;
     }
+    if (!prepared) return; // refreshBeforeSign already set the UI state.
+
+    // Solana invariant: the gating must have produced an executable, normalized,
+    // deserializable payload. If any of these is missing we must NOT sign —
+    // degrade the quote instead of letting a contradictory "executable" stand.
+    if (prepared.txFormat === "solana") {
+      if (
+        prepared.executionStatus !== "executable" ||
+        !prepared.solanaTransactionData ||
+        !prepared.solanaTransactionFormat
+      ) {
+        logSolanaInvariantAfterGating({
+          sourceField: prepared.solanaTransactionSourceField,
+          byteLength: prepared.solanaTransactionByteLength,
+          format: prepared.solanaTransactionFormat,
+          executionStatus: prepared.executionStatus,
+          code: "MISSING_NORMALIZED_TX",
+        });
+        degradeQuoteToUnsupported(
+          prepared,
+          "Provider returned a Solana transaction format Simpl cannot execute yet.",
+        );
+        setSubmitStatus("idle");
+        setError(
+          "The bridge provider returned a Solana transaction format Simpl cannot execute yet.",
+        );
+        return;
+      }
+
+      // Native-SOL routes: ensure a funded wSOL ATA exists (provider tx may run
+      // TransferChecked against it). Sends a setup tx + refreshes the route if
+      // needed; returns null when it set an error/preview state (we abort).
+      let readied: BridgeQuote | null;
+      try {
+        readied = await maybePrepareWsolAndRefresh(prepared);
+      } catch (e) {
+        setSubmitStatus("error");
+        setError(describeBridgeError(e));
+        return;
+      }
+      if (!readied) return;
+      prepared = readied;
+    }
+
+    // EVM ERC-20: re-validate allowance against the refreshed spender/amount. A
+    // refreshed route can change the approval address; never sign without it.
+    if (
+      prepared.txFormat === "evm" &&
+      !fromToken.isNative &&
+      prepared.approvalAddress
+    ) {
+      try {
+        const amountBase = decimalToBaseUnits(amount, fromToken.decimals);
+        const allowance = await readErc20Allowance({
+          chainId: fromChainId,
+          tokenAddress: fromToken.address,
+          owner: evmAddress ?? "",
+          spender: prepared.approvalAddress,
+        });
+        if (allowance == null || allowance < amountBase) {
+          setApprovalState("needed");
+          setSubmitStatus("idle");
+          setError("Approval is needed for this amount. Approve again and retry.");
+          return;
+        }
+      } catch {
+        // Allowance read failed — fall through; the send will surface a precise
+        // allowance error if it's genuinely missing.
+      }
+    }
+
+    // d–h: sign → simulate → broadcast → watch (the wallet-service Solana
+    // pipeline does freshness/sign/simulate/broadcast; EVM goes through the send
+    // service). On a stale Solana blockhash we auto-refresh the quote ONCE and
+    // retry with the fresh transaction before surfacing an error to the user.
+    setSubmitStatus("submitting");
+    try {
+      const exec = await executeBridgeTx(prepared);
+      finalizeBridgeSuccess(prepared, exec);
+      return;
+    } catch (e) {
+      const staleBlockhash =
+        e instanceof SolanaError && e.code === "BLOCKHASH_EXPIRED";
+      if (staleBlockhash && prepared.txFormat === "solana") {
+        bridgeDebugLog("page:auto-refresh", { reason: "BLOCKHASH_EXPIRED" });
+        setSubmitStatus("preparing");
+        let fresh: BridgeQuote | null;
+        try {
+          fresh = await refreshBeforeSign();
+        } catch (e2) {
+          setSubmitStatus("error");
+          setError(friendlyError(e2));
+          return;
+        }
+        if (!fresh) return; // UI updated (materialChange / quoteOnly / …).
+        setSubmitStatus("submitting");
+        try {
+          const exec = await executeBridgeTx(fresh);
+          finalizeBridgeSuccess(fresh, exec);
+          return;
+        } catch (e3) {
+          bridgeDebugLog("page:execute-error", {
+            fromChain: fromChainId,
+            toChain: toChainId,
+            txFormat: fresh.txFormat,
+            code: e3 instanceof SolanaError ? e3.code : "unknown",
+            afterRefresh: true,
+          });
+          if (degradeOnUnsupportedFormat(fresh, e3)) return;
+          setSubmitStatus("error");
+          // Still stale even with a freshly-built tx → the provider keeps
+          // returning an expired transaction.
+          setError(
+            e3 instanceof SolanaError && e3.code === "BLOCKHASH_EXPIRED"
+              ? "This route keeps expiring before it can be signed. Please try again in a moment."
+              : describeBridgeError(e3),
+          );
+          return;
+        }
+      }
+      // Coded, display-safe diagnostics only — never the raw provider payload.
+      bridgeDebugLog("page:execute-error", {
+        fromChain: fromChainId,
+        toChain: toChainId,
+        txFormat: prepared.txFormat,
+        code: e instanceof SolanaError ? e.code : "unknown",
+      });
+      // Only an UNSUPPORTED tx FORMAT degrades the route to unsupported. A
+      // simulation / program / account failure keeps the route executable and
+      // shows a specific reason — the user can retry with a fresh quote/amount.
+      if (degradeOnUnsupportedFormat(prepared, e)) return;
+      setSubmitStatus("error");
+      setError(describeBridgeError(e));
+    }
+  }
+
+  // Re-fetch a fresh route after a failed submit. A Solana-source bridge tx
+  // carries an embedded blockhash that expires quickly, and an EVM route's
+  // calldata can go stale — so "Try again" rebuilds the quote (fresh tx) rather
+  // than re-broadcasting the same, possibly-expired, transaction.
+  async function handleRetryAfterError() {
+    setSubmitStatus("idle");
+    await handleGetQuote();
   }
 
   // ── Light, bounded status polling on the success screen ──
@@ -972,6 +1537,7 @@ export function BridgePage({
     setApprovalState("unknown");
     setSubmitStatus("idle");
     setBridgeProgress("pending");
+    wsolSetupSigRef.current = null;
   }
 
   const estReceive = useMemo(() => {
@@ -1079,7 +1645,10 @@ export function BridgePage({
 
   const previewOnly = Boolean(quote) && !quote?.executable;
   const isBusy =
-    submitStatus === "submitting" || approvalState === "approving";
+    submitStatus === "preparingAccount" ||
+    submitStatus === "preparing" ||
+    submitStatus === "submitting" ||
+    approvalState === "approving";
 
   return (
     <div className="ext-popup swap-page" data-screen-label="Swap – Cross-chain">
@@ -1147,6 +1716,15 @@ export function BridgePage({
                 <span className="swap-half-bottom__bal">
                   {balanceLabel(fromBalance, fromDisplaySymbol)}
                 </span>
+                {step === "form" && fromBalance.status === "error" ? (
+                  <button
+                    className="swap-max-pill swap-percent-chip"
+                    type="button"
+                    onClick={() => setBalanceReloadKey((k) => k + 1)}
+                  >
+                    Retry
+                  </button>
+                ) : null}
                 {step === "form" && fromBalancePositive ? (
                   <button
                     className="swap-max-pill swap-percent-chip"
@@ -1312,9 +1890,11 @@ export function BridgePage({
             <div className="swap-quote-row">
               <span>Status</span>
               <strong>
-                {quote.executable
+                {quote.executionStatus === "executable"
                   ? "Execution supported"
-                  : "Execution coming soon in Simpl"}
+                  : quote.executionStatus === "quoteOnly"
+                    ? "Quote only"
+                    : "Unsupported route"}
               </strong>
             </div>
           </div>
@@ -1329,6 +1909,16 @@ export function BridgePage({
         ) : null}
 
         {error ? <div className="swap-error">{error}</div> : null}
+
+        {/* Dev-only hint pointing at the safe Solana payload diagnostics. */}
+        {import.meta.env.DEV &&
+        step === "review" &&
+        quote?.txFormat === "solana" &&
+        (previewOnly || submitStatus === "error") ? (
+          <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 4 }}>
+            Dev: open Console and look for [bridge:solana] invalid-tx.
+          </div>
+        ) : null}
 
         {/* CTA */}
         <div className="swap-review-cta">
@@ -1360,16 +1950,26 @@ export function BridgePage({
             <button
               className="btn primary lg full"
               type="button"
-              disabled={isBusy || approvalState === "checking"}
-              onClick={handleConfirm}
+              disabled={isBusy || approvalState === "checking" || reviewLoading}
+              onClick={
+                submitStatus === "error" ? handleRetryAfterError : handleConfirm
+              }
             >
-              {submitStatus === "submitting"
-                ? "Swapping…"
-                : submitStatus === "error"
-                  ? "Try again"
-                  : approvalState === "checking"
-                    ? "Checking allowance…"
-                    : "Confirm swap"}
+              {reviewLoading
+                ? "Refreshing route…"
+                : submitStatus === "preparingAccount"
+                  ? "Preparing SOL account…"
+                  : submitStatus === "preparing"
+                    ? "Preparing fresh route…"
+                    : submitStatus === "signing"
+                      ? "Waiting for signature…"
+                      : submitStatus === "submitting"
+                        ? "Broadcasting…"
+                        : submitStatus === "error"
+                          ? "Get a fresh quote"
+                          : approvalState === "checking"
+                            ? "Checking allowance…"
+                            : "Confirm swap"}
             </button>
           )}
         </div>

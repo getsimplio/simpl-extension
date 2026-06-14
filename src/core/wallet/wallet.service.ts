@@ -40,7 +40,10 @@ import {
 } from "../../chains/solana/solana.config";
 import { deriveSolanaAccountFromMnemonic } from "../../chains/solana/solana.derivation";
 import { signSolanaSwapTransaction } from "../../chains/solana/solana.swap";
-import { sendRawSolanaTransaction } from "../../chains/solana/solana.transactions";
+import {
+  executeSolanaBridgeTransaction,
+  executeWsolSetupTransaction,
+} from "../../chains/solana/solana.bridge";
 import { lamportsToSol } from "../../chains/solana/solana.format";
 import {
   getSolanaActivity,
@@ -2245,17 +2248,51 @@ export class WalletService {
       payload,
     );
 
-    const signedTransaction = signSolanaSwapTransaction({
+    // Full deserialize → diagnose → validate blockhash → sign → simulate →
+    // broadcast pipeline. Throws a coded SolanaError (BLOCKHASH_EXPIRED,
+    // WRONG_SIGNER, PROGRAM_ERROR, ALT_LOOKUP_FAILED, …) the UI maps to a precise
+    // message — never a flattened "broadcast failed".
+    const { signature } = await executeSolanaBridgeTransaction({
       transactionBase64: input.transactionBase64,
-      fromSecretKey: material.secretKey,
-    });
-
-    const { signature } = await sendRawSolanaTransaction({
-      signedTransactionBase64: signedTransaction,
+      secretKey: material.secretKey,
       config: SOLANA_MAINNET,
     });
 
     return { signature, address: material.address };
+  }
+
+  // Prepare the active wallet's wrapped-SOL (wSOL) associated token account
+  // before a native-SOL Mayan/LI.FI bridge that expects an existing funded wSOL
+  // account. Reuses the SAME Solana key derivation as the bridge signer; builds a
+  // standard idempotent-ATA + transfer + SyncNative tx (never touches the
+  // provider transaction). Callers MUST first confirm setup is needed via
+  // detectWsolSetupNeed and that the balance covers amount + rent + fees.
+  async executeSelectedSolanaWsolSetup(input: {
+    lamportsToWrap: string;
+    password?: string;
+  }): Promise<{ signature: string; address: string; wsolAta: string }> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+
+    if (selectedAccount.type === "watch") {
+      throw new Error("Watch-only wallet cannot sign transactions.");
+    }
+
+    const payload = await this.getDecryptedPayloadForSensitiveOperation(
+      input.password,
+    );
+    const material = this.deriveSolanaMaterialForAccount(
+      selectedAccount,
+      payload,
+    );
+
+    const { signature, wsolAta } = await executeWsolSetupTransaction({
+      secretKey: material.secretKey,
+      lamportsToWrap: input.lamportsToWrap,
+      config: SOLANA_MAINNET,
+    });
+
+    return { signature, address: material.address, wsolAta };
   }
 
   private async persistSolanaAddress(

@@ -9,6 +9,7 @@ import {
   transactionHistoryService,
   type TransactionHistoryItem,
 } from "../../core/transactions/transaction-history.service";
+import { reconcilePendingBridgeTransactions } from "../../core/bridge/bridge-history.service";
 
 type TransactionHistoryPageProps = {
   selectedAccount: WalletAccount | null;
@@ -215,6 +216,29 @@ function getStatusLabel(status: string): string {
   return "Pending";
 }
 
+// Bridge rows use the granular source/bridge statuses so a finalized source tx
+// never reads as a bare "Pending": source-confirmed-but-not-completed shows
+// "In progress". `variant` maps to the existing badge CSS classes.
+function getBridgeBadge(item: TransactionHistoryItem): {
+  label: string;
+  variant: "submitted" | "confirmed" | "failed";
+} {
+  if (
+    item.status === "failed" ||
+    item.bridgeStatus === "failed" ||
+    item.bridgeSourceTxStatus === "failed"
+  ) {
+    return { label: "Failed", variant: "failed" };
+  }
+  if (item.bridgeStatus === "completed" || item.status === "confirmed") {
+    return { label: "Completed", variant: "confirmed" };
+  }
+  if (item.bridgeSourceTxStatus === "confirmed") {
+    return { label: "In progress", variant: "submitted" };
+  }
+  return { label: "Pending", variant: "submitted" };
+}
+
 // ── Date grouping ──────────────────────────────────────────────────
 
 type DateGroup = { label: string; items: TransactionHistoryItem[] };
@@ -289,9 +313,17 @@ function TxRow({
         >
           {getRowAmount(item)}
         </span>
-        <span className={`activity-badge activity-badge--${item.status}`}>
-          {getStatusLabel(item.status)}
-        </span>
+        {(() => {
+          const badge =
+            item.direction === "bridge"
+              ? getBridgeBadge(item)
+              : { label: getStatusLabel(item.status), variant: item.status };
+          return (
+            <span className={`activity-badge activity-badge--${badge.variant}`}>
+              {badge.label}
+            </span>
+          );
+        })()}
       </div>
     </button>
   );
@@ -354,6 +386,15 @@ export function TransactionHistoryPage({
           }
         }),
       );
+    }
+
+    // Reconcile cross-chain bridge rows (source-chain confirmation + provider
+    // status) independent of the selected network — Solana source status via
+    // resilient HTTP polling. Best-effort; never blocks the rest of the refresh.
+    try {
+      await reconcilePendingBridgeTransactions(currentItems);
+    } catch {
+      // ignore — reconciliation is best-effort and retried on next refresh.
     }
 
     const localItems =

@@ -19,6 +19,12 @@
 // quote-preview only — this module never fabricates signing support.
 
 import { getChainById } from "../networks/chain-registry";
+import {
+  extractSerializedSolanaTransaction,
+  isBridgeDebugEnabled,
+  logSolanaInvalidTx,
+  type SolanaTxShapeSummary,
+} from "../../chains/solana/solana.bridge";
 
 // Resolve the gateway base URL exactly like the market-data client: prefer the
 // explicit Simpl API var, fall back to the swap-proxy var, then production.
@@ -39,22 +45,168 @@ export const LIFI_NATIVE_ADDRESS =
 
 // ── Diagnostics ─────────────────────────────────────────────────────────────
 //
-// Opt-in, structured bridge diagnostics. On in dev builds or when
-// VITE_BRIDGE_DEBUG="true"; silent in production otherwise. These logs are
-// privacy-safe by construction: addresses are reduced to a {evm|solana|…} TYPE
-// tag (classifyAddressType) before logging — never the raw address — and we
-// never log secrets, API keys, headers or raw provider payloads.
-const BRIDGE_DEBUG =
-  Boolean(import.meta.env.DEV) ||
-  (import.meta.env.VITE_BRIDGE_DEBUG as string | undefined) === "true";
+// Opt-in, structured bridge diagnostics. On in dev builds, when
+// VITE_BRIDGE_DEBUG="true", OR at runtime in a built/unpacked extension via:
+//   localStorage.setItem("simpl.debug.bridge", "1");  location.reload();
+// Silent for production users otherwise. The single gate lives in solana.bridge
+// (isBridgeDebugEnabled) so quote- and execution-side logs flip together. These
+// logs are privacy-safe by construction: addresses are reduced to a
+// {evm|solana|…} TYPE tag (classifyAddressType) before logging — never the raw
+// address — and we never log secrets, API keys, headers or raw provider payloads.
 
 export function bridgeDebugLog(
   event: string,
   data: Record<string, unknown>,
 ): void {
-  if (!BRIDGE_DEBUG) return;
+  if (!isBridgeDebugEnabled()) return;
   // eslint-disable-next-line no-console
   console.info(`[SIMPL bridge] ${event}`, data);
+}
+
+// Raw-response shape diagnostics, prefixed [bridge:lifi]. Logs ONLY safe
+// metadata about the gateway/LI.FI quote BEFORE normalization — key names, value
+// TYPES and string LENGTHS — never values, never the serialized tx.
+function lifiShapeLog(event: string, data: Record<string, unknown>): void {
+  if (!isBridgeDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.info(`[bridge:lifi] ${event}`, data);
+}
+
+// Safe, value-free key/type summary of an unknown value.
+function shapeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function keyNames(value: unknown): string[] {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? Object.keys(value as object)
+    : [];
+}
+
+// String length of a field if it is a string, else null (never the value).
+function strLen(value: unknown): number | null {
+  return typeof value === "string" ? value.length : null;
+}
+
+// Build a privacy-safe shape summary of the RAW quote response: top-level keys,
+// transactionRequest keys + candidate-field string lengths, includedSteps shape,
+// and tool/provider names. Used by the [bridge:lifi] logger and the dev helper.
+function summarizeRawQuoteShape(raw: unknown): Record<string, unknown> {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const txReq = (r.transactionRequest ?? null) as Record<string, unknown> | null;
+  const steps = Array.isArray(r.includedSteps)
+    ? r.includedSteps
+    : Array.isArray(r.steps)
+      ? r.steps
+      : [];
+  const firstStep = (steps[0] ?? null) as Record<string, unknown> | null;
+  const action = (r.action ?? null) as Record<string, unknown> | null;
+  const estimate = (r.estimate ?? null) as Record<string, unknown> | null;
+  const actionToToken = (action?.toToken ?? null) as Record<string, unknown> | null;
+  const rootToToken = (r.toToken ?? null) as Record<string, unknown> | null;
+  const toChainIdRaw =
+    action && typeof action.toChainId === "number" ? action.toChainId : 0;
+  return {
+    topLevelKeys: keyNames(r),
+    tool: typeof r.tool === "string" ? r.tool : null,
+    toolDetailsName:
+      r.toolDetails && typeof r.toolDetails === "object"
+        ? ((r.toolDetails as { name?: unknown }).name ?? null)
+        : null,
+    transactionRequestType: shapeOf(r.transactionRequest),
+    transactionRequestKeys: keyNames(r.transactionRequest),
+    // The format hint is safe metadata (e.g. "base64" | "base58"), not a secret.
+    transactionRequestFormat:
+      txReq && typeof txReq.format === "string" ? txReq.format : null,
+    transactionRequestFieldTypes: txReq
+      ? {
+          data: shapeOf(txReq.data),
+          serializedTransaction: shapeOf(txReq.serializedTransaction),
+          transaction: shapeOf(txReq.transaction),
+          tx: shapeOf(txReq.tx),
+          rawTransaction: shapeOf(txReq.rawTransaction),
+          swapTransaction: shapeOf(txReq.swapTransaction),
+          instructions: shapeOf(txReq.instructions),
+        }
+      : null,
+    transactionRequestStringLengths: txReq
+      ? {
+          data: strLen(txReq.data),
+          serializedTransaction: strLen(txReq.serializedTransaction),
+          transaction: strLen(txReq.transaction),
+          tx: strLen(txReq.tx),
+          rawTransaction: strLen(txReq.rawTransaction),
+          swapTransaction: strLen(txReq.swapTransaction),
+        }
+      : null,
+    actionType: shapeOf(r.action),
+    estimateKeys: keyNames(r.estimate),
+    // ── Destination amount / token diagnostics (safe; values are not secrets) ──
+    estimateToAmountType: shapeOf(estimate?.toAmount),
+    estimateToAmount: typeof estimate?.toAmount === "string" || typeof estimate?.toAmount === "number" ? estimate?.toAmount : null,
+    estimateToAmountMin: typeof estimate?.toAmountMin === "string" || typeof estimate?.toAmountMin === "number" ? estimate?.toAmountMin : null,
+    rootToAmountType: shapeOf(r.toAmount),
+    rootToAmount: typeof r.toAmount === "string" || typeof r.toAmount === "number" ? r.toAmount : null,
+    rootToAmountMin: typeof r.toAmountMin === "string" || typeof r.toAmountMin === "number" ? r.toAmountMin : null,
+    actionToTokenSymbol: typeof actionToToken?.symbol === "string" ? actionToToken.symbol : null,
+    actionToTokenDecimals: typeof actionToToken?.decimals === "number" ? actionToToken.decimals : null,
+    actionToTokenAddress: typeof actionToToken?.address === "string" ? actionToToken.address : null,
+    rootToTokenSymbol: typeof rootToToken?.symbol === "string" ? rootToToken.symbol : null,
+    rootToTokenDecimals: typeof rootToToken?.decimals === "number" ? rootToToken.decimals : null,
+    destinationChainType: bridgeChainType(toChainIdRaw),
+    executionType: shapeOf(r.execution),
+    toolDataType: shapeOf(r.toolData),
+    providerDataType: shapeOf(r.providerData),
+    includedStepsType: shapeOf(r.includedSteps ?? r.steps),
+    includedStepsCount: steps.length,
+    firstStepKeys: keyNames(firstStep),
+    firstStepTransactionRequestType: firstStep
+      ? shapeOf(firstStep.transactionRequest)
+      : "none",
+    firstStepTransactionRequestKeys: firstStep
+      ? keyNames(firstStep.transactionRequest)
+      : [],
+  };
+}
+
+// Most-recent raw quote shape summary (safe metadata only), for the dev helper.
+let lastRawQuoteShape: Record<string, unknown> | null = null;
+
+// Dev helper: print (and best-effort clipboard-copy) the latest raw quote SHAPE
+// summary — safe metadata only, never the serialized tx / keys / signatures.
+// In dev it is also attached to globalThis so it can be called from the console.
+export function copyBridgeQuoteShapeForDebug(): Record<string, unknown> | null {
+  // eslint-disable-next-line no-console
+  console.info("[bridge:lifi] quote-shape (latest)", lastRawQuoteShape);
+  try {
+    const text = JSON.stringify(lastRawQuoteShape ?? {}, null, 2);
+    (globalThis as { navigator?: { clipboard?: { writeText?: (t: string) => unknown } } })
+      .navigator?.clipboard?.writeText?.(text);
+  } catch {
+    // Clipboard is best-effort and never required.
+  }
+  return lastRawQuoteShape;
+}
+
+// Attach the dev helper to globalThis when diagnostics are enabled — including
+// the runtime localStorage flag — so it is callable from the Console in a built/
+// unpacked extension, not only under import.meta.env.DEV. Quiet by default: when
+// the flag is OFF nothing is attached and nothing is logged.
+//
+// To enable in a built/unpacked extension, run in the popup Console:
+//   localStorage.setItem("simpl.debug.bridge", "1")
+//   location.reload()
+//   copyBridgeQuoteShapeForDebug()
+if (isBridgeDebugEnabled()) {
+  (globalThis as Record<string, unknown>).copyBridgeQuoteShapeForDebug =
+    copyBridgeQuoteShapeForDebug;
+  // eslint-disable-next-line no-console
+  console.info(
+    "[bridge:lifi] diagnostics ON — get a quote, then run copyBridgeQuoteShapeForDebug() in this Console.",
+  );
 }
 
 // Classify an address by type WITHOUT exposing the address itself — so callers
@@ -309,9 +461,17 @@ export type BridgeQuote = {
   // Transaction format the route's source step needs: "evm" (EVM tx request),
   // "solana" (serialized SVM transaction), or "other" (unsupported VM).
   txFormat: "evm" | "solana" | "other";
-  // Serialized Solana transaction (base64) — present only when txFormat is
-  // "solana" and the gateway supplied it. Never a raw provider payload.
+  // Canonical, standard-base64 serialized Solana transaction — present ONLY when
+  // txFormat is "solana" AND a provider payload was extracted and successfully
+  // deserialized (the single source of truth for Solana executability). Never a
+  // raw provider payload.
   solanaTransactionData: string | null;
+  // Provider field the Solana tx was extracted from (diagnostics / invariant).
+  solanaTransactionSourceField: string | null;
+  // Whether the extracted Solana tx is a versioned (v0) or legacy transaction.
+  solanaTransactionFormat: "versioned" | "legacy" | null;
+  // Decoded byte length of the canonical serialized Solana tx.
+  solanaTransactionByteLength: number | null;
   // True when the wallet can sign + send this route locally right now.
   executable: boolean;
   // Coarse execution readiness for the UI / diagnostics:
@@ -363,30 +523,48 @@ type RawBridgeQuote = {
   tool?: string;
   toolDetails?: { key?: string; name?: string } | null;
   action?: {
-    fromToken?: { symbol?: string; decimals?: number } | null;
-    toToken?: { symbol?: string; decimals?: number } | null;
+    fromToken?: { symbol?: string; decimals?: number; address?: string } | null;
+    toToken?: { symbol?: string; decimals?: number; address?: string } | null;
     fromChainId?: number;
     toChainId?: number;
     slippage?: number;
   } | null;
   estimate?: {
-    fromAmount?: string;
-    toAmount?: string;
-    toAmountMin?: string;
+    fromAmount?: string | number;
+    toAmount?: string | number;
+    toAmountMin?: string | number;
     approvalAddress?: string;
     executionDuration?: number;
     gasCosts?: RawGasCost[];
     feeCosts?: RawFeeCost[];
   } | null;
   transactionRequest?: RawTxRequest | null;
+  // Some gateway/provider variants mirror the destination amount + token at the
+  // ROOT instead of (or in addition to) `estimate`/`action`. Used as fallbacks.
+  toAmount?: string | number;
+  toAmountMin?: string | number;
+  toToken?: { symbol?: string; decimals?: number; address?: string } | null;
+  // Possible nesting sites for the executable payload on Mayan / LI.FI advanced
+  // routes. Typed loosely — extraction probes them defensively at runtime.
+  includedSteps?: unknown[];
+  steps?: unknown[];
+  toolData?: unknown;
+  providerData?: unknown;
+  execution?: unknown;
 };
 
-// Convert a possibly-hex (0x…) or decimal numeric string to a decimal base-unit
-// string. Returns null when it can't be parsed.
+// Convert a possibly-hex (0x…) / decimal string OR a number to a decimal
+// base-unit string. Returns null when it's missing or unparseable (callers must
+// distinguish "unavailable" from a real "0"). Accepts numbers because some
+// gateway variants return amounts as JSON numbers, not strings — treating those
+// as null was the cause of a "0 SOL" display on EVM → Solana routes.
 function toBaseUnitString(value: unknown): string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? BigInt(Math.trunc(value)).toString() : null;
+  }
   if (typeof value !== "string" || value.trim() === "") return null;
   try {
-    return BigInt(value).toString();
+    return BigInt(value.trim()).toString();
   } catch {
     return null;
   }
@@ -478,22 +656,120 @@ function detectTxFormat(
   raw: RawTxRequest | null | undefined,
   fromChainId: number,
 ): "evm" | "solana" | "other" {
-  if (!raw) return "other";
-  const fmt = typeof raw.format === "string" ? raw.format.toLowerCase() : "";
+  const fmt =
+    raw && typeof raw.format === "string" ? raw.format.toLowerCase() : "";
   if (fmt === "solana" || fmt === "svm") return "solana";
   if (fmt === "evm") return "evm";
   if (fmt) return "other"; // explicit non-evm / tron / etc.
-  // No explicit hint — infer from shape first, then the source chain family.
-  if (typeof raw.to === "string" && typeof raw.data === "string") return "evm";
-  const solanaPayload = raw.serializedTransaction ?? raw.data;
-  if (
-    fromChainId === LIFI_SOLANA_CHAIN_ID &&
-    typeof solanaPayload === "string" &&
-    solanaPayload.length > 0
-  ) {
-    return "solana";
+  // No explicit hint — the SOURCE chain is the authority for the VM family, so a
+  // Solana-source route is always "solana" (extraction decides if it's
+  // executable). Only then fall back to inferring EVM from the tx shape.
+  if (fromChainId === LIFI_SOLANA_CHAIN_ID) return "solana";
+  if (raw && typeof raw.to === "string" && typeof raw.data === "string") {
+    return "evm";
   }
   return "other";
+}
+
+// Result of searching the whole raw quote for an executable Solana tx.
+type SolanaQuoteExtraction =
+  | {
+      ok: true;
+      serializedBase64: string;
+      sourceField: string;
+      format: "versioned" | "legacy";
+      byteLength: number;
+    }
+  | {
+      ok: false;
+      // True when the provider returned an instruction bundle / unsigned-tx
+      // object / a step that needs a separate build call — not a serialized tx.
+      requiresBuild: boolean;
+      shapeSummary: SolanaTxShapeSummary;
+    };
+
+// A value looks like an instruction bundle / unsigned tx OBJECT (needs building)
+// rather than a serialized transaction string.
+function looksLikeBuildPayload(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    Array.isArray(v.instructions) ||
+    (typeof v.message === "object" && v.message !== null) ||
+    Array.isArray(v.accountKeys) ||
+    (typeof v.recentBlockhash === "string" && Array.isArray(v.keys))
+  );
+}
+
+// Search the ENTIRE raw quote — not just transactionRequest — for an executable
+// Solana transaction, since Mayan / LI.FI advanced routes nest it in different
+// places. Each candidate root is handed to the SAME generic extractor the
+// executor uses, so gating and execution can never disagree on the payload.
+function extractSolanaTxFromQuote(raw: RawBridgeQuote): SolanaQuoteExtraction {
+  const r = raw as unknown as Record<string, unknown>;
+  const roots: Array<{ label: string; value: unknown }> = [
+    { label: "transactionRequest", value: r.transactionRequest },
+    { label: "root", value: r },
+    { label: "estimate", value: r.estimate },
+    { label: "action", value: r.action },
+    { label: "execution", value: r.execution },
+    { label: "toolData", value: r.toolData },
+    { label: "providerData", value: r.providerData },
+  ];
+  const steps = Array.isArray(r.includedSteps)
+    ? r.includedSteps
+    : Array.isArray(r.steps)
+      ? r.steps
+      : [];
+  steps.forEach((step, i) => {
+    const so = (step ?? {}) as Record<string, unknown>;
+    roots.push({
+      label: `includedSteps[${i}].transactionRequest`,
+      value: so.transactionRequest,
+    });
+    roots.push({
+      label: `includedSteps[${i}].toolDetails`,
+      value: so.toolDetails,
+    });
+    roots.push({ label: `includedSteps[${i}]`, value: so });
+  });
+
+  let requiresBuild = false;
+  let firstFailSummary: SolanaTxShapeSummary | null = null;
+
+  for (const root of roots) {
+    if (root.value == null) continue;
+    if (looksLikeBuildPayload(root.value)) requiresBuild = true;
+    const extraction = extractSerializedSolanaTransaction(root.value);
+    if (extraction.ok) {
+      return {
+        ok: true,
+        serializedBase64: extraction.serializedBase64,
+        // Qualify the field with the root it was found under for diagnostics.
+        sourceField:
+          extraction.sourceField === "transactionRequest"
+            ? root.label
+            : `${root.label}.${extraction.sourceField}`,
+        format: extraction.format,
+        byteLength: extraction.byteLength,
+      };
+    }
+    if (!firstFailSummary && root.label === "transactionRequest") {
+      firstFailSummary = extraction.shapeSummary;
+    }
+  }
+
+  const shapeSummary: SolanaTxShapeSummary =
+    firstFailSummary ?? {
+      payloadType: shapeOf(r.transactionRequest),
+      keys: keyNames(r.transactionRequest),
+      candidateField: null,
+      stringLength: null,
+      decodedByteLength: null,
+      firstByte: null,
+      deserError: "no decodable serialized-tx field in any known location",
+    };
+  return { ok: false, requiresBuild, shapeSummary };
 }
 
 function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
@@ -501,6 +777,27 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
   const estimate = raw.estimate ?? {};
   const fromChainId = action.fromChainId ?? 0;
   const toChainId = action.toChainId ?? 0;
+  const destinationChainType = bridgeChainType(toChainId);
+
+  // Destination token + amount, resolved robustly across gateway variants:
+  // prefer action.toToken, fall back to a root-level toToken; prefer
+  // estimate.toAmount(/Min), fall back to root toAmount(/Min). CRITICAL: for a
+  // Solana destination, native SOL is 9 decimals — never the EVM 18 default,
+  // which truncated the received SOL amount to "0".
+  const toTokenInfo = action.toToken ?? raw.toToken ?? null;
+  const toTokenDecimals =
+    typeof toTokenInfo?.decimals === "number"
+      ? toTokenInfo.decimals
+      : destinationChainType === "SVM"
+        ? 9
+        : 18;
+  const toTokenSymbol =
+    toTokenInfo?.symbol ?? (destinationChainType === "SVM" ? "SOL" : "");
+  // null when the provider didn't return an amount → surfaced as "—" (NOT "0").
+  const toAmountStr =
+    toBaseUnitString(estimate.toAmount) ?? toBaseUnitString(raw.toAmount);
+  const toAmountMinStr =
+    toBaseUnitString(estimate.toAmountMin) ?? toBaseUnitString(raw.toAmountMin);
 
   const gas = sumGasCosts(estimate.gasCosts);
   const fee = pickFeeCost(estimate.feeCosts);
@@ -509,20 +806,38 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     txFormat === "evm"
       ? normalizeTxRequest(raw.transactionRequest, fromChainId)
       : null;
-  // Serialized Solana transaction string — only when the gateway clearly marks
-  // the format as "solana" and supplies a payload. The gateway returns it as
-  // `serializedTransaction` and may mirror it into `data`; prefer the former and
-  // fall back to the latter. Never a raw provider payload.
-  const rawSolanaPayload =
-    raw.transactionRequest?.serializedTransaction ??
-    raw.transactionRequest?.data ??
-    null;
-  const solanaTransactionData =
-    txFormat === "solana" &&
-    typeof rawSolanaPayload === "string" &&
-    rawSolanaPayload.length > 0
-      ? rawSolanaPayload
-      : null;
+  // Solana source: extract + VALIDATE the serialized transaction from whatever
+  // field/encoding the provider used (LI.FI/Mayan vary). The route is executable
+  // only when a payload actually deserializes — otherwise it degrades to a quote
+  // preview and we log a safe shape summary for diagnosis. Never a raw payload.
+  let solanaTransactionData: string | null = null;
+  let solanaTransactionSourceField: string | null = null;
+  let solanaTransactionFormat: "versioned" | "legacy" | null = null;
+  let solanaTransactionByteLength: number | null = null;
+  // True when the provider returned a route that needs a separate Solana tx
+  // BUILD step (instruction bundle / unsigned-tx object) rather than a signed-
+  // ready serialized transaction — distinct from "no payload at all".
+  let solanaRequiresBuild = false;
+  // True when a payload string WAS present and decoded to bytes, but no
+  // deserializer (versioned/legacy) accepted it in any encoding.
+  let solanaPayloadUndeserializable = false;
+  if (txFormat === "solana") {
+    // SINGLE SOURCE OF TRUTH for Solana executability: search the whole quote
+    // with the same extractor the executor uses. If it can't produce a
+    // deserializable tx, the route is NOT executable — full stop.
+    const extraction = extractSolanaTxFromQuote(raw);
+    if (extraction.ok) {
+      solanaTransactionData = extraction.serializedBase64;
+      solanaTransactionSourceField = extraction.sourceField;
+      solanaTransactionFormat = extraction.format;
+      solanaTransactionByteLength = extraction.byteLength;
+    } else {
+      solanaRequiresBuild = extraction.requiresBuild;
+      solanaPayloadUndeserializable =
+        extraction.shapeSummary.decodedByteLength != null;
+      logSolanaInvalidTx(extraction.shapeSummary, "quote");
+    }
+  }
 
   // A route is executable only when the gateway didn't flag it quote-only AND:
   //   • EVM:    an EVM tx request came back and the source chain is signable, OR
@@ -557,8 +872,18 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     executionStatus = "unsupported";
     executionReason = "This route's transaction format isn't supported yet.";
   } else if (txFormat === "solana" && solanaTransactionData === null) {
-    executionStatus = "quoteOnly";
-    executionReason = "Route found, but no executable Solana transaction was returned.";
+    if (solanaRequiresBuild) {
+      executionStatus = "unsupported";
+      executionReason =
+        "Provider route requires Solana transaction build support not implemented yet.";
+    } else if (solanaPayloadUndeserializable) {
+      executionStatus = "unsupported";
+      executionReason =
+        "Provider returned a Solana transaction payload Simpl cannot deserialize yet.";
+    } else {
+      executionStatus = "quoteOnly";
+      executionReason = "Provider returned no valid Solana transaction payload.";
+    }
   } else {
     executionStatus = "quoteOnly";
     executionReason = "Route found, execution is not supported yet.";
@@ -569,11 +894,13 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     toChainId,
     fromTokenSymbol: action.fromToken?.symbol ?? "",
     fromTokenDecimals: action.fromToken?.decimals ?? 18,
-    toTokenSymbol: action.toToken?.symbol ?? "",
-    toTokenDecimals: action.toToken?.decimals ?? 18,
+    toTokenSymbol,
+    toTokenDecimals,
     fromAmountBaseUnits: toBaseUnitString(estimate.fromAmount) ?? "0",
-    toAmountBaseUnits: toBaseUnitString(estimate.toAmount) ?? "0",
-    toAmountMinBaseUnits: toBaseUnitString(estimate.toAmountMin),
+    // "" (not "0") when the provider gave no amount → UI shows "—". A real "0"
+    // from the provider is preserved as "0".
+    toAmountBaseUnits: toAmountStr ?? "",
+    toAmountMinBaseUnits: toAmountMinStr,
     toolName: raw.toolDetails?.name ?? raw.tool ?? "Bridge",
     toolKey: raw.toolDetails?.key ?? raw.tool ?? null,
     gasCostBaseUnits: gas.amount,
@@ -594,11 +921,14 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
     transactionRequest: txRequest,
     txFormat,
     solanaTransactionData,
+    solanaTransactionSourceField,
+    solanaTransactionFormat,
+    solanaTransactionByteLength,
     executable,
     executionStatus,
     executionReason,
     sourceChainType: bridgeChainType(fromChainId),
-    destinationChainType: bridgeChainType(toChainId),
+    destinationChainType,
   };
 }
 
@@ -676,6 +1006,15 @@ export async function getBridgeQuote(
     throw error;
   }
 
+  // Raw-response shape diagnostics BEFORE normalization (safe metadata only).
+  lastRawQuoteShape = summarizeRawQuoteShape(raw);
+  lifiShapeLog("quote-shape", {
+    fromChain: params.fromChainId,
+    toChain: params.toChainId,
+    sourceChainType: bridgeChainType(params.fromChainId),
+    ...lastRawQuoteShape,
+  });
+
   if (!raw || (!raw.estimate && !raw.transactionRequest)) {
     bridgeDebugLog("quote:no-route", {
       fromChain: params.fromChainId,
@@ -700,6 +1039,135 @@ export async function getBridgeQuote(
   });
 
   return quote;
+}
+
+// ── Prepare (refresh-before-sign) ───────────────────────────────────────────
+//
+// A bridge route's transaction is built at quote time, so it can go stale before
+// the user confirms: an EVM route's calldata can be outdated and — more acutely —
+// a Solana route embeds a recent blockhash + lastValidBlockHeight that expires
+// within ~60–90s. prepareBridgeTransaction() re-derives a FRESH executable route
+// immediately before signing so the wallet never broadcasts a stale transaction.
+//
+// It currently reuses getBridgeQuote() (the gateway has no separate build step),
+// but is the single, typed choke point the UI calls right before signing. It
+// also guards against a materially different result: if the refreshed output /
+// minimum-received moved beyond the caller's tolerance, it returns the fresh
+// quote WITHOUT an ok:true so the UI can show the updated numbers instead of
+// silently signing something the user didn't review.
+
+export type BridgePrepareParams = BridgeQuoteParams & {
+  // The amounts the user last reviewed, for material-change detection. When
+  // absent, no change check is performed (first prepare).
+  previousToAmountBaseUnits?: string | null;
+  previousToAmountMinBaseUnits?: string | null;
+  // Allowed drift in the destination amount before we force a re-review, in
+  // basis points (default 1%). Either an increase or a decrease beyond this is
+  // surfaced — we never silently change the user-visible To amount.
+  toleranceBps?: number;
+};
+
+export type BridgePrepareResult =
+  // Fresh, executable, within tolerance → safe to sign `quote` right now.
+  | { ok: true; quote: BridgeQuote }
+  // Executable, but the refreshed amount drifted beyond tolerance → show the
+  // updated `quote` and require an explicit re-confirm.
+  | { ok: false; code: "materialChange"; quote: BridgeQuote; message: string }
+  // Route is still valid but not signable (e.g. provider returned no tx) → show
+  // the updated `quote` so the status flips to Quote only / Unsupported.
+  | { ok: false; code: "quoteOnly" | "unsupported"; quote: BridgeQuote; message: string }
+  // No route for the pair, or the refresh itself failed → no usable quote.
+  | { ok: false; code: "noRoute" | "failed"; message: string };
+
+// True when `next` differs from `prev` by more than `bps` basis points. A null
+// baseline (or unparseable value) is treated as "no change" so a first prepare
+// never trips the guard.
+function exceedsTolerance(
+  prev: string | null | undefined,
+  next: string | null | undefined,
+  bps: number,
+): boolean {
+  if (prev == null || next == null) return false;
+  let prevUnits: bigint;
+  let nextUnits: bigint;
+  try {
+    prevUnits = BigInt(prev);
+    nextUnits = BigInt(next);
+  } catch {
+    return false;
+  }
+  if (prevUnits === 0n) return nextUnits !== 0n;
+  const diff = nextUnits > prevUnits ? nextUnits - prevUnits : prevUnits - nextUnits;
+  // diff / prev > bps / 10000  ⇔  diff * 10000 > prev * bps  (integer-safe)
+  return diff * 10_000n > prevUnits * BigInt(bps);
+}
+
+export async function prepareBridgeTransaction(
+  params: BridgePrepareParams,
+): Promise<BridgePrepareResult> {
+  const {
+    previousToAmountBaseUnits,
+    previousToAmountMinBaseUnits,
+    toleranceBps = 100,
+    ...quoteParams
+  } = params;
+
+  let quote: BridgeQuote;
+  try {
+    quote = await getBridgeQuote(quoteParams);
+  } catch (error) {
+    if (error instanceof NoBridgeRouteError) {
+      return { ok: false, code: "noRoute", message: "No route found for this pair." };
+    }
+    bridgeDebugLog("prepare:error", {
+      fromChain: params.fromChainId,
+      toChain: params.toChainId,
+    });
+    return {
+      ok: false,
+      code: "failed",
+      message: "Could not refresh this route. Try again.",
+    };
+  }
+
+  bridgeDebugLog("prepare:result", {
+    fromChain: quote.fromChainId,
+    toChain: quote.toChainId,
+    sourceChainType: quote.sourceChainType,
+    txFormat: quote.txFormat,
+    executionStatus: quote.executionStatus,
+    hasTransactionRequest:
+      quote.transactionRequest != null || quote.solanaTransactionData != null,
+  });
+
+  if (quote.executionStatus === "unsupported") {
+    return { ok: false, code: "unsupported", quote, message: quote.executionReason };
+  }
+  if (!quote.executable || quote.executionStatus === "quoteOnly") {
+    return { ok: false, code: "quoteOnly", quote, message: quote.executionReason };
+  }
+
+  const changed =
+    exceedsTolerance(
+      previousToAmountBaseUnits,
+      quote.toAmountBaseUnits,
+      toleranceBps,
+    ) ||
+    exceedsTolerance(
+      previousToAmountMinBaseUnits,
+      quote.toAmountMinBaseUnits,
+      toleranceBps,
+    );
+  if (changed) {
+    return {
+      ok: false,
+      code: "materialChange",
+      quote,
+      message: "The quote changed. Review the updated amount and confirm again.",
+    };
+  }
+
+  return { ok: true, quote };
 }
 
 // ── Status ────────────────────────────────────────────────────────────────
