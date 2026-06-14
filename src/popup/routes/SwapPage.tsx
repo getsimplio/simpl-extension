@@ -47,6 +47,7 @@ import {
 } from "../components/CrossChainTokenPicker";
 import { SolanaSwapPage } from "./SolanaSwapPage";
 import { BridgePage } from "./BridgePage";
+import { LIFI_NATIVE_ADDRESS } from "../../core/bridge/lifi-bridge.service";
 import "./SwapPage.css";
 
 type SwapPageProps = {
@@ -2483,6 +2484,29 @@ if (selectedAccount && fromToken && toToken) {
         walletState={walletState}
         initialFromChainId={selectedChainId}
         initialToChainId={destChainId}
+        // Preserve the user's SOURCE token + amount across the same-chain →
+        // cross-chain handoff. Without this BridgePage defaulted the FROM token
+        // for the source chain, wiping the user's pick when they chose a TO token
+        // on another network. Native → LI.FI's 0x0 native sentinel (BridgePage
+        // reconciles non-EVM identifiers by symbol on load); ERC-20 keeps its
+        // contract address. Amount is carried over verbatim.
+        initialAmount={fromInputValue}
+        initialFromToken={
+          fromToken
+            ? {
+                chainId: selectedChainId,
+                address:
+                  fromToken.type === "native"
+                    ? LIFI_NATIVE_ADDRESS
+                    : fromToken.address,
+                symbol: fromToken.symbol,
+                name: fromToken.name,
+                decimals: fromToken.decimals,
+                isNative: fromToken.type === "native",
+                logoUrl: null,
+              }
+            : null
+        }
         initialToToken={
           pendingToToken && pendingToToken.chainId === destChainId
             ? {

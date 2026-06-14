@@ -106,6 +106,9 @@ type BridgePageProps = {
   // Source/destination chains the parent Swap screen entered cross-chain with.
   initialFromChainId?: number;
   initialToChainId?: number;
+  // FROM amount the parent screen already had entered, preserved across the
+  // same-chain → cross-chain handoff so the user doesn't have to retype it.
+  initialAmount?: string;
   // Source token the parent screen entered with (e.g. the Solana FROM token when
   // a Solana → EVM bridge is launched from the Solana swap screen). Preselected
   // so the route matches the user's choice; reconciled against LI.FI's canonical
@@ -666,6 +669,7 @@ export function BridgePage({
   onBridgeCompleted,
   initialFromChainId,
   initialToChainId,
+  initialAmount,
   initialFromToken,
   initialToToken,
   onSameChainSelected,
@@ -724,7 +728,7 @@ export function BridgePage({
       : null,
   );
 
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(() => initialAmount ?? "");
   const [slippageBps, setSlippageBps] = useState(50);
 
   // Anti-spam guard: the last request SIGNATURE that produced a classified,
