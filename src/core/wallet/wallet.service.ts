@@ -96,8 +96,13 @@ import { sunToTrx } from "../../chains/tron/tron.format";
 import {
   getTronAddressExplorerUrl,
   getTronTransactionExplorerUrl,
+  TRC20_APPROVE_ENERGY_ESTIMATE,
+  TRC20_APPROVE_MIN_TRX_SUN,
 } from "../../chains/tron/tron.config";
-import { getTrxBalance } from "../../chains/tron/tron.balance";
+import {
+  getTrxBalance,
+  getTronAvailableEnergy,
+} from "../../chains/tron/tron.balance";
 import {
   executeTronBridgeTransaction,
   executeTronBridgeApproval,
@@ -2459,6 +2464,21 @@ export class WalletService {
       selectedAccount,
       payload,
     );
+
+    // Preflight: a TRC-20 approve burns energy. If the account has no staked
+    // energy to cover it, it must hold enough TRX to BURN for that energy — a
+    // bare "TRX > 0" check let an underfunded approve land and fail on-chain with
+    // "Not enough energy for LOG3". Allow the approve when EITHER the account has
+    // ≥ the estimated energy staked, OR holds ≥ the conservative TRX minimum.
+    const trxBalanceSun = await getTrxBalance(address);
+    const energyAvailable = await getTronAvailableEnergy(address);
+    const hasEnoughEnergy = energyAvailable >= TRC20_APPROVE_ENERGY_ESTIMATE;
+    if (!hasEnoughEnergy && trxBalanceSun < TRC20_APPROVE_MIN_TRX_SUN) {
+      throw tronError(
+        "INSUFFICIENT_TRX_BALANCE",
+        "Not enough TRX for network fees.",
+      );
+    }
 
     const { txId } = await executeTronBridgeApproval({
       contractAddress: input.contractAddress,

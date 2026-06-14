@@ -31,6 +31,25 @@ export async function getTrxBalance(address: string): Promise<bigint> {
   }
 }
 
+// Available ENERGY for an account (EnergyLimit − EnergyUsed) — i.e. energy the
+// account can spend WITHOUT burning TRX (from staking/delegation). Used by the
+// TRC-20 approve preflight to decide whether the op can run on staked energy or
+// must burn TRX. Returns 0 on any read failure (treated as "no staked energy").
+export async function getTronAvailableEnergy(address: string): Promise<number> {
+  try {
+    const res = (await getTronWeb().trx.getAccountResources(address)) as {
+      EnergyLimit?: number;
+      EnergyUsed?: number;
+    };
+    const limit = Number(res?.EnergyLimit ?? 0);
+    const used = Number(res?.EnergyUsed ?? 0);
+    const available = limit - used;
+    return Number.isFinite(available) && available > 0 ? available : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // TRC-20 balance in base units. Uses a constant (read-only) contract call so it
 // works without a signer and does not depend on the token returning a typed
 // value — the raw uint256 is decoded from the hex result.

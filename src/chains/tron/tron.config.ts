@@ -43,6 +43,16 @@ export const SUN_PER_TRX = 1_000_000n;
 // while still letting the transfer through when the account lacks energy.
 export const TRC20_DEFAULT_FEE_LIMIT_SUN = 100_000_000;
 
+// Preflight thresholds for a TRC-20 approve (bridge source-token allowance). A
+// USDT approve burns ~30k–65k energy; when the account has NO staked energy it
+// must hold enough TRX to burn that energy (~27 TRX at current rates) — so we
+// require a conservative 30 TRX free balance UNLESS the account already has at
+// least the estimated energy staked. This stops the on-chain "Not enough energy
+// for LOG3" failure before a tx is ever broadcast, without blocking accounts that
+// have energy staked (they only need a little bandwidth).
+export const TRC20_APPROVE_ENERGY_ESTIMATE = 65_000;
+export const TRC20_APPROVE_MIN_TRX_SUN = 30_000_000n; // 30 TRX in sun
+
 export function getTronTransactionExplorerUrl(txId: string): string {
   return `${TRON_MAINNET.explorerUrl}/#/transaction/${txId}`;
 }

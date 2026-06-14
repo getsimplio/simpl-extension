@@ -122,3 +122,100 @@ export async function getTronTransactionStatus(
     return "pending";
   }
 }
+
+// A classified TRON receipt failure reason. OUT_OF_ENERGY / REVERT / OUT_OF_TIME
+// come straight from the contract receipt; FAILED is a generic on-chain failure.
+export type TronReceiptReasonCode =
+  | "OUT_OF_ENERGY"
+  | "REVERT"
+  | "OUT_OF_TIME"
+  | "FAILED"
+  | null;
+
+export type TronTransactionReceipt = {
+  status: TronTransactionStatus;
+  // Classified failure reason (null while pending / on success).
+  reasonCode: TronReceiptReasonCode;
+  // Short, display-safe human reason decoded from the receipt, if any.
+  reasonMessage: string | null;
+};
+
+// Decode TRON's hex-encoded resMessage (e.g. "Not enough energy for 'LOG3'…")
+// into UTF-8 text. Returns null when absent/undecodable — never throws.
+function decodeTronResMessage(hex: unknown): string | null {
+  if (typeof hex !== "string" || hex.trim() === "") return null;
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (!/^[0-9a-fA-F]+$/u.test(clean) || clean.length % 2 !== 0) {
+    // Some nodes already return plain text — surface it as-is (capped).
+    return hex.slice(0, 200);
+  }
+  try {
+    let out = "";
+    for (let i = 0; i < clean.length; i += 2) {
+      out += String.fromCharCode(parseInt(clean.slice(i, i + 2), 16));
+    }
+    // Keep only printable ASCII; cap length so nothing huge reaches the UI/logs.
+    const printable = out.replace(/[^\x20-\x7e]/gu, "").trim();
+    return printable ? printable.slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Classify a receipt's contract-result string into a stable reason code.
+function classifyReceiptResult(
+  receiptResult: string | undefined,
+  resMessage: string | null,
+): TronReceiptReasonCode {
+  const r = (receiptResult ?? "").toUpperCase();
+  const m = (resMessage ?? "").toLowerCase();
+  if (r === "OUT_OF_ENERGY" || m.includes("not enough energy") || m.includes("energy")) {
+    return "OUT_OF_ENERGY";
+  }
+  if (r === "REVERT" || m.includes("revert")) return "REVERT";
+  if (r === "OUT_OF_TIME" || r === "OUT_OF_TIMES") return "OUT_OF_TIME";
+  return "FAILED";
+}
+
+// Richer status read that also returns WHY a tx failed (energy/revert/…), so the
+// approval UI can show a precise, actionable message. Same pending/confirmed/
+// failed semantics as getTronTransactionStatus; transient errors → pending.
+export async function getTronTransactionReceipt(
+  txId: string,
+): Promise<TronTransactionReceipt> {
+  try {
+    const info = (await getTronWeb().trx.getTransactionInfo(txId)) as {
+      id?: string;
+      blockNumber?: number;
+      result?: string;
+      resMessage?: string;
+      receipt?: { result?: string };
+      contractResult?: string[];
+    } | null;
+
+    if (!info || Object.keys(info).length === 0) {
+      return { status: "pending", reasonCode: null, reasonMessage: null };
+    }
+
+    const resMessage = decodeTronResMessage(info.resMessage);
+    const receiptResult = info.receipt?.result;
+    const topFailed = info.result === "FAILED";
+    const receiptFailed = Boolean(receiptResult && receiptResult !== "SUCCESS");
+
+    if (topFailed || receiptFailed) {
+      return {
+        status: "failed",
+        reasonCode: classifyReceiptResult(receiptResult, resMessage),
+        reasonMessage: resMessage,
+      };
+    }
+
+    if (info.blockNumber || info.id) {
+      return { status: "confirmed", reasonCode: null, reasonMessage: null };
+    }
+
+    return { status: "pending", reasonCode: null, reasonMessage: null };
+  } catch {
+    return { status: "pending", reasonCode: null, reasonMessage: null };
+  }
+}

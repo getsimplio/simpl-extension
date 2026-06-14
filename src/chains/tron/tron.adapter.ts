@@ -21,6 +21,15 @@ import {
   sendTrc20,
   sendTrx,
 } from "./tron.transactions";
+
+// Re-export the richer receipt reader so callers (the bridge approval flow) can
+// import a classified failed/confirmed/pending result from the single TRON entry
+// point, the same way they import getTronActivityStatus.
+export {
+  getTronTransactionReceipt,
+  type TronTransactionReceipt,
+  type TronReceiptReasonCode,
+} from "./tron.transactions";
 import { isValidTronAddress } from "./tron.address";
 import { tronError } from "./tron.errors";
 

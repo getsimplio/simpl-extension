@@ -43,8 +43,14 @@ import {
 import { readTrc20Allowance } from "../../chains/tron/tron.bridge";
 import { TronError } from "../../chains/tron/tron.errors";
 import { isValidTronAddress } from "../../chains/tron/tron.address";
-import { getTronActivityStatus } from "../../chains/tron/tron.adapter";
-import { getTronTransactionExplorerUrl } from "../../chains/tron/tron.config";
+import {
+  getTronTransactionReceipt,
+  type TronReceiptReasonCode,
+} from "../../chains/tron/tron.adapter";
+import {
+  getTronTransactionExplorerUrl,
+  TRC20_DEFAULT_FEE_LIMIT_SUN,
+} from "../../chains/tron/tron.config";
 import {
   preflightEvmBridgeTransaction,
   recordEvmBridgeTxHash,
@@ -1437,20 +1443,30 @@ export function BridgePage({
       txIdMasked: maskMiddle(txId),
     });
 
-    // ≤30 polls × 3s, each status read capped at 8s → a hung request can't block.
+    // ≤30 polls × 3s, each receipt read capped at 8s → a hung request can't block.
     const MAX_ATTEMPTS = 30;
     let status: "confirmed" | "failed" | "timeout" = "timeout";
+    let reasonCode: TronReceiptReasonCode = null;
+    let reasonMessage: string | null = null;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      const s = await withTimeout(getTronActivityStatus(txId), 8_000, "submitted");
-      if (s === "confirmed") {
+      const r = await withTimeout(getTronTransactionReceipt(txId), 8_000, {
+        status: "pending" as const,
+        reasonCode: null,
+        reasonMessage: null,
+      });
+      if (r.status === "confirmed") {
         status = "confirmed";
         break;
       }
-      if (s === "failed") {
+      if (r.status === "failed") {
+        // The tx is on-chain but the contract execution FAILED (e.g. ran out of
+        // energy mid-call). This is a terminal state — stop polling, classify it.
         status = "failed";
+        reasonCode = r.reasonCode;
+        reasonMessage = r.reasonMessage;
         break;
       }
-      await new Promise((r) => setTimeout(r, 3_000));
+      await new Promise((r2) => setTimeout(r2, 3_000));
     }
 
     let allowanceRefreshed = false;
@@ -1485,10 +1501,35 @@ export function BridgePage({
         setError(null);
       }
     } else if (status === "failed") {
-      errorCode = "TX_FAILED";
+      errorCode = reasonCode ?? "FAILED";
+      // Re-enable Approve (state "needed") but KEEP approvalTxId set so the failed
+      // tx's Tronscan link stays visible next to the error. Clear the pending ref
+      // so a retry broadcasts a fresh tx (never re-uses the failed one).
       pendingApprovalRef.current = null;
       setApprovalState("needed");
-      setError("TRON approval transaction failed. Try again.");
+      setError(
+        reasonCode === "OUT_OF_ENERGY"
+          ? "Approval failed: not enough TRX/Energy for network fees. Add TRX or rent Energy, then try again."
+          : "Approval transaction failed on TRON. Try again after checking your TRX balance and Energy.",
+      );
+      // Detailed failed diagnostics (best-effort TRX balance read).
+      let trxBalanceAvailable: string | null = null;
+      try {
+        trxBalanceAvailable = (await getTrxBalance(owner)).toString();
+      } catch {
+        trxBalanceAvailable = null;
+      }
+      tronApproveLog("approve-failed", {
+        chainId: fromChainId,
+        txIdMasked: maskMiddle(txId),
+        status,
+        reasonCode,
+        reasonMessage,
+        feeLimit: TRC20_DEFAULT_FEE_LIMIT_SUN,
+        trxBalanceAvailable,
+        allowanceRefreshed,
+        allowanceEnough,
+      });
     } else {
       errorCode = "TIMEOUT";
       // Allow a retry (clear the pending tx) but DO NOT keep infinite loading.
@@ -2817,7 +2858,25 @@ export function BridgePage({
           </SwapRouteNotice>
         ) : null}
 
-        {error ? <div className="swap-error">{error}</div> : null}
+        {error ? (
+          <div className="swap-error">
+            {error}
+            {/* Keep the failed/pending TRON approve tx reachable on Tronscan even
+                after we re-enable the Approve button. */}
+            {approvalTxId && approvalState === "needed" ? (
+              <>
+                {" "}
+                <a
+                  href={getTronTransactionExplorerUrl(approvalTxId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on Tronscan ({maskMiddle(approvalTxId)})
+                </a>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Dev-only hint pointing at the safe Solana payload diagnostics. */}
         {import.meta.env.DEV &&
