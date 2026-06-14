@@ -7,21 +7,24 @@
 //
 //  • "hint"    — muted, secondary helper copy (default)
 //  • "preview" — the quote-found-but-not-executable callout
+//  • "warning" — a calm amber caution (e.g. high fees on a small route)
 
 import type { ReactNode } from "react";
 
 type SwapRouteNoticeProps = {
   children: ReactNode;
-  variant?: "hint" | "preview";
+  variant?: "hint" | "preview" | "warning";
+};
+
+const VARIANT_CLASS: Record<NonNullable<SwapRouteNoticeProps["variant"]>, string> = {
+  hint: "swap-cross-helper",
+  preview: "swap-preview-note",
+  warning: "swap-warning-note",
 };
 
 export function SwapRouteNotice({
   children,
   variant = "hint",
 }: SwapRouteNoticeProps) {
-  return (
-    <div className={variant === "preview" ? "swap-preview-note" : "swap-cross-helper"}>
-      {children}
-    </div>
-  );
+  return <div className={VARIANT_CLASS[variant]}>{children}</div>;
 }

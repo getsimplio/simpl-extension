@@ -1190,6 +1190,10 @@ function normalizeQuote(raw: RawBridgeQuote): BridgeQuote {
 // Thrown when the gateway has no route for the requested pair (HTTP 404 / a
 // "no route"/"not found" body). The UI renders a friendly empty state for it.
 export class NoBridgeRouteError extends Error {
+  // Stable classification code: a genuine "no route for this pair/amount". The UI
+  // probes higher amounts (stablecoins) to tell a too-small amount apart from a
+  // truly unsupported pair.
+  readonly code = "NO_ROUTE" as const;
   constructor(message = "No route found for this pair.") {
     super(message);
     this.name = "NoBridgeRouteError";
@@ -1203,6 +1207,7 @@ export type BridgeQuoteErrorCode =
   | "invalidDestination"
   | "invalidToken"
   | "amountTooLow"
+  | "NO_ROUTE"
   | "failed";
 
 export class BridgeQuoteError extends Error {
@@ -1439,6 +1444,129 @@ export async function getBridgeQuote(
   });
 
   return quote;
+}
+
+// ── Low-amount route probing ────────────────────────────────────────────────
+//
+// Cross-chain bridges (esp. intent-based routes like NearIntents) enforce a
+// minimum input amount; below it the gateway returns a plain "no route", which is
+// indistinguishable from a genuinely unsupported pair. After a NO_ROUTE on a
+// stablecoin route we re-quote the SAME pair at a few standard amounts to find the
+// smallest that DOES route, so the UI can say "try at least N" instead of a dead
+// end. Results are cached per route so we never re-probe on every render.
+
+// Stablecoins we probe (and compare value against) — all ≈ $1, so the input
+// amount IS the USD value, no price oracle needed.
+const STABLECOIN_SYMBOLS = new Set([
+  "USDT",
+  "USDC",
+  "USDC.E",
+  "DAI",
+  "FDUSD",
+  "TUSD",
+  "USDD",
+  "BUSD",
+  "USDP",
+]);
+
+export function isStablecoinSymbol(symbol: string | null | undefined): boolean {
+  return symbol != null && STABLECOIN_SYMBOLS.has(symbol.trim().toUpperCase());
+}
+
+// Standard probe amounts (whole stablecoin units), smallest first.
+const PROBE_AMOUNTS = [3, 5, 10] as const;
+
+export type BridgeMinimumProbe = {
+  // Smallest probed amount that routed, in source base units + whole units.
+  minBaseUnits: string;
+  minWholeAmount: number;
+};
+
+// Cache: route key → probe result (or null when no probe amount routed). Keyed by
+// chains + tokens + source decimals + slippage, NOT the failing amount, so all
+// amounts for a route share one probe.
+const probeCache = new Map<string, BridgeMinimumProbe | null>();
+
+function probeCacheKey(params: {
+  fromChainId: number;
+  toChainId: number;
+  fromTokenAddress: string;
+  toTokenAddress: string;
+  sourceDecimals: number;
+  slippageBps?: number;
+}): string {
+  return [
+    params.fromChainId,
+    params.toChainId,
+    params.fromTokenAddress.toLowerCase(),
+    params.toTokenAddress.toLowerCase(),
+    params.sourceDecimals,
+    params.slippageBps ?? "default",
+  ].join("|");
+}
+
+// Probe the smallest standard amount that routes for a stablecoin pair, after a
+// NO_ROUTE on the user's amount. Returns null for non-stablecoin sources or when
+// even the largest probe doesn't route. Cached per route; never re-probes. The
+// extra quote calls reuse getBridgeQuote (so they share the safe diagnostics).
+export async function probeMinimumBridgeAmount(params: {
+  fromChainId: number;
+  toChainId: number;
+  fromTokenAddress: string;
+  toTokenAddress: string;
+  fromAddress: string;
+  toAddress?: string;
+  slippageBps?: number;
+  sourceDecimals: number;
+  sourceSymbol: string;
+}): Promise<BridgeMinimumProbe | null> {
+  if (!isStablecoinSymbol(params.sourceSymbol)) return null;
+
+  const key = probeCacheKey(params);
+  const cached = probeCache.get(key);
+  if (cached !== undefined) return cached;
+
+  let result: BridgeMinimumProbe | null = null;
+  for (const whole of PROBE_AMOUNTS) {
+    const base = (
+      BigInt(whole) *
+      10n ** BigInt(params.sourceDecimals)
+    ).toString();
+    try {
+      await getBridgeQuote({
+        fromChainId: params.fromChainId,
+        toChainId: params.toChainId,
+        fromTokenAddress: params.fromTokenAddress,
+        toTokenAddress: params.toTokenAddress,
+        fromAmountBaseUnits: base,
+        fromAddress: params.fromAddress,
+        toAddress: params.toAddress,
+        slippageBps: params.slippageBps,
+        fromTokenSymbol: params.sourceSymbol,
+        fromTokenDecimals: params.sourceDecimals,
+      });
+      // A resolved quote means a route EXISTS at this amount.
+      result = { minBaseUnits: base, minWholeAmount: whole };
+      lifiShapeLog("probe", { whole, routed: true });
+      break;
+    } catch (error) {
+      // Still too small / no route → try the next amount. Any OTHER failure
+      // (network, unsupported, invalid token) is not an amount problem → stop.
+      const isAmountOrNoRoute =
+        error instanceof NoBridgeRouteError ||
+        (error instanceof BridgeQuoteError &&
+          (error.code === "NO_ROUTE" || error.code === "amountTooLow"));
+      lifiShapeLog("probe", {
+        whole,
+        routed: false,
+        stop: !isAmountOrNoRoute,
+      });
+      if (!isAmountOrNoRoute) break;
+    }
+  }
+
+  probeCache.set(key, result);
+  return result;
 }
 
 // ── Prepare (refresh-before-sign) ───────────────────────────────────────────

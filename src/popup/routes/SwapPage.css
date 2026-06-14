@@ -301,6 +301,18 @@
   font-weight: 600;
 }
 
+/* Warning notice: a calm amber caution (e.g. high fees on a small-amount route).
+   Informational — it never blocks the action. */
+.swap-warning-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9a6a00;
+  background: #fdf3e0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
 /* ============================================================
    PAGE HEADER (uses shared bar-top + icbtn from design kit)
    ============================================================ */

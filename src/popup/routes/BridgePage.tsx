@@ -30,6 +30,8 @@ import {
   readErc20Allowance,
   NoBridgeRouteError,
   BridgeQuoteError,
+  probeMinimumBridgeAmount,
+  isStablecoinSymbol,
   LIFI_SOLANA_CHAIN_ID,
   LIFI_TRON_CHAIN_ID,
   bridgeDebugLog,
@@ -1211,6 +1213,48 @@ export function BridgePage({
         setApprovalState("notNeeded");
       }
     } catch (e) {
+      // No route for this amount → for stablecoins, PROBE higher standard amounts
+      // to tell "amount too small" apart from a truly unsupported pair, and tell
+      // the user the likely minimum. Probe + result are cached so neither the
+      // failed request nor the probe re-fires on an unchanged re-submit.
+      if (e instanceof NoBridgeRouteError) {
+        let message = "No route found for this pair. Try another token, chain, or amount.";
+        try {
+          const probe = await probeMinimumBridgeAmount({
+            fromChainId,
+            toChainId,
+            fromTokenAddress: fromToken.address,
+            toTokenAddress: toToken.address,
+            fromAddress,
+            toAddress,
+            slippageBps,
+            sourceDecimals: fromToken.decimals,
+            sourceSymbol: fromToken.symbol,
+          });
+          if (probe) {
+            message = `Amount is too small for this route. Try at least ${probe.minWholeAmount} ${fromToken.symbol}.`;
+            // If the user's loaded balance is below that minimum, say so plainly.
+            if (
+              fromBalance.status === "loaded" &&
+              fromBalance.baseUnits != null
+            ) {
+              try {
+                if (BigInt(fromBalance.baseUnits) < BigInt(probe.minBaseUnits)) {
+                  message +=
+                    " Your balance is below the likely minimum for this bridge route.";
+                }
+              } catch {
+                // ignore unparseable balance — keep the base message
+              }
+            }
+          }
+        } catch {
+          // Probe failed (network) — keep the generic no-route message.
+        }
+        lastFailedQuoteRef.current = { sig: requestSig, message };
+        setError(message);
+        return;
+      }
       const message = friendlyError(e);
       // A classified, non-retryable failure (TRON unsupported / invalid token /
       // amount too low) is cached against this exact request so an unchanged
@@ -2104,6 +2148,31 @@ export function BridgePage({
   }
 
   const previewOnly = Boolean(quote) && !quote?.executable;
+
+  // High-fee warning for small stablecoin routes: when the estimated output is
+  // worth materially less than the input (≈ USD, since both are stablecoins),
+  // warn that the route's fixed costs dominate. < 80% of input → warn. Integer
+  // math across differing decimals (BSC USDT 18 → TRON USDT 6).
+  const highFeeWarning = useMemo(() => {
+    if (!quote || !fromToken || !toToken) return false;
+    if (!isStablecoinSymbol(fromToken.symbol) || !isStablecoinSymbol(toToken.symbol)) {
+      return false;
+    }
+    if (!quote.toAmountBaseUnits) return false;
+    try {
+      const inAmt = BigInt(quote.fromAmountBaseUnits);
+      const outAmt = BigInt(quote.toAmountBaseUnits);
+      if (inAmt <= 0n || outAmt < 0n) return false;
+      // out/10^outDec < 0.8 · in/10^inDec
+      //   ⇔ out · 10^inDec · 100 < 80 · in · 10^outDec   (integer-safe)
+      const left = outAmt * 10n ** BigInt(quote.fromTokenDecimals) * 100n;
+      const right = 80n * inAmt * 10n ** BigInt(quote.toTokenDecimals);
+      return left < right;
+    } catch {
+      return false;
+    }
+  }, [quote, fromToken, toToken]);
+
   const isBusy =
     submitStatus === "preparingAccount" ||
     submitStatus === "preparing" ||
@@ -2366,6 +2435,13 @@ export function BridgePage({
         {step === "review" && previewOnly ? (
           <SwapRouteNotice variant="preview">
             {quote?.executionReason ?? "Route found, execution is not supported yet."}
+          </SwapRouteNotice>
+        ) : null}
+
+        {/* High-fee caution for small stablecoin routes (informational). */}
+        {step === "review" && !previewOnly && highFeeWarning ? (
+          <SwapRouteNotice variant="warning">
+            This route has high fees for small amounts.
           </SwapRouteNotice>
         ) : null}
 
