@@ -1739,6 +1739,26 @@ export class WalletService {
 
   // --- TRON ----------------------------------------------------------------
 
+  // Public: resolve the active account's TRON base58 (T…) address for the bridge
+  // flow. Returns the persisted value when present; otherwise derives it from the
+  // vault and persists it (lazy migration for accounts created before TRON
+  // support) — using the SAME m/44'/195' derivation as every other TRON path,
+  // never a second one. Uses the in-memory unlocked vault, so it does not prompt
+  // for a password while the popup is unlocked. Returns null for watch-only
+  // accounts (TRON is unavailable for them).
+  async getSelectedTronAddress(password?: string): Promise<string | null> {
+    const walletState = await this.storage.getWalletState();
+    const selectedAccount = this.getRequiredSelectedAccount(walletState);
+    if (selectedAccount.type === "watch") {
+      return null;
+    }
+    return this.ensureTronAddressForAccount(
+      walletState,
+      selectedAccount,
+      password,
+    );
+  }
+
   // Resolve the selected account's TRON address. Returns the persisted value
   // when present (no vault needed); otherwise derives it from the vault and
   // persists it on the account (lazy migration for accounts created before
