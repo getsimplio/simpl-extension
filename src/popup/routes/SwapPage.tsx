@@ -35,6 +35,7 @@ import { hiddenAssetService } from "../../core/tokens/hidden-asset.service";
 import {
   getNetworkDisplayName,
   isSolanaChainId,
+  isTronChainId,
 } from "../../core/networks/chain-registry";
 import { AssetIcon } from "../components/AssetIcon";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
@@ -1429,6 +1430,19 @@ export function SwapPage({
 
     const amountFields = getQuoteAmountFields();
 
+    // 0x only prices EVM SAME-CHAIN swaps. Cross-chain pairs are owned by the
+    // bridge (LI.FI), and non-EVM chains (TRON 728126428 / Solana) have no 0x
+    // endpoint — calling /swap/allowance-holder/price for them 400s. Never issue
+    // a 0x price request in those cases; the bridge/Jupiter flows handle pricing.
+    if (
+      isCrossChain ||
+      isTronChainId(selectedChainId) ||
+      isSolanaChainId(selectedChainId)
+    ) {
+      setPriceStatus("idle");
+      return;
+    }
+
     if (
       !selectedAccount ||
       !fromToken ||
@@ -1490,6 +1504,7 @@ export function SwapPage({
     amountMode,
     buyAmountBaseUnits,
     fromToken,
+    isCrossChain,
     quoteRefreshTick,
     selectedAccount,
     selectedChainId,

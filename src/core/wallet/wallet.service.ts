@@ -2468,14 +2468,10 @@ export class WalletService {
       fromAddress: address,
     });
 
-    // Best-effort confirmation wait — never blocks the flow on a timeout; the UI
-    // re-checks the live allowance before signing the bridge tx.
-    try {
-      await this.waitForTronTransaction(txId, 60_000);
-    } catch {
-      // Confirmation is best-effort; allowance is re-validated before bridging.
-    }
-
+    // Return as soon as the approve tx is BROADCAST. Confirmation is polled by the
+    // caller (BridgePage) with a bounded, timeout-protected loop so a slow/stuck
+    // TronGrid getTransactionInfo can never freeze the UI on "Approving…". We no
+    // longer block here on a 60s wait that could hang if the RPC never settles.
     return { txId, address };
   }
 

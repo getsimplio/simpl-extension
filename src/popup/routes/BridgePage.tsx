@@ -43,6 +43,8 @@ import {
 import { readTrc20Allowance } from "../../chains/tron/tron.bridge";
 import { TronError } from "../../chains/tron/tron.errors";
 import { isValidTronAddress } from "../../chains/tron/tron.address";
+import { getTronActivityStatus } from "../../chains/tron/tron.adapter";
+import { getTronTransactionExplorerUrl } from "../../chains/tron/tron.config";
 import {
   preflightEvmBridgeTransaction,
   recordEvmBridgeTxHash,
@@ -132,7 +134,8 @@ type ApprovalState =
   | "unknown"
   | "checking"
   | "needed"
-  | "approving"
+  | "approving" // signing + broadcasting the approve tx
+  | "submitted" // approve tx broadcast; awaiting on-chain confirmation (TRON)
   | "approved"
   | "notNeeded";
 type SubmitStatus =
@@ -459,6 +462,62 @@ function maskTokenAddress(token: BridgeToken | null): string {
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
 
+// Mask any address/hash for diagnostics (first 6 / last 4) — never logs full
+// spenders, owners, or tx ids verbatim.
+function maskMiddle(value: string | null | undefined): string {
+  if (!value) return "none";
+  return value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : value;
+}
+
+// Safe [bridge:tron] approval diagnostics, behind simpl.debug.bridge — only
+// masked addresses / tx ids and status flags, never key/seed/raw signed tx.
+function tronApproveLog(event: string, data: Record<string, unknown>): void {
+  if (!isBridgeDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.info(`[bridge:tron] ${event}`, data);
+}
+
+// Stable identity for a pending TRON approval (dedupe + recovery): a second
+// Approve click for the same token+owner+spender+amount resumes the in-flight tx
+// instead of broadcasting a duplicate.
+function tronApprovalKey(
+  chainId: number,
+  tokenAddress: string,
+  owner: string,
+  spender: string,
+  amountBase: bigint,
+): string {
+  return [
+    chainId,
+    tokenAddress.toLowerCase(),
+    owner,
+    spender,
+    amountBase.toString(),
+  ].join("|");
+}
+
+// Resolve a promise to `fallback` if it doesn't settle within `ms` (and never
+// reject) — wraps each TRON status read so a stuck TronGrid request can never
+// block the confirmation loop (the root cause of the "Approving…" hang).
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallback);
+      }
+    }, ms);
+    const finish = (value: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    void promise.then(finish).catch(() => finish(fallback));
+  });
+}
+
 // Prefer a stablecoin, then native, then the first token as the default pick.
 function pickDefaultToken(list: BridgeToken[]): BridgeToken | null {
   const stable = list.find((t) =>
@@ -669,6 +728,11 @@ export function BridgePage({
   const [error, setError] = useState<string | null>(null);
 
   const [approvalState, setApprovalState] = useState<ApprovalState>("unknown");
+  // The broadcast TRON approve tx id (shown + linked while awaiting confirmation).
+  const [approvalTxId, setApprovalTxId] = useState<string | null>(null);
+  // In-flight TRON approval (keyed by token+owner+spender+amount) for dedupe +
+  // recovery — survives re-renders so a second Approve click resumes the same tx.
+  const pendingApprovalRef = useRef<{ key: string; txId: string } | null>(null);
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   // Source-chain wSOL setup tx signature (native-SOL Solana routes), tracked in a
@@ -970,6 +1034,8 @@ export function BridgePage({
     setQuote(null);
     setError(null);
     setApprovalState("unknown");
+    setApprovalTxId(null);
+    pendingApprovalRef.current = null;
     setSubmitStatus("idle");
     // Inputs changed → a previously unsupported request may now differ; allow a
     // fresh attempt.
@@ -1350,6 +1416,99 @@ export function BridgePage({
     return q?.approvalAddress ?? q?.transactionRequest?.to ?? null;
   }
 
+  // Poll a broadcast TRON approve tx to confirmation, then refresh the live
+  // TRC-20 allowance via the TRON contract (never a 0x/EVM endpoint). Bounded
+  // (~90s) with a per-read timeout so a stuck TronGrid request can NEVER freeze
+  // the UI — it always lands on a terminal state (Confirm / retry), never an
+  // infinite "Approving…". Sets the approval state itself; does not throw.
+  async function confirmTronApproval(params: {
+    txId: string;
+    owner: string;
+    spender: string;
+    amountBase: bigint;
+    tokenAddress: string;
+  }): Promise<void> {
+    const { txId, owner, spender, amountBase, tokenAddress } = params;
+    tronApproveLog("approve-confirmation-start", {
+      chainId: fromChainId,
+      tokenAddressMasked: maskMiddle(tokenAddress),
+      spenderMasked: maskMiddle(spender),
+      amountBaseUnits: amountBase.toString(),
+      txIdMasked: maskMiddle(txId),
+    });
+
+    // ≤30 polls × 3s, each status read capped at 8s → a hung request can't block.
+    const MAX_ATTEMPTS = 30;
+    let status: "confirmed" | "failed" | "timeout" = "timeout";
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const s = await withTimeout(getTronActivityStatus(txId), 8_000, "submitted");
+      if (s === "confirmed") {
+        status = "confirmed";
+        break;
+      }
+      if (s === "failed") {
+        status = "failed";
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
+
+    let allowanceRefreshed = false;
+    let allowanceEnough = false;
+    let errorCode: string | null = null;
+
+    if (status === "confirmed") {
+      // Re-read the live TRC-20 allowance(owner, spender) — TRON contract call.
+      const allowance = await readTrc20Allowance({
+        owner,
+        contractAddress: tokenAddress,
+        spender,
+      }).catch(() => null);
+      allowanceRefreshed = allowance != null;
+      allowanceEnough = allowance != null && allowance >= amountBase;
+      pendingApprovalRef.current = null;
+      if (allowanceEnough) {
+        setApprovalState("approved");
+        setError(null);
+      } else if (allowance != null) {
+        errorCode = "ALLOWANCE_INSUFFICIENT";
+        setApprovalState("needed");
+        setError(
+          "Approval submitted, but allowance is still insufficient. Try refreshing.",
+        );
+      } else {
+        // Confirmed on-chain but the allowance read failed (transient RPC). Treat
+        // as approved — handleConfirm re-checks before signing — rather than a
+        // false "insufficient" that would loop the user back to Approve.
+        errorCode = "ALLOWANCE_READ_FAILED";
+        setApprovalState("approved");
+        setError(null);
+      }
+    } else if (status === "failed") {
+      errorCode = "TX_FAILED";
+      pendingApprovalRef.current = null;
+      setApprovalState("needed");
+      setError("TRON approval transaction failed. Try again.");
+    } else {
+      errorCode = "TIMEOUT";
+      // Allow a retry (clear the pending tx) but DO NOT keep infinite loading.
+      pendingApprovalRef.current = null;
+      setApprovalState("needed");
+      setError(
+        "Approval submitted but not confirmed yet. Check Tronscan or retry later.",
+      );
+    }
+
+    tronApproveLog("approve-confirmation-result", {
+      chainId: fromChainId,
+      txIdMasked: maskMiddle(txId),
+      status,
+      allowanceRefreshed,
+      allowanceEnough,
+      errorCode,
+    });
+  }
+
   async function handleApprove() {
     if (!quote || !fromToken) return;
     const spender =
@@ -1362,21 +1521,65 @@ export function BridgePage({
       return;
     }
     setError(null);
-    setApprovalState("approving");
     try {
       const amountBase = decimalToBaseUnits(amount, fromToken.decimals);
       // TRON-source TRC-20 approval goes through the TRON adapter (build → sign →
-      // broadcast → confirm); never the EVM approve calldata path.
+      // broadcast → poll-confirm → refresh allowance); never the EVM approve path.
       if (quote.txFormat === "tron") {
-        await walletService.executeSelectedTronBridgeApproval({
-          contractAddress: fromToken.address,
+        const owner = ownerForChainId(fromChainId);
+        if (!owner || !isValidTronAddress(owner)) {
+          setApprovalState("needed");
+          setError("TRON address is not available for this account.");
+          return;
+        }
+        const key = tronApprovalKey(
+          fromChainId,
+          fromToken.address,
+          owner,
           spender,
-          amountBaseUnits: amountBase.toString(),
+          amountBase,
+        );
+        // Duplicate guard / recovery: an in-flight approve for the SAME
+        // token+owner+spender+amount → resume polling it, never broadcast twice.
+        if (pendingApprovalRef.current?.key === key) {
+          setApprovalState("submitted");
+          setApprovalTxId(pendingApprovalRef.current.txId);
+          await confirmTronApproval({
+            txId: pendingApprovalRef.current.txId,
+            owner,
+            spender,
+            amountBase,
+            tokenAddress: fromToken.address,
+          });
+          return;
+        }
+        setApprovalState("approving");
+        let result: { txId: string; address: string };
+        try {
+          result = await walletService.executeSelectedTronBridgeApproval({
+            contractAddress: fromToken.address,
+            spender,
+            amountBaseUnits: amountBase.toString(),
+          });
+        } catch (e) {
+          setApprovalState("needed");
+          setError(friendlyError(e));
+          return;
+        }
+        pendingApprovalRef.current = { key, txId: result.txId };
+        setApprovalTxId(result.txId);
+        setApprovalState("submitted");
+        await confirmTronApproval({
+          txId: result.txId,
+          owner,
+          spender,
+          amountBase,
+          tokenAddress: fromToken.address,
         });
-        setApprovalState("approved");
         return;
       }
       // EVM ERC-20 approval (handles USDT reset-to-0 → re-approve internally).
+      setApprovalState("approving");
       await walletService.executeSelectedEvmBridgeApproval({
         chainId: fromChainId,
         tokenAddress: fromToken.address,
@@ -2114,6 +2317,8 @@ export function BridgePage({
     setExplorerUrl(null);
     setError(null);
     setApprovalState("unknown");
+    setApprovalTxId(null);
+    pendingApprovalRef.current = null;
     setSubmitStatus("idle");
     setBridgeProgress("pending");
     setHashCopied(false);
@@ -2305,7 +2510,8 @@ export function BridgePage({
     submitStatus === "preparing" ||
     submitStatus === "simulating" ||
     submitStatus === "submitting" ||
-    approvalState === "approving";
+    approvalState === "approving" ||
+    approvalState === "submitted";
 
   return (
     <div className="ext-popup swap-page" data-screen-label="Swap – Cross-chain">
@@ -2591,6 +2797,26 @@ export function BridgePage({
           </SwapRouteNotice>
         ) : null}
 
+        {/* TRON approval in flight — stable "submitted, waiting" state with the
+            tx id + Tronscan link. Never a frozen/blank screen. */}
+        {step === "review" && approvalState === "submitted" ? (
+          <SwapRouteNotice>
+            Approval submitted. Waiting for TRON confirmation…
+            {approvalTxId ? (
+              <>
+                {" "}
+                <a
+                  href={getTronTransactionExplorerUrl(approvalTxId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on Tronscan ({maskMiddle(approvalTxId)})
+                </a>
+              </>
+            ) : null}
+          </SwapRouteNotice>
+        ) : null}
+
         {error ? <div className="swap-error">{error}</div> : null}
 
         {/* Dev-only hint pointing at the safe Solana payload diagnostics. */}
@@ -2618,16 +2844,22 @@ export function BridgePage({
             <button className="btn primary lg full" type="button" disabled>
               Execution coming soon
             </button>
-          ) : approvalState === "needed" || approvalState === "approving" ? (
+          ) : approvalState === "needed" ||
+            approvalState === "approving" ||
+            approvalState === "submitted" ? (
             <button
               className="btn primary lg full"
               type="button"
-              disabled={approvalState === "approving"}
+              disabled={
+                approvalState === "approving" || approvalState === "submitted"
+              }
               onClick={handleApprove}
             >
               {approvalState === "approving"
                 ? `Approving ${fromToken?.symbol ?? "token"}…`
-                : `Approve ${fromToken?.symbol ?? "token"}`}
+                : approvalState === "submitted"
+                  ? `Approving ${fromToken?.symbol ?? "token"}…`
+                  : `Approve ${fromToken?.symbol ?? "token"}`}
             </button>
           ) : (
             <button
