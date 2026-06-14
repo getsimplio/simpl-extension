@@ -18,7 +18,7 @@
 // aware: an EVM contract address searches EVM chains; a Solana mint searches
 // Solana; the two are never confused.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getBridgeTokensForChains,
   LIFI_SOLANA_CHAIN_ID,
@@ -136,8 +136,24 @@ export function CrossChainTokenPicker({
 }: CrossChainTokenPickerProps) {
   const [catalog, setCatalog] = useState<PickerToken[]>([]);
   const [search, setSearch] = useState("");
-  // "all" | "current" | a specific chain id.
+  // "all" | "current" | a specific chain id. Filtering logic below is unchanged —
+  // only its UI changed from a scrolling chip row to a compact dropdown selector.
   const [filter, setFilter] = useState<"all" | "current" | number>("all");
+  // Local open/closed state for the network filter dropdown (UI only).
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the network dropdown on an outside click / tap.
+  useEffect(() => {
+    if (!filterOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [filterOpen]);
 
   // Load the cross-network token catalog once (one multi-chain request).
   useEffect(() => {
@@ -223,11 +239,18 @@ export function CrossChainTokenPicker({
   const title =
     side === "from" ? "Select token to sell" : "Select token to receive";
 
-  const filterChips: { key: "all" | "current" | number; label: string }[] = [
+  const filterOptions: { key: "all" | "current" | number; label: string }[] = [
     { key: "all", label: "All networks" },
-    { key: "current", label: "Current" },
+    { key: "current", label: "Current network" },
     ...PRODUCTION_CHAINS.map((c) => ({ key: c.id, label: c.name })),
   ];
+  // The selector button's current value label.
+  const filterLabel =
+    filter === "all"
+      ? "All networks"
+      : filter === "current"
+        ? "Current"
+        : CHAIN_NAME.get(filter) ?? `Chain ${filter}`;
 
   function renderRow(t: PickerToken) {
     return (
@@ -281,21 +304,51 @@ export function CrossChainTokenPicker({
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        {/* Horizontally scrollable network filter. A subtle right-edge fade hints
-            that more networks are reachable by scrolling as the set grows. */}
-        <div className="cc-filter-wrap">
-          <div className="cc-filter-row">
-            {filterChips.map((chip) => (
-              <button
-                key={String(chip.key)}
-                type="button"
-                className={`cc-chip${filter === chip.key ? " cc-chip--active" : ""}`}
-                onClick={() => setFilter(chip.key)}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
+        {/* Compact network filter selector — a single full-width button that opens
+            a dropdown. Replaces the old horizontal chip row, which clipped on the
+            narrow popup/fullscreen surface. */}
+        <div className="cc-filter-select" ref={filterRef}>
+          <button
+            type="button"
+            className="cc-filter-trigger"
+            aria-haspopup="listbox"
+            aria-expanded={filterOpen}
+            onClick={() => setFilterOpen((open) => !open)}
+          >
+            <span className="cc-filter-trigger__label">
+              Network: <strong>{filterLabel}</strong>
+            </span>
+            <span className="cc-filter-trigger__chevron" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+          {filterOpen ? (
+            <div className="cc-filter-menu" role="listbox">
+              {filterOptions.map((opt) => {
+                const active = filter === opt.key;
+                return (
+                  <button
+                    key={String(opt.key)}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={`cc-filter-option${active ? " cc-filter-option--active" : ""}`}
+                    onClick={() => {
+                      setFilter(opt.key);
+                      setFilterOpen(false);
+                    }}
+                  >
+                    <span>{opt.label}</span>
+                    {active ? (
+                      <span className="cc-filter-check" aria-hidden="true">
+                        ✓
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </div>
 

@@ -102,6 +102,11 @@ type BridgePageProps = {
   selectedAccount: WalletAccount | null;
   walletState: WalletState;
   onBack: () => void;
+  // Explicit navigation to the wallet Home screen. Used by the success screen's
+  // "Back to wallet" CTA so it ALWAYS lands on Home — never the previous in-flow
+  // screen (for a cross-chain bridge, onBack returns to the Swap page, not Home).
+  // Falls back to onBack when not provided.
+  onNavigateHome?: () => void;
   onBridgeCompleted?: () => void | Promise<void>;
   // Source/destination chains the parent Swap screen entered cross-chain with.
   initialFromChainId?: number;
@@ -169,14 +174,44 @@ const SLIPPAGE_PRESETS = [10, 50, 100] as const;
 const DEFAULT_FROM_CHAIN = 8453; // Base
 const DEFAULT_TO_CHAIN = 56; // BNB Chain
 
-// MAX reserve for a native-SOL source: must cover the bridge tx fee AND a
-// possible wSOL setup tx (idempotent ATA create ≈ 0.00204 SOL rent + tx fee) so
-// a MAX-entered amount still leaves enough SOL to prepare + execute the route.
-// ~0.0035 SOL — bigger than the plain send reserve (SOL_FEE_RESERVE_LAMPORTS),
-// deliberately, because a native-SOL bridge may need wSOL wrapping.
-const SOLANA_NATIVE_MAX_RESERVE_LAMPORTS = 3_500_000n;
+// Native-SOL source fee reserve band. The reserve is the SOL that must stay
+// UNbridged to pay source-chain fees (+ a possible wSOL ATA rent ≈ 0.00204 SOL on
+// native-SOL routes). It is derived from the LI.FI quote's native gas estimate
+// when available (see computeSolFeeReserveLamports), else the fallback. Clamped
+// so a missing/absurd estimate never blocks a clearly-fundable bridge nor
+// under-reserves one. Floor reuses the plain-send reserve (SOL_FEE_RESERVE_LAMPORTS).
+const SOL_FEE_RESERVE_FALLBACK_LAMPORTS = 3_000_000n; // 0.003 SOL (fee + ATA rent)
+const SOL_FEE_RESERVE_MAX_LAMPORTS = 8_000_000n; // 0.008 SOL ceiling
 // Lamports reserve used by the wSOL setup balance gate (setup tx fee + buffer).
 const WSOL_SETUP_FEE_RESERVE_LAMPORTS = 10_000n;
+
+// SOL has 9 decimals — used to format reserve/balance numbers in fee messages.
+const SOL_DECIMALS = 9;
+
+// Compute the native-SOL fee reserve (lamports). Prefer the quote's source-chain
+// gas (native SOL, +50% buffer); fall back to a flat reserve covering fee + a
+// possible wSOL ATA rent the gas estimate omits. Always within [floor, ceiling].
+function computeSolFeeReserveLamports(quote: BridgeQuote | null): bigint {
+  let reserve = SOL_FEE_RESERVE_FALLBACK_LAMPORTS;
+  if (quote?.gasCostBaseUnits) {
+    try {
+      const gas = BigInt(quote.gasCostBaseUnits);
+      if (gas > 0n) {
+        const withBuffer = gas + gas / 2n; // +50%
+        // Never below the fallback — gas alone omits the wSOL ATA rent.
+        reserve =
+          withBuffer > SOL_FEE_RESERVE_FALLBACK_LAMPORTS
+            ? withBuffer
+            : SOL_FEE_RESERVE_FALLBACK_LAMPORTS;
+      }
+    } catch {
+      // keep fallback
+    }
+  }
+  if (reserve < SOL_FEE_RESERVE_LAMPORTS) reserve = SOL_FEE_RESERVE_LAMPORTS;
+  if (reserve > SOL_FEE_RESERVE_MAX_LAMPORTS) reserve = SOL_FEE_RESERVE_MAX_LAMPORTS;
+  return reserve;
+}
 
 // MAX reserve (sun) for a native-TRX source: TRON contract calls (a bridge is a
 // TriggerSmartContract) are paid in TRX for energy/bandwidth. Keep a buffer so a
@@ -666,6 +701,7 @@ export function BridgePage({
   selectedAccount,
   walletState,
   onBack,
+  onNavigateHome,
   onBridgeCompleted,
   initialFromChainId,
   initialToChainId,
@@ -1148,13 +1184,16 @@ export function BridgePage({
             : fromToken.symbol;
           return `Insufficient ${sym}`;
         }
-        // Native SOL source: keep a small lamport reserve for the network fee —
-        // bridging the entire balance would leave nothing to pay for the tx.
-        if (
-          isSolanaNativeSource(fromChainId, fromToken) &&
-          amountBase + SOL_FEE_RESERVE_LAMPORTS > balanceBase
-        ) {
-          return "Keep some SOL for network fees";
+        // Native SOL source: keep a lamport reserve for the network fee (derived
+        // from the quote's gas when available) — bridging the entire balance would
+        // leave nothing to pay for the tx. The message shows the exact reserve and
+        // how much is actually bridgeable, never a vague "keep some SOL".
+        if (isSolanaNativeSource(fromChainId, fromToken)) {
+          const reserve = computeSolFeeReserveLamports(quote);
+          if (amountBase + reserve > balanceBase) {
+            const bridgeable = balanceBase > reserve ? balanceBase - reserve : 0n;
+            return `Keep at least ${formatBaseUnits(reserve.toString(), SOL_DECIMALS)} SOL for network fees. Available to bridge: ${formatBaseUnits(bridgeable.toString(), SOL_DECIMALS)} SOL.`;
+          }
         }
         // Native TRX source: keep a TRX reserve for the energy/bandwidth fee.
         if (
@@ -1178,6 +1217,7 @@ export function BridgePage({
     toChainId,
     amount,
     fromBalance,
+    quote,
     evmAddress,
     solanaAddress,
     tronAddress,
@@ -1219,12 +1259,13 @@ export function BridgePage({
       return;
     }
     let maxBase = BigInt(fromBalance.baseUnits);
-    // Native SOL source: leave a reserve covering bridge fee + a possible wSOL
-    // setup (rent + tx fee). If the reserve exceeds the balance, MAX is a no-op
-    // (validation will already show "Keep some SOL for network fees").
+    // Native SOL source: leave the (quote-derived) fee reserve so MAX still covers
+    // the bridge tx fee + a possible wSOL setup. maxSpendable = balance − reserve.
+    // If the reserve exceeds the balance, MAX is a no-op (validation shows why).
     if (isSolanaNativeSource(fromChainId, fromToken)) {
-      if (maxBase <= SOLANA_NATIVE_MAX_RESERVE_LAMPORTS) return;
-      maxBase = maxBase - SOLANA_NATIVE_MAX_RESERVE_LAMPORTS;
+      const reserve = computeSolFeeReserveLamports(quote);
+      if (maxBase <= reserve) return;
+      maxBase = maxBase - reserve;
     }
     // Native TRX source: subtract a TRX reserve so MAX still leaves fee headroom.
     // A TRC-20 MAX uses the full token balance but still needs TRX for fees (a
@@ -2035,11 +2076,11 @@ export function BridgePage({
     // lamportsToWrap and rent are 0 → required is just the fee reserve.
     const lamportsToWrap = BigInt(need.lamportsToWrap);
     const rentLamports = BigInt(need.rentLamports);
-    const totalRequired =
-      lamportsToWrap +
-      rentLamports +
-      WSOL_SETUP_FEE_RESERVE_LAMPORTS +
-      SOL_FEE_RESERVE_LAMPORTS;
+    const feeReserve = computeSolFeeReserveLamports(active);
+    // Non-bridged SOL the route needs: ATA rent (0 if it exists) + setup tx fee +
+    // the bridge fee reserve. The wrap itself IS the bridge amount, not overhead.
+    const overhead = rentLamports + WSOL_SETUP_FEE_RESERVE_LAMPORTS + feeReserve;
+    const totalRequired = lamportsToWrap + overhead;
 
     const balanceLoaded =
       fromBalance.status === "loaded" && fromBalance.baseUnits != null;
@@ -2067,7 +2108,8 @@ export function BridgePage({
         lamportsToWrap: lamportsToWrap.toString(),
         rentLamports: rentLamports.toString(),
         setupFeeReserveLamports: WSOL_SETUP_FEE_RESERVE_LAMPORTS.toString(),
-        bridgeFeeReserveLamports: SOL_FEE_RESERVE_LAMPORTS.toString(),
+        bridgeFeeReserveLamports: feeReserve.toString(),
+        overheadLamports: overhead.toString(),
         totalRequiredLamports: totalRequired.toString(),
         remainingAfterRequired: remainingAfterRequired?.toString() ?? "unknown",
         // We only ever block on a balance we actually loaded — never on a
@@ -2085,13 +2127,18 @@ export function BridgePage({
     if (!need.needed) return active;
 
     // Block ONLY when we have a real loaded balance that's genuinely short — a
-    // missing/errored balance must never be reported as "insufficient fees".
+    // missing/errored balance must never be reported as "insufficient fees". The
+    // message shows the exact reserve needed and how much is actually bridgeable.
     if (balanceLamports != null && balanceLamports < totalRequired) {
       setSubmitStatus("error");
+      const bridgeable =
+        balanceLamports > overhead ? balanceLamports - overhead : 0n;
+      const reserveLabel = formatBaseUnits(overhead.toString(), SOL_DECIMALS);
+      const bridgeableLabel = formatBaseUnits(bridgeable.toString(), SOL_DECIMALS);
       setError(
         rentLamports > 0n
-          ? "This route needs a wrapped SOL account. Lower the amount to keep SOL for fees."
-          : "Not enough SOL left for network fees. Lower the amount or add SOL.",
+          ? `Keep at least ${reserveLabel} SOL for network fees (incl. wrapped-SOL account rent). Available to bridge: ${bridgeableLabel} SOL.`
+          : `Keep at least ${reserveLabel} SOL for network fees. Available to bridge: ${bridgeableLabel} SOL.`,
       );
       return null;
     }
@@ -2591,7 +2638,7 @@ export function BridgePage({
             <button
               className="btn secondary lg full"
               type="button"
-              onClick={onBack}
+              onClick={onNavigateHome ?? onBack}
             >
               Back to wallet
             </button>

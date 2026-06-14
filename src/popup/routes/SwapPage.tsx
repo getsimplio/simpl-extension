@@ -54,6 +54,10 @@ type SwapPageProps = {
   selectedAccount: WalletAccount | null;
   walletState: WalletState;
   onBack: () => void;
+  // Explicit navigation to the wallet Home screen for the post-swap/bridge
+  // "Back to wallet" CTA — must land on Home, not the previous in-flow screen.
+  // Falls back to onBack when not provided.
+  onNavigateHome?: () => void;
   onSwapCompleted?: () => void | Promise<void>;
   // Re-sync global view state after switching network so the selectedChainId
   // prop updates and the token list / quote reload for the new chain.
@@ -1016,6 +1020,7 @@ export function SwapPage({
   selectedAccount,
   walletState,
   onBack,
+  onNavigateHome,
   onSwapCompleted,
   onChanged,
   initialToAsset,
@@ -2350,7 +2355,8 @@ if (selectedAccount && fromToken && toToken) {
     setSubmitStatus("idle");
     setIsReviewOpen(false);
     void onSwapCompleted?.();
-    onBack();
+    // Always go to the wallet Home screen — never the previous in-flow screen.
+    (onNavigateHome ?? onBack)();
   }
 
   // Failed → back to the swap editor with From/To tokens and amount intact so
@@ -2482,6 +2488,7 @@ if (selectedAccount && fromToken && toToken) {
       <BridgePage
         selectedAccount={selectedAccount}
         walletState={walletState}
+        onNavigateHome={onNavigateHome}
         initialFromChainId={selectedChainId}
         initialToChainId={destChainId}
         // Preserve the user's SOURCE token + amount across the same-chain →

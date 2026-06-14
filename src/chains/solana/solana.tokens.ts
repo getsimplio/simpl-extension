@@ -31,6 +31,16 @@ type KnownToken = {
 
 // Seed metadata for popular mainnet SPL mints. Display-only; extend freely.
 export const KNOWN_SPL_TOKENS: Record<string, KnownToken> = {
+  // Canonical Wrapped SOL. It has no Metaplex metadata account, so without this
+  // seed it falls back to the shortened mint ("So11…1112"). Display it as Wrapped
+  // SOL with the native SOL icon — symbol "SOL" makes AssetIcon resolve the local
+  // /token-icons/sol.png (same as native SOL); logoUrl is set explicitly too so
+  // the metadata re-resolve effect treats it as already enriched.
+  So11111111111111111111111111111111111111112: {
+    symbol: "SOL",
+    name: "Wrapped SOL",
+    logoUrl: "/token-icons/sol.png",
+  },
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: {
     symbol: "USDC",
     name: "USD Coin",

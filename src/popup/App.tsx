@@ -308,6 +308,10 @@ export function App() {
       walletState={viewState.walletState}
       initialToAsset={swapToAsset}
       onChanged={syncViewState}
+      onNavigateHome={() => {
+        setSwapToAsset(null);
+        setRoute("home");
+      }}
       onBack={() => {
         setSwapToAsset(null);
         setRoute("home");
@@ -340,6 +344,10 @@ export function App() {
               logoUrl: fromAsset.logoUrl ?? null,
             }}
             onBridgeCompleted={syncViewState}
+            onNavigateHome={() => {
+              setBridgeFromAsset(null);
+              setRoute("home");
+            }}
             onBack={() => {
               setBridgeFromAsset(null);
               setRoute("home");
