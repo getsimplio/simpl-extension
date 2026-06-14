@@ -143,6 +143,27 @@
 }
 
 /* Cross-chain token picker — network filter chips, group labels, muted chain. */
+/* Wrapper provides a subtle right-edge fade hinting the row scrolls horizontally
+   as more networks are added (Ethereum / BNB / Base / Solana / TRON / …). */
+.cc-filter-wrap {
+  position: relative;
+}
+
+.cc-filter-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0),
+    var(--bg-canvas, #ffffff)
+  );
+}
+
 .cc-filter-row {
   display: flex;
   gap: 6px;
