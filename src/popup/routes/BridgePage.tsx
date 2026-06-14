@@ -136,6 +136,13 @@ type BridgePageProps = {
 
 type Step = "form" | "review" | "success";
 type Side = "from" | "to";
+// A non-retryable quote failure for the CURRENT inputs that must BLOCK navigation
+// to the review screen (the "Review swap" button is disabled while set). Cleared
+// by resetQuote on any input change, and on a successful quote.
+//   "amountTooLow" — below the probed minimum for this route
+//   "noRoute"      — no route for this pair/amount at all
+//   "unavailable"  — a classified gateway/provider rejection (e.g. unsupported)
+type QuoteBlock = "amountTooLow" | "noRoute" | "unavailable";
 type ApprovalState =
   | "unknown"
   | "checking"
@@ -722,7 +729,11 @@ export function BridgePage({
   // non-retryable quote failure (e.g. a TRON route the gateway doesn't support
   // yet), with its stable message. An identical re-submit short-circuits instead
   // of re-POSTing the same 4xx. Cleared when inputs change (resetQuote).
-  const lastFailedQuoteRef = useRef<{ sig: string; message: string } | null>(null);
+  const lastFailedQuoteRef = useRef<{
+    sig: string;
+    message: string;
+    block: QuoteBlock;
+  } | null>(null);
 
   // Which side's cross-chain token picker is open (token selection also drives
   // that side's chain — chain follows token).
@@ -732,6 +743,10 @@ export function BridgePage({
   const [quote, setQuote] = useState<BridgeQuote | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Non-null when the current inputs produced a non-retryable quote failure;
+  // disables "Review swap" so the user can't re-click a dead route. Reactive
+  // mirror of lastFailedQuoteRef.block (a ref doesn't re-render on its own).
+  const [quoteBlock, setQuoteBlock] = useState<QuoteBlock | null>(null);
 
   const [approvalState, setApprovalState] = useState<ApprovalState>("unknown");
   // The broadcast TRON approve tx id (shown + linked while awaiting confirmation).
@@ -1039,6 +1054,7 @@ export function BridgePage({
   function resetQuote() {
     setQuote(null);
     setError(null);
+    setQuoteBlock(null);
     setApprovalState("unknown");
     setApprovalTxId(null);
     pendingApprovalRef.current = null;
@@ -1277,6 +1293,7 @@ export function BridgePage({
     // show the stable message without re-POSTing (stops the 400 retry loop).
     if (lastFailedQuoteRef.current?.sig === requestSig) {
       setError(lastFailedQuoteRef.current.message);
+      setQuoteBlock(lastFailedQuoteRef.current.block);
       return;
     }
 
@@ -1303,6 +1320,7 @@ export function BridgePage({
 
       // Success → clear any cached failure for this route.
       lastFailedQuoteRef.current = null;
+      setQuoteBlock(null);
       setQuote(nextQuote);
       setStep("review");
 
@@ -1366,6 +1384,9 @@ export function BridgePage({
       // failed request nor the probe re-fires on an unchanged re-submit.
       if (e instanceof NoBridgeRouteError) {
         let message = "No route found for this pair. Try another token, chain, or amount.";
+        // Default block is a hard no-route; upgraded to "amountTooLow" when the
+        // probe finds the pair DOES route at a higher standard amount.
+        let block: QuoteBlock = "noRoute";
         try {
           const probe = await probeMinimumBridgeAmount({
             fromChainId,
@@ -1379,6 +1400,7 @@ export function BridgePage({
             sourceSymbol: fromToken.symbol,
           });
           if (probe) {
+            block = "amountTooLow";
             message = `Amount is too small for this route. Try at least ${probe.minWholeAmount} ${fromToken.symbol}.`;
             // If the user's loaded balance is below that minimum, say so plainly.
             if (
@@ -1398,17 +1420,23 @@ export function BridgePage({
         } catch {
           // Probe failed (network) — keep the generic no-route message.
         }
-        lastFailedQuoteRef.current = { sig: requestSig, message };
+        lastFailedQuoteRef.current = { sig: requestSig, message, block };
+        setQuoteBlock(block);
         setError(message);
         return;
       }
       const message = friendlyError(e);
       // A classified, non-retryable failure (TRON unsupported / invalid token /
       // amount too low) is cached against this exact request so an unchanged
-      // re-submit won't re-POST the same 400.
+      // re-submit won't re-POST the same 400 — AND blocks Review for these inputs.
       if (e instanceof BridgeQuoteError) {
-        lastFailedQuoteRef.current = { sig: requestSig, message };
+        const block: QuoteBlock =
+          e.code === "amountTooLow" ? "amountTooLow" : "unavailable";
+        lastFailedQuoteRef.current = { sig: requestSig, message, block };
+        setQuoteBlock(block);
       }
+      // Other failures (network / RPC / timeout) stay RETRYABLE: no quoteBlock, so
+      // the Review button remains enabled for an immediate retry.
       setError(message);
     } finally {
       setReviewLoading(false);
@@ -2894,10 +2922,20 @@ export function BridgePage({
             <button
               className="btn primary lg full"
               type="button"
-              disabled={Boolean(validation) || reviewLoading}
+              disabled={
+                Boolean(validation) || reviewLoading || quoteBlock != null
+              }
               onClick={handleGetQuote}
             >
-              {reviewLoading ? "Finding route…" : validation ?? "Review swap"}
+              {reviewLoading
+                ? "Finding route…"
+                : validation
+                  ? validation
+                  : quoteBlock === "amountTooLow"
+                    ? "Amount too small"
+                    : quoteBlock === "noRoute" || quoteBlock === "unavailable"
+                      ? "No route available"
+                      : "Review swap"}
             </button>
           ) : previewOnly ? (
             <button className="btn primary lg full" type="button" disabled>
