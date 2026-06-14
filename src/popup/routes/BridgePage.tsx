@@ -431,7 +431,7 @@ function balanceLabel(
   balance: ResolvedBalance,
   symbol: string | undefined,
 ): string {
-  if (balance.status === "loading") return "Balance: loading…";
+  if (balance.status === "loading") return "Loading balance…";
   if (balance.status === "loaded") {
     return `Balance: ${balance.formatted}${symbol ? ` ${symbol}` : ""}`;
   }
@@ -439,6 +439,24 @@ function balanceLabel(
   // "unavailable" = no address/token to read yet.
   if (balance.status === "error") return "Balance unavailable";
   return "Balance: —";
+}
+
+// Safe [bridge:balance] retry diagnostics, behind simpl.debug.bridge. Logs the
+// chain, masked token address, account-address TYPE and the read RESULT — never a
+// raw address, private key, seed or signed tx. Used to debug balance reloads.
+function bridgeBalanceLog(data: Record<string, unknown>): void {
+  if (!isBridgeDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.info("[bridge:balance] retry", data);
+}
+
+// Mask a token's contract address for diagnostics (first 6 / last 4), or a stable
+// tag for a native asset — keeps the [bridge:*] logs uniformly minimal.
+function maskTokenAddress(token: BridgeToken | null): string {
+  if (!token) return "none";
+  if (token.isNative) return "native";
+  const a = token.address;
+  return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
 
 // Prefer a stablecoin, then native, then the first token as the default pick.
@@ -790,7 +808,24 @@ export function BridgePage({
             decimals: fromToken.decimals,
           });
     void resolver.then((r) => {
-      if (active) setFromBalance(r);
+      if (!active) return;
+      setFromBalance(r);
+      bridgeBalanceLog({
+        chainId: fromChainId,
+        chainType:
+          fromChainId === LIFI_SOLANA_CHAIN_ID
+            ? "SVM"
+            : fromChainId === LIFI_TRON_CHAIN_ID
+              ? "TVM"
+              : "EVM",
+        tokenSymbol: fromToken.symbol,
+        tokenAddressMasked: maskTokenAddress(fromToken),
+        accountAddressType: classifyAddressType(owner),
+        hasAccount: Boolean(owner),
+        attempt: balanceReloadKey,
+        result: r.status === "loaded" ? "ok" : "error",
+        errorCode: r.status === "loaded" ? null : r.status,
+      });
     });
     return () => {
       active = false;
@@ -1034,6 +1069,31 @@ export function BridgePage({
     solanaAddress,
     tronAddress,
   ]);
+
+  // Manual From-balance reload. Clears the previous error to an explicit loading
+  // state, re-derives the active account's TRON address on demand when a TRON
+  // source has none yet (the balance read needs an owner address), then bumps the
+  // reload key so the balance effect re-runs with fresh inputs — no stale closure,
+  // and never an automatic retry loop (only fires on this click).
+  function handleRetryBalance() {
+    setFromBalance(LOADING_BALANCE);
+    if (
+      fromChainId === LIFI_TRON_CHAIN_ID &&
+      (!tronAddress || !isValidTronAddress(tronAddress)) &&
+      selectedAccount &&
+      selectedAccount.type !== "watch"
+    ) {
+      void walletService
+        .getSelectedTronAddress()
+        .then((addr) => {
+          if (addr) setDerivedTronAddress(addr);
+        })
+        .catch(() => {
+          // Locked/unavailable — the warning notice already explains the state.
+        });
+    }
+    setBalanceReloadKey((k) => k + 1);
+  }
 
   // Set the From amount to the full loaded balance (only available when loaded).
   function handleMax() {
@@ -2300,11 +2360,15 @@ export function BridgePage({
                 <span className="swap-half-bottom__bal">
                   {balanceLabel(fromBalance, fromDisplaySymbol)}
                 </span>
-                {step === "form" && fromBalance.status === "error" ? (
+                {step === "form" &&
+                (fromBalance.status === "error" ||
+                  (fromChainId === LIFI_TRON_CHAIN_ID &&
+                    fromBalance.status === "unavailable" &&
+                    Boolean(fromToken))) ? (
                   <button
                     className="swap-max-pill swap-percent-chip"
                     type="button"
-                    onClick={() => setBalanceReloadKey((k) => k + 1)}
+                    onClick={handleRetryBalance}
                   >
                     Retry
                   </button>
@@ -2378,6 +2442,21 @@ export function BridgePage({
           Cross-chain route powered by LI.FI. This may take longer than a
           same-chain swap.
         </SwapRouteNotice>
+
+        {/* TRON source with an unreadable balance: stay honest and unblocking —
+            the read may fail on a flaky RPC, but the user can still enter an
+            amount and continue (the quote/preflight is authoritative). */}
+        {step === "form" &&
+        fromChainId === LIFI_TRON_CHAIN_ID &&
+        fromToken &&
+        (fromBalance.status === "error" ||
+          fromBalance.status === "unavailable") ? (
+          <SwapRouteNotice variant="warning">
+            Balance unavailable. Check RPC/network and try again. You can still
+            enter an amount and continue — make sure you have enough{" "}
+            {fromDisplaySymbol ?? "balance"}, plus TRX for network fees.
+          </SwapRouteNotice>
+        ) : null}
 
         {/* Slippage (form only) */}
         {step === "form" ? (
