@@ -5,13 +5,14 @@ export type ChainId = number;
 // Address/transaction family a chain belongs to. EVM chains share ethers-based
 // derivation, balances, signing and RPC; "tron" routes to the TRON adapter;
 // "bitcoin" routes to the UTXO Bitcoin adapter (src/chains/bitcoin); "solana"
-// routes to the Ed25519 Solana adapter (src/chains/solana).
+// routes to the Ed25519 Solana adapter (src/chains/solana); "ton" routes to the
+// Ed25519 TON adapter (src/chains/ton) — TON is a smart-contract wallet chain.
 // Chains keep a single numeric `chainId` as their routing key everywhere in the
 // app (TRON uses its canonical EVM chain id 728126428 as that key; Bitcoin and
 // Solana have no canonical numeric id, so they use the internal sentinel ids
 // below) so existing EVM plumbing is untouched; `family` is the discriminator
 // that selects the adapter.
-export type ChainFamily = "evm" | "tron" | "bitcoin" | "solana";
+export type ChainFamily = "evm" | "tron" | "bitcoin" | "solana" | "ton";
 
 export type ChainConfig = {
   chainId: ChainId;
@@ -55,6 +56,13 @@ export const BITCOIN_TESTNET_CHAIN_ID = 5_757_000_002;
 // ("solana-mainnet" / "solana-devnet") live in src/chains/solana/solana.config.ts.
 export const SOLANA_MAINNET_CHAIN_ID = 5_757_000_101;
 export const SOLANA_DEVNET_CHAIN_ID = 5_757_000_102;
+// TON has no canonical numeric chain id (it identifies networks as workchains on
+// mainnet/testnet). This is an INTERNAL sentinel id used only as the app's
+// routing key, kept in the same out-of-EVM-range block as the other non-EVM
+// sentinels so it can never collide with a real EVM chain id. The human
+// "ton-mainnet" id lives in src/chains/ton/ton.config.ts. TON is a
+// smart-contract wallet chain (Ed25519); see src/chains/ton.
+export const TON_MAINNET_CHAIN_ID = 5_757_000_201;
 
 export const DEFAULT_CHAINS: ChainConfig[] = [
   {
@@ -183,6 +191,23 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
     standardLabel: "SPL Devnet",
   },
   {
+    chainId: TON_MAINNET_CHAIN_ID,
+    family: "ton",
+    name: "TON",
+    displayName: "TON",
+    nativeCurrency: {
+      name: "Toncoin",
+      symbol: "TON",
+      decimals: 9,
+    },
+    // TON uses an HTTP API (toncenter) rather than JSON-RPC; the configurable
+    // base URL lives in ton.config.ts. Kept here for display/parity only.
+    rpcUrl: "https://toncenter.com/api/v2",
+    blockExplorerUrl: "https://tonviewer.com",
+    isTestnet: false,
+    standardLabel: "TON",
+  },
+  {
     chainId: SEPOLIA_CHAIN_ID,
     family: "evm",
     name: "Sepolia",
@@ -245,6 +270,11 @@ export function isBitcoinChainId(chainId: number): boolean {
 // True when the chain routes through the Ed25519 Solana adapter.
 export function isSolanaChainId(chainId: number): boolean {
   return getChainFamily(chainId) === "solana";
+}
+
+// True when the chain routes through the Ed25519 TON adapter.
+export function isTonChainId(chainId: number): boolean {
+  return getChainFamily(chainId) === "ton";
 }
 
 export function getChainById(chainId: number): ChainConfig | null {

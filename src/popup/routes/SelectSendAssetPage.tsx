@@ -8,6 +8,7 @@
 import { useMemo, useState } from "react";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
 import { AssetIcon } from "../components/AssetIcon";
+import { t, useTranslation } from "../../i18n";
 
 type SelectSendAssetPageProps = {
   // Assets available on the current network (unfiltered by search).
@@ -46,10 +47,10 @@ function formatBalance(asset: WalletAssetBalance): string {
 
 // Fiat value from the existing price data on the balance object (no new fetch,
 // no fake prices). "No price" when unavailable.
-function formatFiat(usdValue?: string | null): string {
-  if (usdValue == null) return "No price";
+function formatFiat(usdValue?: string | number | null): string {
+  if (usdValue == null) return t("common.noPrice");
   const value = Number(usdValue);
-  if (!Number.isFinite(value)) return "No price";
+  if (!Number.isFinite(value)) return t("common.noPrice");
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -59,8 +60,8 @@ function formatFiat(usdValue?: string | null): string {
 
 // Subtitle: native → "Native asset", imported → "Imported", else the symbol.
 function assetSubtitle(asset: WalletAssetBalance): string {
-  if (asset.type === "native") return "Native asset";
-  if (asset.source === "custom") return "Imported";
+  if (asset.type === "native") return t("common.nativeAsset");
+  if (asset.source === "custom") return t("accounts.imported");
   return asset.symbol;
 }
 
@@ -72,6 +73,7 @@ export function SelectSendAssetPage({
   onSelect,
   onBack,
 }: SelectSendAssetPageProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
 
   const visibleAssets = useMemo(() => {
@@ -105,12 +107,12 @@ export function SelectSendAssetPage({
   return (
     <div className="ext-popup asset-select-page" data-screen-label="Select asset">
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <BackIcon />
         </button>
 
         <div className="asset-select-titlebox">
-          <div className="asset-select-title">Select asset</div>
+          <div className="asset-select-title">{t("send.selectAsset")}</div>
           <div className="asset-select-subtitle">{networkLabel}</div>
         </div>
 
@@ -122,7 +124,7 @@ export function SelectSendAssetPage({
           <input
             className="asset-select-search"
             type="text"
-            placeholder="Search symbol or address"
+            placeholder={t("send.searchAssetPlaceholder")}
             value={query}
             autoComplete="off"
             autoCorrect="off"
@@ -133,7 +135,7 @@ export function SelectSendAssetPage({
             <button
               type="button"
               className="asset-select-clear"
-              aria-label="Clear search"
+              aria-label={t("common.clearSearch")}
               onClick={() => setQuery("")}
             >
               ×
@@ -143,7 +145,7 @@ export function SelectSendAssetPage({
 
         <div className="asset-select-list">
           {visibleAssets.length === 0 ? (
-            <div className="asset-select-empty">No assets found</div>
+            <div className="asset-select-empty">{t("send.noAssetsFound")}</div>
           ) : (
             visibleAssets.map((item) => {
               const active = item.id === selectedAssetId;

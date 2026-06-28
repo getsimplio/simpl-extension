@@ -15,9 +15,10 @@ const ERC20_BALANCE_ABI = [
 ] as const;
 
 // "trc20" is the TRON token standard, routed through the TRON adapter; "spl" is
-// the Solana token standard, routed through the Solana adapter. EVM flows only
+// the Solana token standard, routed through the Solana adapter; "jetton" is the
+// TON fungible-token standard, routed through the TON adapter. EVM flows only
 // ever produce "native" | "erc20".
-export type WalletAssetType = "native" | "erc20" | "trc20" | "spl";
+export type WalletAssetType = "native" | "erc20" | "trc20" | "spl" | "jetton";
 
 export type WalletAssetBalance = {
   id: string;
@@ -33,8 +34,11 @@ export type WalletAssetBalance = {
   updatedAt: string;
   isTransferable: boolean;
   visible: boolean;
-  usdPrice?: string | null;
-  usdValue?: string | null;
+  // Usually a string|null from the discovery gateway, but adapters that already
+  // resolved a numeric spot price (e.g. TON jettons via the read API) may set a
+  // number directly — HomePage prefers a numeric price/value when present.
+  usdPrice?: number | string | null;
+  usdValue?: number | string | null;
   logoUrl?: string | null;
   isSpam?: boolean;
   isVerified?: boolean;
@@ -247,12 +251,23 @@ export class TokenBalanceService {
       tokens.map((token) => this.getTokenBalance(provider, token, address)),
     );
 
-    return settledResults.flatMap((result) => {
+    // One failed token never drops the rest: allSettled isolates each call and
+    // we keep every fulfilled balance. Failures are logged with their token
+    // address + chainId for diagnostics (no secrets).
+    return settledResults.flatMap((result, index) => {
       if (result.status === "fulfilled") {
         return [result.value];
       }
 
-      console.debug("Failed to load token balance:", result.reason);
+      const token = tokens[index];
+      console.debug("[balances] token balance failed", {
+        chainId,
+        token: token?.address,
+        symbol: token?.symbol,
+        reason: result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason),
+      });
       return [];
     });
   }

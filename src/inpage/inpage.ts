@@ -143,6 +143,9 @@
   // Set window.ethereum only if no other wallet has claimed it.
   const win = window as unknown as Record<string, unknown>;
   win["simplEthereum"] = provider;
+  // Dedicated, unambiguous namespace that first-party surfaces (e.g. the SIMPL
+  // dashboard) detect without competing with other wallets on window.ethereum.
+  win["simpl"] = provider;
 
   if (!win["ethereum"]) {
     win["ethereum"] = provider;

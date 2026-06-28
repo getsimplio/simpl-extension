@@ -14,6 +14,7 @@ import {
   BITCOIN_TESTNET_CHAIN_ID,
   SOLANA_MAINNET_CHAIN_ID,
   SOLANA_DEVNET_CHAIN_ID,
+  TON_MAINNET_CHAIN_ID,
 } from "../../core/networks/chain-registry";
 
 const CHAIN_ID_TO_NAME: Record<number, string> = {
@@ -30,6 +31,7 @@ const CHAIN_ID_TO_NAME: Record<number, string> = {
   [BITCOIN_TESTNET_CHAIN_ID]: "bitcoin-testnet",
   [SOLANA_MAINNET_CHAIN_ID]: "solana",
   [SOLANA_DEVNET_CHAIN_ID]: "solana-devnet",
+  [TON_MAINNET_CHAIN_ID]: "ton",
 };
 
 // Sepolia reuses the Ethereum icon; the badge distinguishes it visually.
@@ -49,6 +51,7 @@ const ICON_FILE: Record<string, string> = {
   solana: "/network-icons/solana.svg",
   // Devnet reuses the Solana art; the testnet badge distinguishes it.
   "solana-devnet": "/network-icons/solana.svg",
+  ton: "/network-icons/ton.svg",
 };
 
 const FALLBACK_COLORS: Record<string, string> = {
@@ -65,6 +68,7 @@ const FALLBACK_COLORS: Record<string, string> = {
   "bitcoin-testnet": "#F7931A",
   solana: "#9945FF",
   "solana-devnet": "#9945FF",
+  ton: "#0098EA",
 };
 
 const TESTNET_NAMES = new Set(["sepolia", "bitcoin-testnet", "solana-devnet"]);
@@ -99,6 +103,7 @@ function resolveNetworkName(
   // Solana devnet must be checked before mainnet (it also contains "solana").
   if (raw.includes("solana devnet") || raw === "sol devnet") return "solana-devnet";
   if (raw.includes("solana") || raw === "sol") return "solana";
+  if (raw === "ton" || raw === "toncoin" || raw.includes("the open network")) return "ton";
 
   return null;
 }

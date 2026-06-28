@@ -4,40 +4,66 @@
 // runtime, before any Solana code (reached via walletService) is evaluated.
 import "../polyfills/buffer";
 import { walletService } from "../core/wallet/wallet.service";
+import { storageRepository } from "../core/storage/storage.repository";
 import { getChainById, TRON_MAINNET_CHAIN_ID } from "../core/networks/chain-registry";
+import type { WalletAccount } from "../core/accounts/account.types";
 
+// Message Settings sends after the user changes "Default open mode" so the
+// service worker re-applies the toolbar-icon behavior without a reload.
+export const DEFAULT_OPEN_MODE_CHANGED_MESSAGE = "SIMPL_DEFAULT_OPEN_MODE_CHANGED";
 
-
-function disableSidePanelOnActionClick() {
+// Apply the user's "Default open mode" preference to the toolbar icon: when set
+// to "sidePanel", clicking the action opens the slide-out side panel; otherwise
+// it opens the classic popup (openPanelOnActionClick: false). Reads the stored,
+// normalized setting — defaults to "popup" for fresh/legacy installs.
+async function applyPanelBehaviorFromSettings() {
   if (!chrome.sidePanel?.setPanelBehavior) {
     console.debug("chrome.sidePanel API is not available.");
     return;
   }
 
-  chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: false })
-    .then(() => {
-      console.log("Side panel on action click disabled.");
-    })
-    .catch((error) => {
-      console.error("Failed to disable side panel behavior:", error);
-    });
+  let openPanelOnActionClick = false;
+
+  try {
+    const walletState = await storageRepository.getWalletState();
+    openPanelOnActionClick =
+      walletState.settings.defaultOpenMode === "sidePanel";
+  } catch (error) {
+    console.debug("Could not read defaultOpenMode; using popup:", error);
+  }
+
+  try {
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick });
+    console.log(
+      `Toolbar open mode: ${openPanelOnActionClick ? "side panel" : "popup"}.`,
+    );
+  } catch (error) {
+    console.error("Failed to apply side panel behavior:", error);
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("Local EVM Wallet extension installed.");
-  disableSidePanelOnActionClick();
+  console.log("simpl extension installed.");
+  void applyPanelBehaviorFromSettings();
   void pingWalletConnectEngine();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  console.log("Local EVM Wallet extension started.");
-  disableSidePanelOnActionClick();
+  console.log("simpl extension started.");
+  void applyPanelBehaviorFromSettings();
   void pingWalletConnectEngine();
 });
 
 // Also run once when service worker is evaluated.
-disableSidePanelOnActionClick();
+void applyPanelBehaviorFromSettings();
+
+// Re-apply the toolbar behavior when Settings changes the default open mode.
+chrome.runtime.onMessage.addListener((message: { type?: string }) => {
+  if (message?.type === DEFAULT_OPEN_MODE_CHANGED_MESSAGE) {
+    void applyPanelBehaviorFromSettings();
+  }
+  return false;
+});
 
 type SimpleRuntimeMessage = {
   type?: string;
@@ -681,6 +707,42 @@ function extractTronTxDisplay(tx: unknown): {
   }
 }
 
+// Map an internal account record → safe, PUBLIC metadata for a connected dApp.
+// Intentionally narrow: id, address, label, type, isActive only. NEVER includes
+// key material, mnemonic, derivation paths, or any private wallet data.
+function toSafeAccountMeta(account: WalletAccount, selectedAccountId: string | null) {
+  const typeMap: Record<WalletAccount["type"], "owned" | "imported" | "watch-only"> = {
+    mnemonic: "owned",
+    importedMnemonic: "imported",
+    privateKey: "imported",
+    watch: "watch-only",
+  };
+  return {
+    id: account.id,
+    address: account.address,
+    label: account.label,
+    type: typeMap[account.type],
+    isActive: account.id === selectedAccountId,
+  };
+}
+
+// Routes the wallet UI may be deep-linked to from a first-party surface. Opening
+// the wallet exposes no data, so this needs no connection — but the route is
+// allow-listed so an arbitrary value can't drive navigation.
+const WALLET_OPEN_ROUTES = new Set(["accounts", "settings", "home"]);
+
+async function openWalletToRoute(route: string): Promise<void> {
+  const safeRoute = WALLET_OPEN_ROUTES.has(route) ? route : "accounts";
+  const url = chrome.runtime.getURL(`popup.html?route=${encodeURIComponent(safeRoute)}`);
+  await chrome.windows.create({
+    url,
+    type: "popup",
+    width: 400,
+    height: 640,
+    focused: true,
+  });
+}
+
 async function broadcastProviderEvent(
   event: string,
   data: unknown,
@@ -899,6 +961,63 @@ async function handleDappRequest(
           reject: (error) => sendResponse({ ok: false, error }),
         });
         await openDappApprovalWindow(txApprovalId);
+        return;
+      }
+
+      // ── SIMPL first-party account methods ──────────────────────────────
+      // Richer account metadata + active-account switching + deep-linking the
+      // wallet UI. Used by the SIMPL dashboard. Gated on the same connect
+      // approval model as eth_* methods; never expose key material.
+
+      case "simpl_getAccounts": {
+        const connected = await getDappConnectionForOrigin(origin);
+        // Only a connected (approved) origin may see the full account list.
+        if (!connected) {
+          sendResponse({ ok: true, result: [] });
+          return;
+        }
+        const result = bootstrap.walletState.accounts.map((a) =>
+          toSafeAccountMeta(a, bootstrap.walletState.selectedAccountId),
+        );
+        sendResponse({ ok: true, result });
+        return;
+      }
+
+      case "simpl_setActiveAccount": {
+        const connected = await getDappConnectionForOrigin(origin);
+        if (!connected) {
+          sendResponse({ ok: false, error: { code: 4100, message: "Unauthorized. Connect the site first." } });
+          return;
+        }
+        const param = message.params[0] as Record<string, unknown> | undefined;
+        const targetId = typeof param?.["id"] === "string" ? (param["id"] as string) : null;
+        const targetAddress = typeof param?.["address"] === "string" ? (param["address"] as string) : null;
+        const match = bootstrap.walletState.accounts.find(
+          (a) =>
+            (targetId !== null && a.id === targetId) ||
+            (targetAddress !== null && a.address.toLowerCase() === targetAddress.toLowerCase()),
+        );
+        if (!match) {
+          sendResponse({ ok: false, error: { code: -32602, message: "Unknown account." } });
+          return;
+        }
+        // Already active — no-op success.
+        if (match.id === bootstrap.walletState.selectedAccountId) {
+          sendResponse({ ok: true, result: [match.address] });
+          return;
+        }
+        const { selectedAccount: nextSelected } = await walletService.selectAccount({ accountId: match.id });
+        // Notify every connected dApp (incl. the dashboard) of the new active account.
+        await broadcastProviderEvent("accountsChanged", [nextSelected.address]);
+        sendResponse({ ok: true, result: [nextSelected.address] });
+        return;
+      }
+
+      case "simpl_openWallet": {
+        const param = message.params[0] as Record<string, unknown> | undefined;
+        const route = typeof param?.["route"] === "string" ? (param["route"] as string) : "accounts";
+        await openWalletToRoute(route);
+        sendResponse({ ok: true, result: true });
         return;
       }
 

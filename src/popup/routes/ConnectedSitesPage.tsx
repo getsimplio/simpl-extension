@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { t, useTranslation } from "../../i18n";
 import WalletConnectPage from "./WalletConnectPage";
 type ConnectedSiteType = "evm" | "tron" | "walletconnect";
 
@@ -19,12 +20,12 @@ function siteTypeBadge(type: ConnectedSiteType | undefined): {
   fg: string;
 } {
   if (type === "tron") {
-    return { label: "TRON", bg: "#fdecea", fg: "#c0392b" };
+    return { label: "TRON", bg: "var(--danger-soft)", fg: "var(--danger)" };
   }
   if (type === "walletconnect") {
-    return { label: "WalletConnect", bg: "#eaf2fd", fg: "#2b6cb0" };
+    return { label: "WalletConnect", bg: "var(--info-soft)", fg: "var(--info)" };
   }
-  return { label: "EVM", bg: "#eef0f3", fg: "#444b55" };
+  return { label: "EVM", bg: "var(--line)", fg: "var(--ink-2)" };
 }
 
 type ConnectedSitesPageProps = {
@@ -215,13 +216,13 @@ async function writeConnectedSites(sites: ConnectedSite[]) {
 
 function formatDate(value?: string): string {
   if (!value) {
-    return "Never";
+    return t("common.never");
   }
 
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
-    return "Unknown";
+    return t("common.unknown");
   }
 
   return new Intl.DateTimeFormat("en", {
@@ -245,6 +246,7 @@ function getSiteLabel(site: ConnectedSite): string {
 }
 
 export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) {
+  const { t } = useTranslation();
   const [sites, setSites] = useState<ConnectedSite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [confirmDisconnectAll, setConfirmDisconnectAll] = useState(false);
@@ -309,8 +311,8 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
         width: "100%",
         overflowY: "auto",
         overflowX: "hidden",
-        background: "var(--bg, #ffffff)",
-        color: "var(--text-primary, #111111)",
+        background: "var(--bg, var(--bg-surface))",
+        color: "var(--text-primary, var(--ink-1))",
       }}
     >
       <header
@@ -319,8 +321,8 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
           top: 0,
           zIndex: 20,
           height: 56,
-          borderBottom: "1px solid var(--border, #e8e8e8)",
-          background: "var(--bg, #ffffff)",
+          borderBottom: "1px solid var(--border, var(--bg-muted))",
+          background: "var(--bg, var(--bg-surface))",
         }}
       >
         <div
@@ -339,13 +341,13 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back"
+            aria-label={t("common.back")}
             style={{
               width: 36,
               height: 36,
               border: 0,
               background: "transparent",
-              color: "var(--text-primary, #111111)",
+              color: "var(--text-primary, var(--ink-1))",
               cursor: "pointer",
               padding: 0,
             }}
@@ -360,7 +362,7 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
               fontWeight: 800,
             }}
           >
-            Connected sites
+            {t("connectedSites.title")}
           </div>
 
           <div />
@@ -386,19 +388,19 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
             fontWeight: 900,
           }}
         >
-          Connected sites
+          {t("connectedSites.heroTitle")}
         </h1>
 
         <p
           style={{
             margin: "14px 0 0",
             maxWidth: 560,
-            color: "var(--text-secondary, #777777)",
+            color: "var(--text-secondary, var(--ink-3))",
             fontSize: 14,
             lineHeight: "21px",
           }}
         >
-          Review websites that can request wallet access from SIMPLE.
+          {t("connectedSites.heroSub")}
         </p>
 
         <button
@@ -407,14 +409,14 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
           onClick={() => setShowWalletConnect(true)}
           style={{ marginTop: 28 }}
         >
-          Connect with WalletConnect
+          {t("connectedSites.connectWithWc")}
         </button>
 
         <section style={{ marginTop: 36 }}>
           <div
             style={{
               marginBottom: 14,
-              color: "var(--text-primary, #111111)",
+              color: "var(--text-primary, var(--ink-1))",
               fontSize: 12,
               lineHeight: "16px",
               letterSpacing: "0.22em",
@@ -422,26 +424,26 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
               fontWeight: 800,
             }}
           >
-            Sites
+            {t("connectedSites.sites")}
           </div>
 
           {isLoading ? (
             <div
               style={{
-                color: "var(--text-secondary, #777777)",
+                color: "var(--text-secondary, var(--ink-3))",
                 fontSize: 14,
                 lineHeight: "20px",
               }}
             >
-              Loading connected sites…
+              {t("connectedSites.loading")}
             </div>
           ) : sortedSites.length === 0 ? (
             <div
               style={{
-                border: "1px solid var(--border, #dedede)",
+                border: "1px solid var(--border, var(--line))",
                 borderRadius: 24,
                 padding: 22,
-                background: "var(--bg, #ffffff)",
+                background: "var(--bg, var(--bg-surface))",
               }}
             >
               <div
@@ -449,8 +451,8 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                   width: 44,
                   height: 44,
                   borderRadius: 999,
-                  background: "var(--text-primary, #111111)",
-                  color: "#ffffff",
+                  background: "var(--text-primary, var(--ink-1))",
+                  color: "var(--bg-surface)",
                   display: "grid",
                   placeItems: "center",
                 }}
@@ -467,18 +469,18 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                   letterSpacing: "-0.02em",
                 }}
               >
-                No connected sites yet
+                {t("connectedSites.emptyTitle")}
               </div>
 
               <p
                 style={{
                   margin: "6px 0 0",
-                  color: "var(--text-secondary, #777777)",
+                  color: "var(--text-secondary, var(--ink-3))",
                   fontSize: 13,
                   lineHeight: "19px",
                 }}
               >
-                When SIMPLE connects to dApps, approved websites will appear here.
+                {t("connectedSites.emptyBody")}
               </p>
             </div>
           ) : (
@@ -499,8 +501,8 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                       width: 36,
                       height: 36,
                       borderRadius: 999,
-                      background: "var(--text-primary, #111111)",
-                      color: "#ffffff",
+                      background: "var(--text-primary, var(--ink-1))",
+                      color: "var(--bg-surface)",
                       display: "grid",
                       placeItems: "center",
                       overflow: "hidden",
@@ -568,7 +570,7 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                     <div
                       style={{
                         marginTop: 2,
-                        color: "var(--text-secondary, #777777)",
+                        color: "var(--text-secondary, var(--ink-3))",
                         fontSize: 12,
                         lineHeight: "16px",
                         overflow: "hidden",
@@ -582,24 +584,28 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                     <div
                       style={{
                         marginTop: 2,
-                        color: "var(--text-secondary, #777777)",
+                        color: "var(--text-secondary, var(--ink-3))",
                         fontSize: 12,
                         lineHeight: "16px",
                       }}
                     >
-                      Last used: {formatDate(site.lastUsedAt)}
+                      {t("connectedSites.lastUsed", {
+                        date: formatDate(site.lastUsedAt),
+                      })}
                     </div>
                   </div>
 
                   <button
                     type="button"
-                    aria-label={`Disconnect ${getSiteLabel(site)}`}
+                    aria-label={t("connectedSites.disconnectSite", {
+                      site: getSiteLabel(site),
+                    })}
                     onClick={() => void disconnectSite(site.id)}
                     style={{
-                      border: "1px solid #e8c7c1",
+                      border: "1px solid var(--danger-soft)",
                       borderRadius: 999,
-                      background: "#fff7f5",
-                      color: "#a23b2d",
+                      background: "var(--danger-soft)",
+                      color: "var(--danger)",
                       cursor: "pointer",
                       width: 36,
                       height: 36,
@@ -622,7 +628,7 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
             onClick={() => setConfirmDisconnectAll(true)}
             style={{ marginTop: 18 }}
           >
-            Disconnect all
+            {t("connectedSites.disconnectAll")}
           </button>
         ) : null}
 
@@ -631,14 +637,13 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
             margin: "24px 0 0",
             padding: 16,
             borderRadius: 16,
-            background: "#f7f7f4",
-            color: "var(--text-secondary, #777777)",
+            background: "var(--bg-muted)",
+            color: "var(--text-secondary, var(--ink-3))",
             fontSize: 13,
             lineHeight: "19px",
           }}
         >
-          Connected sites are stored locally. Disconnecting a site removes its local
-          permission record, but it does not cancel token approvals on-chain.
+          {t("connectedSites.notice")}
         </p>
       </section>
 
@@ -660,7 +665,7 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Disconnect all sites confirmation"
+            aria-label={t("connectedSites.confirmAllLabel")}
             onClick={(event) => event.stopPropagation()}
             style={{
               width: "100%",
@@ -672,9 +677,9 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
           >
             <div
               style={{
-                border: "1px solid var(--border, #dedede)",
+                border: "1px solid var(--border, var(--line))",
                 borderRadius: 24,
-                background: "var(--bg, #ffffff)",
+                background: "var(--bg, var(--bg-surface))",
                 boxShadow: "0 24px 80px rgba(0, 0, 0, 0.18)",
                 padding: 18,
               }}
@@ -687,18 +692,18 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                   letterSpacing: "-0.02em",
                 }}
               >
-                Disconnect all sites?
+                {t("connectedSites.confirmAllTitle")}
               </div>
 
               <p
                 style={{
                   margin: "8px 0 0",
-                  color: "var(--text-secondary, #777777)",
+                  color: "var(--text-secondary, var(--ink-3))",
                   fontSize: 13,
                   lineHeight: "19px",
                 }}
               >
-                Websites will need to request access again before interacting with your wallet.
+                {t("connectedSites.confirmAllBody")}
               </p>
 
               <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
@@ -707,11 +712,11 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                   className="btn primary lg full"
                   onClick={() => void disconnectAll()}
                   style={{
-                    background: "#a23b2d",
-                    borderColor: "#a23b2d",
+                    background: "var(--danger)",
+                    borderColor: "var(--danger)",
                   }}
                 >
-                  Disconnect all
+                  {t("connectedSites.disconnectAll")}
                 </button>
 
                 <button
@@ -719,7 +724,7 @@ export default function ConnectedSitesPage({ onBack }: ConnectedSitesPageProps) 
                   className="btn secondary lg full"
                   onClick={() => setConfirmDisconnectAll(false)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>

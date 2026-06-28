@@ -44,6 +44,11 @@ export type MnemonicWalletAccount = {
   // accounts created before Solana support — derived lazily and persisted on
   // first use, the same migration pattern as `tronAddress`. Never key material.
   solanaAddress?: string;
+  // TON wallet contract address (Ed25519, m/44'/607'/index'/0', user-friendly
+  // non-bounceable UQ… form). Absent on stored accounts created before TON
+  // support — derived lazily and persisted on first use, the same migration
+  // pattern as `solanaAddress`. Public address only — never key material.
+  tonAddress?: string;
   label: string;
   derivationPath: EvmDerivationPath;
   createdAt: string;
@@ -59,6 +64,7 @@ export type ImportedMnemonicWalletAccount = {
   tronAddress?: string;
   bitcoinAddresses?: BitcoinAddressMap;
   solanaAddress?: string;
+  tonAddress?: string;
   label: string;
   derivationPath: EvmDerivationPath;
   createdAt: string;

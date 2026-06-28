@@ -31,3 +31,24 @@ export_claude_design_context.py
 .package-lock.json
 
 .claude/
+
+# build / packaging artifacts
+native/macos/build/
+*.zip
+simpl-*.zip
+
+# tooling caches
+coverage/
+.cache/
+.turbo/
+.vite/
+
+# cloudflare worker local secrets (proxy/)
+.dev.vars
+
+# editor / OS cruft
+=
+*.bak-*
+.rollback-backups/
+
+*.patch

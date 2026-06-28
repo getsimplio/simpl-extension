@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { walletService } from "../../core/wallet/wallet.service";
 import { AccountBlockie } from "../components/AccountBlockie";
 import { Notice } from "../components/Notice";
+import { useTranslation } from "../../i18n";
 
 type RevealPrivateKeyPageProps = {
   onBack: () => void;
@@ -88,6 +89,7 @@ function KeyIcon() {
 }
 
 export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [privateKey, setPrivateKey] = useState<string | null>(null);
   const [account, setAccount] = useState<RevealedAccount | null>(null);
@@ -124,7 +126,7 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
       if (message && /watch|missing|re-import/i.test(message)) {
         setError(message);
       } else {
-        setError("Incorrect password. Please try again.");
+        setError(t("backup.incorrectPassword"));
       }
     } finally {
       setBusy(false);
@@ -154,10 +156,10 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
       data-screen-label="Reveal key"
     >
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <BackIcon />
         </button>
-        <span className="import-acct-title">Reveal private key</span>
+        <span className="import-acct-title">{t("backup.revealKeyTitle")}</span>
         <span className="reveal-bar-icon" aria-hidden="true">
           <ShieldIcon />
         </span>
@@ -171,27 +173,26 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
                 <KeyIcon />
               </span>
               <div className="reveal-hero__text">
-                <div className="reveal-hero__title">Private key</div>
+                <div className="reveal-hero__title">{t("backup.revealKeyHeroTitle")}</div>
                 <div className="reveal-hero__sub">
-                  This key gives full access to the selected account.
+                  {t("backup.revealKeyHeroSub")}
                 </div>
               </div>
             </div>
 
-            <Notice tone="warning" title="Sensitive information">
-              Never share your private key. Anyone with it can move funds from
-              this account.
+            <Notice tone="warning" title={t("common.sensitiveInfo")}>
+              {t("backup.keyShareWarning")}
             </Notice>
 
             <div className="import-acct-field">
               <label className="import-acct-field-label" htmlFor="reveal-key-pwd">
-                Wallet password
+                {t("common.walletPassword")}
               </label>
               <input
                 id="reveal-key-pwd"
                 className="import-acct-input"
                 type="password"
-                placeholder="Enter password"
+                placeholder={t("common.enterPassword")}
                 value={password}
                 autoComplete="current-password"
                 onChange={(event) => {
@@ -205,7 +206,7 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
             </div>
 
             {error ? (
-              <Notice tone="danger" title="Couldn’t reveal">
+              <Notice tone="danger" title={t("backup.couldntReveal")}>
                 {error}
               </Notice>
             ) : null}
@@ -216,7 +217,7 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
               onClick={() => void reveal()}
               disabled={busy || !password}
             >
-              {busy ? "Revealing…" : "Reveal private key"}
+              {busy ? t("common.revealing") : t("backup.revealKeyTitle")}
             </button>
 
             <button
@@ -224,7 +225,7 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
               className="btn secondary lg full"
               onClick={onBack}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </>
         ) : (
@@ -242,12 +243,12 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
             ) : null}
 
             <div className="reveal-secret">
-              <div className="reveal-secret__label">Private key</div>
+              <div className="reveal-secret__label">{t("backup.revealKeyHeroTitle")}</div>
               <code className="reveal-secret__value">{privateKey}</code>
             </div>
 
-            <Notice tone="warning" title="Keep it private">
-              Do not store this key in cloud notes, chats, screenshots, or email.
+            <Notice tone="warning" title={t("backup.keepKeyPrivate")}>
+              {t("backup.keepKeyPrivateBody")}
             </Notice>
 
             <div className="reveal-actions">
@@ -256,14 +257,14 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
                 className={`btn secondary lg${copied ? " reveal-copied" : ""}`}
                 onClick={() => void copyKey()}
               >
-                {copied ? "Copied" : "Copy private key"}
+                {copied ? t("common.copied") : t("backup.copyPrivateKey")}
               </button>
               <button
                 type="button"
                 className="btn secondary lg"
                 onClick={hide}
               >
-                Hide key
+                {t("backup.hideKey")}
               </button>
             </div>
 
@@ -272,7 +273,7 @@ export function RevealPrivateKeyPage({ onBack }: RevealPrivateKeyPageProps) {
               className="btn primary lg full"
               onClick={onBack}
             >
-              Done
+              {t("common.done")}
             </button>
           </>
         )}

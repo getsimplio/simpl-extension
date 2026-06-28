@@ -386,6 +386,21 @@ export class StorageRepository {
           typeof biometricUnlock.createdAt === "string"
             ? biometricUnlock.createdAt
             : DEFAULT_WALLET_SETTINGS.biometricUnlock.createdAt,
+
+        prfSalt:
+          typeof biometricUnlock.prfSalt === "string"
+            ? biometricUnlock.prfSalt
+            : DEFAULT_WALLET_SETTINGS.biometricUnlock.prfSalt,
+
+        iv:
+          typeof biometricUnlock.iv === "string"
+            ? biometricUnlock.iv
+            : DEFAULT_WALLET_SETTINGS.biometricUnlock.iv,
+
+        wrappedSecret:
+          typeof biometricUnlock.wrappedSecret === "string"
+            ? biometricUnlock.wrappedSecret
+            : DEFAULT_WALLET_SETTINGS.biometricUnlock.wrappedSecret,
       },
 
       balanceAutoRefreshSeconds:
@@ -393,6 +408,33 @@ export class StorageRepository {
         Number.isFinite(value.balanceAutoRefreshSeconds)
           ? Math.min(60, Math.max(1, Math.trunc(value.balanceAutoRefreshSeconds)))
           : DEFAULT_WALLET_SETTINGS.balanceAutoRefreshSeconds,
+
+      defaultOpenMode:
+        value.defaultOpenMode === "popup" ||
+        value.defaultOpenMode === "sidePanel" ||
+        value.defaultOpenMode === "fullscreen"
+          ? value.defaultOpenMode
+          : DEFAULT_WALLET_SETTINGS.defaultOpenMode,
+
+      theme:
+        value.theme === "system" ||
+        value.theme === "light" ||
+        value.theme === "dark"
+          ? value.theme
+          : DEFAULT_WALLET_SETTINGS.theme,
+
+      locale:
+        value.locale === "auto" ||
+        value.locale === "en" ||
+        value.locale === "ru" ||
+        value.locale === "es-419" ||
+        value.locale === "pt-BR" ||
+        value.locale === "tr" ||
+        value.locale === "uk" ||
+        value.locale === "vi" ||
+        value.locale === "id"
+          ? value.locale
+          : DEFAULT_WALLET_SETTINGS.locale,
     };
   }
 

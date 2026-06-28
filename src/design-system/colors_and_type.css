@@ -41,6 +41,7 @@
   --bg-canvas:   #F6F5F1;
   --bg-surface:  #FFFFFF;
   --bg-sunken:   #EFEEE9;
+  --bg-muted:    #F2F1EC; /* recessed fields / inputs / quiet panels */
   --bg-hover:    #F2F1EC;
   --bg-active:   #E9E7E1;
 
@@ -53,6 +54,7 @@
   --ink-3:       #807D74; /* tertiary / meta */
   --ink-4:       #B0ADA3; /* placeholder / disabled */
   --ink-on-dark: #F6F5F1; /* text on dark surfaces in light mode */
+  --ink-rgb:     20, 20, 15; /* primary-ink channels for translucent fills */
 
   /* -------- Signal colors --------
      Used SPARINGLY. Saturation kept low.
@@ -117,8 +119,16 @@
   --fg-disabled: var(--ink-4);
   --bg:          var(--bg-canvas);
   --surface:     var(--bg-surface);
+  --surface-2:   var(--bg-muted);
   --border:      var(--line);
   --border-strong: var(--line-strong);
+
+  /* Longhand text/surface aliases referenced by some inline component styles
+     (e.g. var(--text-primary, #111)). Defined as theme-aware aliases so those
+     references stop falling back to their hardcoded light hex in dark mode. */
+  --text-primary:   var(--ink-1);
+  --text-secondary: var(--ink-2);
+  --text-muted:     var(--ink-3);
 }
 
 /* -------- Dark palette (graphite) -------- */
@@ -127,6 +137,7 @@
   --bg-canvas:   #0B0B0A;
   --bg-surface:  #141413;
   --bg-sunken:   #050504;
+  --bg-muted:    #1E1D1B;
   --bg-hover:    #1B1B19;
   --bg-active:   #232220;
 
@@ -139,6 +150,7 @@
   --ink-3:       #7A776E;
   --ink-4:       #4A4843;
   --ink-on-dark: #F6F5F1;
+  --ink-rgb:     241, 240, 235;
 
   --secure:      #5BAE82;
   --secure-soft: #14241C;

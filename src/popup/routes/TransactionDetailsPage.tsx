@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { TransactionHistoryItem } from "../../core/transactions/transaction-history.service";
 import "./TransactionDetailsPage.css";
+import { t, useTranslation } from "../../i18n";
 
 type TransactionDetailsPageProps = {
   item: TransactionHistoryItem | null;
@@ -181,23 +182,27 @@ function getIconVariant(item: TransactionHistoryItem): IconVariant {
 
 function getPageTitle(item: TransactionHistoryItem): string {
   if (item.direction === "bridge") {
-    return `Cross-chain swap ${
-      item.bridgeFromSymbol ?? item.swapFromSymbol ?? "Token"
-    } ${item.bridgeFromChainName ?? ""} → ${
-      item.bridgeToChainName ?? ""
-    }`.trim();
+    return t("activity.bridgeTitle", {
+      from: item.bridgeFromSymbol ?? item.swapFromSymbol ?? "Token",
+      fromChain: item.bridgeFromChainName ?? "",
+      toChain: item.bridgeToChainName ?? "",
+    }).trim();
   }
   if (item.direction === "swap") {
-    return `Swapped ${item.swapFromSymbol ?? "Token"} → ${item.swapToSymbol ?? "Token"}`;
+    return t("activity.swappedTitle", {
+      from: item.swapFromSymbol ?? "Token",
+      to: item.swapToSymbol ?? "Token",
+    });
   }
-  if (item.direction === "receive") return `Received ${item.assetSymbol}`;
-  return `Sent ${item.assetSymbol}`;
+  if (item.direction === "receive")
+    return t("activity.receivedTitle", { symbol: item.assetSymbol });
+  return t("activity.sentTitle", { symbol: item.assetSymbol });
 }
 
 function getStatusLabel(status: string): string {
-  if (status === "confirmed") return "Confirmed";
-  if (status === "failed") return "Failed";
-  return "Pending";
+  if (status === "confirmed") return t("activity.status.confirmed");
+  if (status === "failed") return t("activity.status.failed");
+  return t("activity.status.pending");
 }
 
 // Bridge-aware overall badge: source-confirmed-but-not-completed reads as
@@ -211,34 +216,39 @@ function getBridgeBadge(item: TransactionHistoryItem): {
     item.bridgeStatus === "failed" ||
     item.bridgeSourceTxStatus === "failed"
   ) {
-    return { label: "Failed", variant: "failed" };
+    return { label: t("activity.status.failed"), variant: "failed" };
   }
   if (item.bridgeStatus === "completed" || item.status === "confirmed") {
-    return { label: "Completed", variant: "confirmed" };
+    return { label: t("activity.status.completed"), variant: "confirmed" };
   }
   if (item.bridgeSourceTxStatus === "confirmed") {
-    return { label: "In progress", variant: "submitted" };
+    return { label: t("activity.status.inProgress"), variant: "submitted" };
   }
-  return { label: "Pending", variant: "submitted" };
+  return { label: t("activity.status.pending"), variant: "submitted" };
 }
 
 // Human labels for the per-leg detail rows.
 function sourceTxLabel(item: TransactionHistoryItem): string {
-  if (item.bridgeSourceTxStatus === "confirmed") return "Confirmed";
-  if (item.bridgeSourceTxStatus === "failed") return "Failed";
-  if (item.status === "failed") return "Failed";
-  return "Pending";
+  if (item.bridgeSourceTxStatus === "confirmed")
+    return t("activity.status.confirmed");
+  if (item.bridgeSourceTxStatus === "failed")
+    return t("activity.status.failed");
+  if (item.status === "failed") return t("activity.status.failed");
+  return t("activity.status.pending");
 }
 
 function bridgeLegLabel(item: TransactionHistoryItem): string {
   if (item.bridgeStatus === "completed" || item.status === "confirmed") {
-    return "Completed";
+    return t("activity.status.completed");
   }
   if (item.bridgeStatus === "failed" || item.status === "failed") {
-    return "Failed";
+    return t("activity.status.failed");
   }
-  if (item.bridgeSourceTxStatus === "confirmed") return "In progress";
-  return item.bridgeStatus === "unknown" ? "Unknown" : "In progress";
+  if (item.bridgeSourceTxStatus === "confirmed")
+    return t("activity.status.inProgress");
+  return item.bridgeStatus === "unknown"
+    ? t("activity.status.unknown")
+    : t("activity.status.inProgress");
 }
 
 // ── Sub-components ───────────────────────────────────────────────────
@@ -268,6 +278,7 @@ export function TransactionDetailsPage({
   item,
   onBack,
 }: TransactionDetailsPageProps) {
+  const { t } = useTranslation();
   const [copiedHash, setCopiedHash] = useState(false);
 
   async function copyHash() {
@@ -290,28 +301,28 @@ export function TransactionDetailsPage({
             className="icbtn"
             type="button"
             onClick={onBack}
-            aria-label="Back"
+            aria-label={t("common.back")}
           >
             <BackIcon />
           </button>
           <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-            Transaction
+            {t("activity.transaction")}
           </div>
           <span style={{ flex: 1 }} />
         </div>
 
         <div className="screen-body">
           <div className="txd-not-found">
-            <div className="txd-not-found-title">Transaction not found</div>
+            <div className="txd-not-found-title">{t("activity.notFoundTitle")}</div>
             <div className="txd-not-found-text">
-              This transaction is no longer available in local history.
+              {t("activity.notFoundBody")}
             </div>
             <button
               type="button"
               className="btn secondary lg"
               onClick={onBack}
             >
-              Back to activity
+              {t("activity.backToActivity")}
             </button>
           </div>
         </div>
@@ -331,12 +342,12 @@ export function TransactionDetailsPage({
           className="icbtn"
           type="button"
           onClick={onBack}
-          aria-label="Back"
+          aria-label={t("common.back")}
         >
           <BackIcon />
         </button>
         <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          Transaction
+          {t("activity.transaction")}
         </div>
         <span style={{ flex: 1 }} />
         {item.explorerUrl ? (
@@ -345,7 +356,7 @@ export function TransactionDetailsPage({
             href={item.explorerUrl}
             target="_blank"
             rel="noreferrer"
-            aria-label="View on explorer"
+            aria-label={t("common.viewOnExplorer")}
           >
             <ExternalLinkIcon />
           </a>
@@ -375,19 +386,19 @@ export function TransactionDetailsPage({
         {/* Details card */}
         <div className="txd-grid">
           <div className="txd-row">
-            <span className="txd-key">Network</span>
+            <span className="txd-key">{t("common.network")}</span>
             <span className="txd-val">{formatDetailValue(item.chainName)}</span>
           </div>
 
           <div className="txd-row">
-            <span className="txd-key">Date</span>
+            <span className="txd-key">{t("common.date")}</span>
             <span className="txd-val">{formatTimestamp(item.createdAt)}</span>
           </div>
 
           {isBridge ? (
             <>
               <div className="txd-row">
-                <span className="txd-key">From</span>
+                <span className="txd-key">{t("common.from")}</span>
                 <span className="txd-val">
                   {formatAmount(item.bridgeFromAmount ?? item.amount)}{" "}
                   {item.bridgeFromSymbol ?? item.assetSymbol}
@@ -398,7 +409,7 @@ export function TransactionDetailsPage({
               </div>
 
               <div className="txd-row">
-                <span className="txd-key">To (est.)</span>
+                <span className="txd-key">{t("activity.toEstimate")}</span>
                 <span className="txd-val">
                   {item.bridgeToAmount
                     ? `${formatAmount(item.bridgeToAmount)} ${item.bridgeToSymbol ?? ""}`
@@ -409,32 +420,32 @@ export function TransactionDetailsPage({
 
               {item.bridgeProvider ? (
                 <div className="txd-row">
-                  <span className="txd-key">Provider</span>
+                  <span className="txd-key">{t("activity.provider")}</span>
                   <span className="txd-val">{item.bridgeProvider}</span>
                 </div>
               ) : null}
 
               {item.bridgeFee ? (
                 <div className="txd-row">
-                  <span className="txd-key">Route fee</span>
+                  <span className="txd-key">{t("activity.routeFee")}</span>
                   <span className="txd-val">{item.bridgeFee}</span>
                 </div>
               ) : null}
 
               <div className="txd-row">
-                <span className="txd-key">Source tx</span>
+                <span className="txd-key">{t("activity.sourceTx")}</span>
                 <span className="txd-val">{sourceTxLabel(item)}</span>
               </div>
 
               <div className="txd-row">
-                <span className="txd-key">Bridge</span>
+                <span className="txd-key">{t("activity.bridge")}</span>
                 <span className="txd-val">{bridgeLegLabel(item)}</span>
               </div>
             </>
           ) : isSwap ? (
             <>
               <div className="txd-row">
-                <span className="txd-key">Sent</span>
+                <span className="txd-key">{t("activity.sent")}</span>
                 <span className="txd-val">
                   {formatAmount(item.swapFromAmount ?? item.amount)}{" "}
                   {item.swapFromSymbol ?? item.assetSymbol}
@@ -442,7 +453,7 @@ export function TransactionDetailsPage({
               </div>
 
               <div className="txd-row">
-                <span className="txd-key">Received</span>
+                <span className="txd-key">{t("activity.received")}</span>
                 <span className="txd-val">
                   {item.swapToAmount
                     ? `${formatAmount(item.swapToAmount)} ${item.swapToSymbol ?? ""}`
@@ -452,35 +463,35 @@ export function TransactionDetailsPage({
 
               {item.swapRoute ? (
                 <div className="txd-row">
-                  <span className="txd-key">Route</span>
+                  <span className="txd-key">{t("activity.route")}</span>
                   <span className="txd-val">{formatRoute(item.swapRoute)}</span>
                 </div>
               ) : null}
 
               {item.swapSlippage ? (
                 <div className="txd-row">
-                  <span className="txd-key">Slippage</span>
+                  <span className="txd-key">{t("activity.slippage")}</span>
                   <span className="txd-val">{item.swapSlippage}</span>
                 </div>
               ) : null}
 
               {item.swapMinimumReceived ? (
                 <div className="txd-row">
-                  <span className="txd-key">Min received</span>
+                  <span className="txd-key">{t("activity.minReceived")}</span>
                   <span className="txd-val">{item.swapMinimumReceived}</span>
                 </div>
               ) : null}
 
               {item.swapNetworkFee ? (
                 <div className="txd-row">
-                  <span className="txd-key">Network fee</span>
+                  <span className="txd-key">{t("activity.networkFee")}</span>
                   <span className="txd-val">{item.swapNetworkFee}</span>
                 </div>
               ) : null}
 
               {item.swapSimpleFee ? (
                 <div className="txd-row">
-                  <span className="txd-key">Integrator fee</span>
+                  <span className="txd-key">{t("activity.integratorFee")}</span>
                   <span className="txd-val">{item.swapSimpleFee}</span>
                 </div>
               ) : null}
@@ -488,21 +499,21 @@ export function TransactionDetailsPage({
           ) : (
             <>
               <div className="txd-row">
-                <span className="txd-key">From</span>
+                <span className="txd-key">{t("common.from")}</span>
                 <span className="txd-val txd-val--mono">
                   {shortAddress(item.fromAddress)}
                 </span>
               </div>
 
               <div className="txd-row">
-                <span className="txd-key">To</span>
+                <span className="txd-key">{t("common.to")}</span>
                 <span className="txd-val txd-val--mono">
                   {shortAddress(item.toAddress)}
                 </span>
               </div>
 
               <div className="txd-row">
-                <span className="txd-key">Amount</span>
+                <span className="txd-key">{t("common.amount")}</span>
                 <span className="txd-val">
                   {formatAmount(item.amount)} {item.assetSymbol}
                 </span>
@@ -512,7 +523,7 @@ export function TransactionDetailsPage({
 
           {/* Tx hash row with copy */}
           <div className="txd-row txd-row--hash">
-            <span className="txd-key">Tx hash</span>
+            <span className="txd-key">{t("activity.txHash")}</span>
             <div className="txd-hash-group">
               <span className="txd-val txd-val--mono">{shortHash(item.hash)}</span>
               {item.hash ? (
@@ -520,14 +531,14 @@ export function TransactionDetailsPage({
                   type="button"
                   className="txd-copy-btn"
                   onClick={() => void copyHash()}
-                  aria-label="Copy transaction hash"
+                  aria-label={t("activity.copyTxHash")}
                 >
                   {copiedHash ? (
-                    "Copied"
+                    t("common.copied")
                   ) : (
                     <>
                       <CopyIcon />
-                      Copy
+                      {t("common.copy")}
                     </>
                   )}
                 </button>
@@ -546,7 +557,7 @@ export function TransactionDetailsPage({
               rel="noreferrer"
               style={{ textDecoration: "none" }}
             >
-              View on explorer ↗
+              {t("common.viewOnExplorerArrow")}
             </a>
           ) : null}
 
@@ -555,7 +566,7 @@ export function TransactionDetailsPage({
             className="btn secondary lg full"
             onClick={onBack}
           >
-            Back to activity
+            {t("activity.backToActivity")}
           </button>
         </div>
       </div>

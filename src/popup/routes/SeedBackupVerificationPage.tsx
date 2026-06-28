@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
 
 type VerificationStep = "password" | "review" | "quiz" | "done";
 
@@ -260,6 +261,7 @@ export default function SeedBackupVerificationPage({
   onVerified,
   allowBack = true,
 }: SeedBackupVerificationPageProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<VerificationStep>("password");
   const [password, setPassword] = useState("");
   const [words, setWords] = useState<string[]>([]);
@@ -277,14 +279,14 @@ export default function SeedBackupVerificationPage({
     event.preventDefault();
 
     if (!password.trim()) {
-      setError("Enter wallet password first.");
+      setError(t("backup.passwordFirst"));
       return;
     }
 
     const reveal = getRevealSeedFunction();
 
     if (!reveal) {
-      setError("Seed phrase reveal method is not available.");
+      setError(t("backup.revealUnavailable"));
       return;
     }
 
@@ -297,7 +299,7 @@ export default function SeedBackupVerificationPage({
       const nextWords = mnemonic.trim().split(/\s+/).filter(Boolean);
 
       if (nextWords.length < 12) {
-        setError("Seed phrase is unavailable or has an invalid format.");
+        setError(t("backup.seedUnavailable"));
         return;
       }
 
@@ -305,7 +307,7 @@ export default function SeedBackupVerificationPage({
       setAnswers({});
       setStep("review");
     } catch {
-      setError("Wrong password or seed phrase could not be revealed.");
+      setError(t("backup.revealFailed"));
     } finally {
       setIsLoading(false);
     }
@@ -313,7 +315,7 @@ export default function SeedBackupVerificationPage({
 
   const verifyBackup = async () => {
     if (!canVerify) {
-      setError("Select the correct words to verify your backup.");
+      setError(t("backup.selectionRequired"));
       return;
     }
 
@@ -367,7 +369,7 @@ export default function SeedBackupVerificationPage({
             <button
               type="button"
               onClick={onBack}
-              aria-label="Back"
+              aria-label={t("common.back")}
               style={{
                 width: 36,
                 height: 36,
@@ -391,7 +393,7 @@ export default function SeedBackupVerificationPage({
               fontWeight: 800,
             }}
           >
-            Verify backup
+            {t("backup.verifyBackup")}
           </div>
 
           <div />
@@ -417,7 +419,7 @@ export default function SeedBackupVerificationPage({
             fontWeight: 900,
           }}
         >
-          Verify recovery phrase
+          {t("backup.verifyHeroTitle")}
         </h1>
 
         <p
@@ -429,7 +431,7 @@ export default function SeedBackupVerificationPage({
             lineHeight: "21px",
           }}
         >
-          Confirm that your recovery phrase is written down and stored safely offline.
+          {t("backup.verifyHeroSub")}
         </p>
 
         {step === "password" ? (
@@ -456,14 +458,14 @@ export default function SeedBackupVerificationPage({
                   textTransform: "uppercase",
                 }}
               >
-                Wallet password
+                {t("common.walletPassword")}
               </span>
 
               <input
                 className="input lg"
                 type="password"
                 value={password}
-                placeholder="Enter wallet password"
+                placeholder={t("common.enterWalletPassword")}
                 autoComplete="current-password"
                 onChange={(event) => setPassword(event.target.value)}
               />
@@ -474,7 +476,7 @@ export default function SeedBackupVerificationPage({
               className="btn primary lg full"
               disabled={isLoading}
             >
-              {isLoading ? "Checking…" : "Reveal recovery phrase"}
+              {isLoading ? t("common.checking") : t("backup.revealRecoveryPhrase")}
             </button>
           </form>
         ) : null}
@@ -491,7 +493,7 @@ export default function SeedBackupVerificationPage({
                 textTransform: "uppercase",
               }}
             >
-              Write it down
+              {t("backup.writeItDown")}
             </div>
 
             <div
@@ -539,8 +541,7 @@ export default function SeedBackupVerificationPage({
                 lineHeight: "19px",
               }}
             >
-              Never share this phrase with anyone. SIMPLE will ask you to select
-              three random words next.
+              {t("backup.shareWarning")}
             </p>
 
             <button
@@ -552,7 +553,7 @@ export default function SeedBackupVerificationPage({
               }}
               style={{ marginTop: 16 }}
             >
-              Continue to verification
+              {t("backup.continueToVerification")}
             </button>
           </section>
         ) : null}
@@ -569,7 +570,7 @@ export default function SeedBackupVerificationPage({
                 textTransform: "uppercase",
               }}
             >
-              Select words
+              {t("backup.selectWords")}
             </div>
 
             <div style={{ display: "grid", gap: 18 }}>
@@ -583,7 +584,7 @@ export default function SeedBackupVerificationPage({
                       fontWeight: 800,
                     }}
                   >
-                    Select word #{challenge.index + 1}
+                    {t("backup.selectWordNumber", { number: challenge.index + 1 })}
                   </div>
 
                   <div
@@ -614,7 +615,7 @@ export default function SeedBackupVerificationPage({
                             background: selected
                               ? "var(--text-primary, #111111)"
                               : "var(--bg, #ffffff)",
-                            color: selected ? "#ffffff" : "var(--text-primary, #111111)",
+                            color: selected ? "var(--bg-surface)" : "var(--text-primary, #111111)",
                             borderRadius: 12,
                             padding: "12px 14px",
                             cursor: "pointer",
@@ -640,7 +641,7 @@ export default function SeedBackupVerificationPage({
               disabled={!canVerify}
               style={{ marginTop: 18 }}
             >
-              Verify backup
+              {t("backup.verifyBackup")}
             </button>
           </section>
         ) : null}
@@ -661,7 +662,7 @@ export default function SeedBackupVerificationPage({
                   fontWeight: 850,
                 }}
               >
-                Backup verified
+                {t("backup.verifiedTitle")}
               </div>
 
               <p
@@ -672,7 +673,7 @@ export default function SeedBackupVerificationPage({
                   lineHeight: "19px",
                 }}
               >
-                Recovery phrase verification is complete.
+                {t("backup.verifiedBody")}
               </p>
             </div>
           </section>
@@ -682,7 +683,7 @@ export default function SeedBackupVerificationPage({
           <div
             style={{
               marginTop: 14,
-              color: "#a23b2d",
+              color: "var(--danger)",
               fontSize: 13,
               lineHeight: "19px",
               fontWeight: 700,

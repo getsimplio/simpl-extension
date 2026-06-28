@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { walletService } from "../core/wallet/wallet.service";
+import { applyThemePreference } from "../core/theme/theme";
+import { applyLocalePreference, t } from "../i18n";
 import type { WalletAccount } from "../core/accounts/account.types";
 import type { WalletRuntimeState } from "../core/wallet/wallet.types";
 import type { WalletState } from "../core/storage/storage.types";
@@ -58,6 +60,20 @@ export type PopupViewState = {
   selectedAccount: WalletAccount | null;
 };
 
+// Deep-link target passed via `?route=` when the wallet is opened from a
+// first-party surface (e.g. the dashboard's "Manage accounts" action). Allow-
+// listed so an arbitrary value can never drive navigation. Consumed once, after
+// unlock, then cleared — normal opens always land on Home.
+function readDeepLinkRoute(): PopupRoute | null {
+  try {
+    const value = new URLSearchParams(window.location.search).get("route");
+    if (value === "accounts" || value === "settings") return value;
+  } catch {
+    /* no/invalid location — ignore */
+  }
+  return null;
+}
+
 function SidePanelIcon() {
   return (
     <svg
@@ -102,7 +118,12 @@ export function App() {
   const [detailsAccount, setDetailsAccount] = useState<WalletAccount | null>(
     null,
   );
+  // When true, opening Settings jumps straight into Security Center (Danger
+  // Zone) — set by the "Reset wallet data" action on a primary account.
+  const [openSecurityCenter, setOpenSecurityCenter] = useState(false);
   const [loading, setLoading] = useState(true);
+  // One-shot deep-link target (e.g. "accounts") consumed on first unlock.
+  const deepLinkRouteRef = useRef<PopupRoute | null>(readDeepLinkRoute());
 
   async function refresh() {
     const overview = await walletService.getOverview();
@@ -128,6 +149,13 @@ export function App() {
     }
 
     setSelectedAsset(null);
+    // Honor a one-shot deep-link (e.g. opened to "accounts" from the dashboard).
+    if (deepLinkRouteRef.current) {
+      const target = deepLinkRouteRef.current;
+      deepLinkRouteRef.current = null;
+      setRoute(target);
+      return;
+    }
     setRoute("home");
   }
 
@@ -159,6 +187,26 @@ export function App() {
       setLoading(false);
     });
   }, []);
+
+  // Re-sync the appearance from the authoritative wallet settings whenever they
+  // load or change. initThemeEarly() already applied the localStorage mirror
+  // before render; this keeps the mirror and document in sync with storage.
+  const themePreference = viewState?.walletState?.settings.theme;
+  useEffect(() => {
+    if (themePreference) {
+      applyThemePreference(themePreference);
+    }
+  }, [themePreference]);
+
+  // Re-sync the interface language from the authoritative wallet settings.
+  // initLocaleEarly() applied the localStorage mirror before render; this keeps
+  // the mirror, document, and live UI in sync with storage.
+  const localePreference = viewState?.walletState?.settings.locale;
+  useEffect(() => {
+    if (localePreference) {
+      applyLocalePreference(localePreference);
+    }
+  }, [localePreference]);
 
   function getAddWatchWalletBackRoute(): PopupRoute {
     if (!viewState || viewState.runtimeState.status === "not_initialized") {
@@ -228,7 +276,7 @@ export function App() {
               <span className="simple-logo__text">SIMPLE</span>
             </div>
 
-            <p className="simple-loading-text">Loading wallet...</p>
+            <p className="simple-loading-text">{t("app.loadingWallet")}</p>
           </div>
         </section>
       );
@@ -538,6 +586,13 @@ export function App() {
               await refresh();
               setRoute("accounts");
             }}
+            onResetWallet={() => {
+              // Primary accounts can't be removed individually — send the user to
+              // Settings with the Security Center (Danger Zone) opened.
+              setDetailsAccount(null);
+              setOpenSecurityCenter(true);
+              setRoute("settings");
+            }}
           />
         );
 
@@ -600,7 +655,11 @@ export function App() {
         return (
           <SettingsPage
             walletState={viewState.walletState}
-            onBack={() => setRoute("home")}
+            initialShowSecurityCenter={openSecurityCenter}
+            onBack={() => {
+              setOpenSecurityCenter(false);
+              setRoute("home");
+            }}
             onChanged={syncViewState}
             onRevealSeed={() => setRoute("reveal-seed")}
             onRevealPrivateKey={() => setRoute("reveal-private-key")}

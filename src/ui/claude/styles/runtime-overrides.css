@@ -39,19 +39,45 @@ textarea {
   border-radius: 0 !important;
 }
 
-/* Sidepanel */
+/* ── Side panel (Chrome Side Panel entrypoint) ─────────────────────────────
+   The side panel can be far wider than the 360px popup. Instead of leaving the
+   fixed-width wallet pinned to the left edge with an empty gutter on the right,
+   the panel background fills the full width and a comfortably-sized wallet
+   column is centered. Everything here is scoped to the sidepanel entrypoint
+   (data-simple-surface set in sidepanel/main.tsx — not width-based), so the
+   popup layout is never affected. */
 html[data-simple-surface="sidepanel"],
 html[data-simple-surface="sidepanel"] body,
 html[data-simple-surface="sidepanel"] #root {
   width: 100% !important;
   height: 100vh !important;
+  max-width: none !important;
+  overflow: hidden !important;
 }
 
+/* Full-width flex containers center the wallet column; their background fills
+   the whole side panel so there is no left-pinned look or empty right zone. */
+html[data-simple-surface="sidepanel"] #root,
+html[data-simple-surface="sidepanel"] .app-root {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: stretch !important;
+  background: var(--bg-canvas) !important;
+}
+
+html[data-simple-surface="sidepanel"] .app-root {
+  width: 100% !important;
+  height: 100vh !important;
+}
+
+/* Centered wallet column: fills narrow panels (≤520px) edge-to-edge, then caps
+   and centers symmetrically on wider panels (640px / 800px …). */
 html[data-simple-surface="sidepanel"] .popup-app-shell,
 html[data-simple-surface="sidepanel"] .popup-app-frame,
 html[data-simple-surface="sidepanel"] .ext-popup {
   width: 100% !important;
-  max-width: 430px !important;
+  max-width: 520px !important;
+  margin: 0 auto !important;
   height: 100vh !important;
   max-height: none !important;
 }
@@ -103,6 +129,35 @@ html[data-simple-surface="sidepanel"] .ext-popup {
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
+}
+
+/* Settings header: language + theme pills sit side by side. */
+.set-head-chips {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+/* Theme pill glyph (sun / moon / monitor) — sized to match the compact chip. */
+.net-chip .net-chip-glyph {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex: 0 0 auto !important;
+}
+
+.net-chip .net-chip-glyph svg {
+  width: 14px !important;
+  height: 14px !important;
+  display: block !important;
+}
+
+/* Icon-only chip (theme pill): compact square, same height as the EN pill. */
+.net-chip.net-chip--icon {
+  padding: 0 !important;
+  width: 32px !important;
+  max-width: 32px !important;
+  justify-content: center !important;
 }
 
 .icbtn {
@@ -173,7 +228,7 @@ html[data-simple-surface="sidepanel"] .ext-popup {
   font-weight: 800 !important;
   line-height: 0.92 !important;
   letter-spacing: -0.05em !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   max-width: 100% !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -393,16 +448,22 @@ html[data-simple-surface="fullscreen"] .surface-mode-button {
   display: none !important;
 }
 
-/* === SIMPLE WHITE THEME + FULLSCREEN FIX START === */
+/* === SIMPLE THEME (LIGHT / DARK) + FULLSCREEN FIX START === */
 
-/* Pure white theme override */
-:root,
-html,
-body,
-#root {
+/* Light theme — the default. Historically this block forced the whole "claude"
+   UI to a pure-white palette with !important; it is now scoped to everything
+   EXCEPT data-theme="dark" so the dark palette below can take over. Light values
+   are unchanged. --bg-muted is the single token the converted light-gray
+   surfaces map to (inputs, recessed panels, hovers). */
+:root:not([data-theme="dark"]),
+html:not([data-theme="dark"]),
+html:not([data-theme="dark"]) body,
+html:not([data-theme="dark"]) #root {
   --bg-canvas: #ffffff !important;
   --bg-surface: #ffffff !important;
   --bg-sunken: #ffffff !important;
+  --bg-muted: #f7f7f4 !important;
+  --bg-hover: #f7f7f7 !important;
   --bg-active: #f5f5f5 !important;
 
   --line: #e5e5e5 !important;
@@ -414,7 +475,44 @@ body,
   --ink-4: #9a9a9a !important;
   --ink-on-dark: #ffffff !important;
 
-  background: #ffffff !important;
+  /* RGB channels of the primary ink, for translucent fills/hovers expressed as
+     rgba(var(--ink-rgb), a). Flips to near-white in dark so those overlays stay
+     visible on dark surfaces. */
+  --ink-rgb: 17, 17, 17;
+
+  background: var(--bg-canvas) !important;
+}
+
+/* Dark theme — premium graphite. Layered: canvas (page) < surface (cards) <
+   muted (inputs / recessed). Cards separate from the background with a soft
+   border + subtle shadow rather than a hard contrast step. !important is needed
+   to outweigh the light overrides above. Signal colors (secure/warn/danger/info)
+   come from colors_and_type.css, which already ships dark values. */
+:root[data-theme="dark"],
+html[data-theme="dark"],
+html[data-theme="dark"] body,
+html[data-theme="dark"] #root {
+  --bg-canvas: #0d0d0c !important;
+  --bg-surface: #161614 !important;
+  --bg-sunken: #100f0e !important;
+  --bg-muted: #1e1d1b !important;
+  --bg-hover: #1c1b19 !important;
+  --bg-active: #262421 !important;
+
+  --line: #2a2825 !important;
+  --line-strong: #3a3733 !important;
+  --line-focus: #f2f1ec !important;
+
+  --ink-1: #f2f1ec !important;
+  --ink-2: #b6b3aa !important;
+  --ink-3: #8b887f !important;
+  --ink-4: #5c5a54 !important;
+  --ink-on-dark: #f6f5f1 !important;
+
+  --ink-rgb: 242, 241, 236;
+
+  color-scheme: dark;
+  background: var(--bg-canvas) !important;
 }
 
 /* Make all main surfaces white */
@@ -430,7 +528,7 @@ body,
 .panel,
 .simple-page,
 .simple-page__inner {
-  background-color: #ffffff !important;
+  background-color: var(--bg-surface) !important;
 }
 
 /* Slightly grey only for secondary UI elements */
@@ -440,7 +538,7 @@ textarea,
 .btn.secondary,
 .action,
 .pill {
-  background-color: #ffffff !important;
+  background-color: var(--bg-surface) !important;
 }
 
 /* Hover / active still visible but neutral */
@@ -448,15 +546,15 @@ textarea,
 .action:hover,
 .btn.secondary:hover,
 .icbtn:hover {
-  background-color: #f7f7f7 !important;
+  background-color: var(--bg-muted) !important;
 }
 
 /* Keep selected dark buttons readable */
 .btn.primary,
 .balance-block + div button[aria-pressed="true"],
 .balance-block + div button.active {
-  background-color: #111111 !important;
-  color: #ffffff !important;
+  background-color: var(--ink-1) !important;
+  color: var(--bg-surface) !important;
 }
 
 /* Real fullscreen mode */
@@ -472,7 +570,7 @@ html[data-simple-surface="fullscreen"] #root {
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
 }
 
 /* In fullscreen do not center a small wallet card */
@@ -494,7 +592,7 @@ html[data-simple-surface="fullscreen"] .ext-popup {
   border: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
 }
 
 /* Fullscreen content: readable desktop width */
@@ -514,7 +612,7 @@ html[data-simple-surface="fullscreen"] .bar-top {
   min-height: 64px !important;
   max-height: 64px !important;
   padding: 0 max(32px, calc((100vw - 760px) / 2)) !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
 }
 
 html[data-simple-surface="fullscreen"] .bar-bottom {
@@ -523,7 +621,7 @@ html[data-simple-surface="fullscreen"] .bar-bottom {
   min-height: 72px !important;
   max-height: 72px !important;
   padding: 0 max(32px, calc((100vw - 760px) / 2)) !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
 }
 
 /* Fullscreen typography a bit larger */
@@ -776,7 +874,7 @@ html[data-simple-surface="fullscreen"] .send-meta-value {
   min-height: 160px !important;
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 18px !important;
   display: grid !important;
   grid-template-columns: 42px 1fr !important;
@@ -842,7 +940,7 @@ html[data-simple-surface="fullscreen"] .send-meta-value {
   padding: 0 12px !important;
   border: 1px solid var(--line) !important;
   border-radius: 999px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-1) !important;
   font-size: 13px !important;
   font-weight: 750 !important;
@@ -878,7 +976,7 @@ html[data-simple-surface="fullscreen"] .send-meta-value {
   position: absolute !important;
   inset: 0 !important;
   border: 0 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   cursor: pointer !important;
 }
 
@@ -890,7 +988,7 @@ html[data-simple-surface="fullscreen"] .send-meta-value {
   overflow: auto !important;
   border-top: 1px solid var(--line) !important;
   border-radius: 22px 22px 0 0 !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 14px 12px 16px !important;
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
 }
@@ -954,7 +1052,7 @@ html[data-simple-surface="fullscreen"] .network-sheet {
   min-height: 70px !important;
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 12px !important;
   display: grid !important;
   grid-template-columns: 42px minmax(0, 1fr) auto 18px !important;
@@ -1041,7 +1139,7 @@ html[data-simple-surface="fullscreen"] .network-sheet {
   position: absolute !important;
   inset: 0 !important;
   border: 0 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   cursor: pointer !important;
 }
 
@@ -1053,7 +1151,7 @@ html[data-simple-surface="fullscreen"] .network-sheet {
   overflow: auto !important;
   border-top: 1px solid var(--line) !important;
   border-radius: 22px 22px 0 0 !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 14px 12px 16px !important;
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
 }
@@ -1110,7 +1208,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   min-height: 70px !important;
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 12px !important;
   display: grid !important;
   grid-template-columns: 42px minmax(0, 1fr) auto 18px !important;
@@ -1191,7 +1289,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   position: absolute !important;
   inset: 0 !important;
   border: 0 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
 }
 
 .asset-sheet {
@@ -1202,7 +1300,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   overflow: auto !important;
   border-top: 1px solid var(--line) !important;
   border-radius: 22px 22px 0 0 !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 14px 12px 16px !important;
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
 }
@@ -1254,7 +1352,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
 
 .asset-sheet-sticky {
   flex-shrink: 0 !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 14px 12px 0 !important;
 }
 
@@ -1333,7 +1431,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
 
 .send-network-chip {
   cursor: pointer !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--line) !important;
   border-radius: 999px !important;
   height: 32px !important;
@@ -1363,7 +1461,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   padding: 0 12px !important;
   border: 1px solid var(--line) !important;
   border-radius: 999px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-1) !important;
   font-size: 13px !important;
   font-weight: 750 !important;
@@ -1396,7 +1494,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   min-height: 70px !important;
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 12px !important;
   display: grid !important;
   grid-template-columns: 42px minmax(0, 1fr) auto 18px !important;
@@ -1449,7 +1547,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   padding: 0 12px !important;
   border: 1px solid var(--line) !important;
   border-radius: 999px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-1) !important;
   font-size: 13px !important;
   font-weight: 750 !important;
@@ -1480,7 +1578,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   position: absolute !important;
   inset: 0 !important;
   border: 0 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   cursor: pointer !important;
 }
 
@@ -1492,7 +1590,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
   overflow: auto !important;
   border-top: 1px solid var(--line) !important;
   border-radius: 22px 22px 0 0 !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 14px 12px 16px !important;
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
 }
@@ -1668,7 +1766,7 @@ html[data-simple-surface="fullscreen"] .asset-sheet {
 /* 4. Fullscreen: centered card, not stretched browser-width */
 html[data-simple-surface="fullscreen"],
 html[data-simple-surface="fullscreen"] body {
-  background: #f7f7f4 !important;
+  background: var(--bg-muted) !important;
   overflow: auto !important;
 }
 
@@ -1685,7 +1783,7 @@ html[data-simple-surface="fullscreen"] #root {
   /* subtle warm-neutral radial behind the card */
   background:
     radial-gradient(ellipse 640px 380px at 50% 0%, rgba(180, 195, 160, 0.14) 0%, transparent 68%),
-    #f7f7f4 !important;
+    var(--bg-muted) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
 }
@@ -1734,7 +1832,7 @@ html[data-simple-surface="fullscreen"] .ext-popup {
     0 8px 24px rgba(0, 0, 0, 0.07),
     0 24px 56px rgba(0, 0, 0, 0.09) !important;
   overflow: hidden !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
 }
 
 html[data-simple-surface="fullscreen"] .screen-body {
@@ -1847,7 +1945,7 @@ html[data-simple-surface="fullscreen"] #root {
   min-height: 100vh !important;
   margin: 0 !important;
   padding: 0 !important;
-  background: #f7f7f4 !important;
+  background: var(--bg-muted) !important;
   overflow-x: hidden !important;
 }
 
@@ -1885,8 +1983,8 @@ html[data-simple-surface="fullscreen"] .app-root--fullscreen {
   transform: none !important;
 
   background:
-    radial-gradient(circle at 50% 170px, rgba(17, 17, 17, 0.055), transparent 280px),
-    #f7f7f4 !important;
+    radial-gradient(circle at 50% 170px, rgba(var(--ink-rgb), 0.055), transparent 280px),
+    var(--bg-muted) !important;
 }
 
 /* New structural shell */
@@ -1942,8 +2040,8 @@ html[data-simple-surface="fullscreen"] .fullscreen-wallet-frame {
   top: auto !important;
   transform: none !important;
 
-  background: #ffffff !important;
-  border: 1px solid rgba(17, 17, 17, 0.08) !important;
+  background: var(--bg-surface) !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.08) !important;
   border-radius: 24px !important;
   box-shadow: 0 24px 70px rgba(17, 17, 17, 0.10) !important;
   overflow: hidden !important;
@@ -2019,9 +2117,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .value-currency-selector,
 .value-in-selector {
   appearance: none !important;
-  border: 1px solid rgba(17, 17, 17, 0.12) !important;
-  background: #ffffff !important;
-  color: #111111 !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.12) !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-1) !important;
   border-radius: 999px !important;
   min-height: 32px !important;
   padding: 0 14px !important;
@@ -2040,14 +2138,14 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-selector-pill span,
 .value-currency-selector span,
 .value-in-selector span {
-  color: rgba(17, 17, 17, 0.56) !important;
+  color: rgba(var(--ink-rgb), 0.56) !important;
   font-weight: 600 !important;
 }
 
 .valuation-selector-pill strong,
 .value-currency-selector strong,
 .value-in-selector strong {
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-weight: 750 !important;
 }
 
@@ -2058,7 +2156,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   position: fixed !important;
   inset: 0 !important;
   z-index: 9999 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
   display: flex !important;
@@ -2074,7 +2172,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .value-currency-modal-panel {
   width: min(100%, 360px) !important;
   background: rgba(255, 255, 255, 0.96) !important;
-  border: 1px solid rgba(17, 17, 17, 0.10) !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.10) !important;
   border-radius: 24px !important;
   box-shadow: 0 28px 80px rgba(17, 17, 17, 0.18) !important;
   padding: 18px !important;
@@ -2097,7 +2195,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-currency-modal-title,
 .value-currency-modal-title {
   margin: 0 !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 16px !important;
   line-height: 1.2 !important;
   font-weight: 750 !important;
@@ -2108,7 +2206,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-currency-modal-subtitle,
 .value-currency-modal-subtitle {
   margin: 5px 0 0 !important;
-  color: rgba(17, 17, 17, 0.52) !important;
+  color: rgba(var(--ink-rgb), 0.52) !important;
   font-size: 12px !important;
   line-height: 1.35 !important;
   font-weight: 500 !important;
@@ -2123,9 +2221,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   height: 32px !important;
   min-width: 32px !important;
   border-radius: 999px !important;
-  border: 1px solid rgba(17, 17, 17, 0.10) !important;
-  background: #f7f7f4 !important;
-  color: rgba(17, 17, 17, 0.70) !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.10) !important;
+  background: var(--bg-muted) !important;
+  color: rgba(var(--ink-rgb), 0.70) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -2138,8 +2236,8 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-close:hover,
 .valuation-currency-modal-close:hover,
 .value-currency-modal-close:hover {
-  background: #eeeeea !important;
-  color: #111111 !important;
+  background: var(--bg-muted) !important;
+  color: var(--ink-1) !important;
 }
 
 /* Options list */
@@ -2161,7 +2259,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   border: 1px solid transparent !important;
   border-radius: 16px !important;
   background: transparent !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   padding: 10px 12px !important;
   display: grid !important;
   grid-template-columns: 22px 1fr !important;
@@ -2176,14 +2274,14 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-option:hover,
 .valuation-currency-modal-option:hover,
 .value-currency-modal-option:hover {
-  background: rgba(17, 17, 17, 0.045) !important;
+  background: rgba(var(--ink-rgb), 0.045) !important;
 }
 
 .valuation-modal-option--active,
 .valuation-currency-modal-option--active,
 .value-currency-modal-option--active {
-  background: #f1f1ee !important;
-  border-color: rgba(17, 17, 17, 0.08) !important;
+  background: var(--bg-muted) !important;
+  border-color: rgba(var(--ink-rgb), 0.08) !important;
 }
 
 /* Checkmark */
@@ -2195,7 +2293,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 15px !important;
   font-weight: 800 !important;
 }
@@ -2213,7 +2311,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-option__code,
 .valuation-currency-modal-option__code,
 .value-currency-modal-option__code {
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 14px !important;
   line-height: 1.15 !important;
   font-weight: 750 !important;
@@ -2223,7 +2321,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-option__description,
 .valuation-currency-modal-option__description,
 .value-currency-modal-option__description {
-  color: rgba(17, 17, 17, 0.48) !important;
+  color: rgba(var(--ink-rgb), 0.48) !important;
   font-size: 12px !important;
   line-height: 1.25 !important;
   font-weight: 500 !important;
@@ -2235,9 +2333,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .value-currency-modal-panel > button {
   appearance: none !important;
   border-radius: 14px !important;
-  border: 1px solid rgba(17, 17, 17, 0.08) !important;
-  background: #f7f7f4 !important;
-  color: #111111 !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.08) !important;
+  background: var(--bg-muted) !important;
+  color: var(--ink-1) !important;
   padding: 10px 12px !important;
   margin: 4px 0 !important;
   font-family: inherit !important;
@@ -2261,7 +2359,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   position: fixed !important;
   inset: 0 !important;
   z-index: 10000 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
   display: flex !important;
@@ -2280,7 +2378,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   overflow-y: auto !important;
 
   background: rgba(255, 255, 255, 0.98) !important;
-  border: 1px solid rgba(17, 17, 17, 0.10) !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.10) !important;
   border-radius: 24px !important;
   box-shadow: 0 28px 80px rgba(17, 17, 17, 0.18) !important;
 
@@ -2302,7 +2400,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-currency-modal-title,
 .value-currency-modal-title {
   margin: 0 !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 17px !important;
   line-height: 1.15 !important;
   font-weight: 750 !important;
@@ -2314,7 +2412,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .value-currency-modal-subtitle {
   display: block !important;
   margin: 6px 0 0 !important;
-  color: rgba(17, 17, 17, 0.52) !important;
+  color: rgba(var(--ink-rgb), 0.52) !important;
   font-size: 12px !important;
   line-height: 1.35 !important;
   font-weight: 500 !important;
@@ -2329,9 +2427,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   height: 34px !important;
   min-width: 34px !important;
   border-radius: 999px !important;
-  border: 1px solid rgba(17, 17, 17, 0.10) !important;
-  background: #f7f7f4 !important;
-  color: rgba(17, 17, 17, 0.72) !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.10) !important;
+  background: var(--bg-muted) !important;
+  color: rgba(var(--ink-rgb), 0.72) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -2369,7 +2467,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   border-radius: 16px !important;
   background: transparent !important;
 
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   text-align: left !important;
   font-family: inherit !important;
   cursor: pointer !important;
@@ -2378,14 +2476,14 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-option:hover,
 .valuation-currency-modal-option:hover,
 .value-currency-modal-option:hover {
-  background: rgba(17, 17, 17, 0.045) !important;
+  background: rgba(var(--ink-rgb), 0.045) !important;
 }
 
 .valuation-modal-option--active,
 .valuation-currency-modal-option--active,
 .value-currency-modal-option--active {
-  background: #f1f1ee !important;
-  border-color: rgba(17, 17, 17, 0.08) !important;
+  background: var(--bg-muted) !important;
+  border-color: rgba(var(--ink-rgb), 0.08) !important;
 }
 
 .valuation-modal-option__check,
@@ -2396,7 +2494,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 15px !important;
   line-height: 1 !important;
   font-weight: 800 !important;
@@ -2411,7 +2509,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-option__code,
 .valuation-currency-modal-option__code,
 .value-currency-modal-option__code {
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 14px !important;
   line-height: 1.15 !important;
   font-weight: 750 !important;
@@ -2422,7 +2520,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-option__description,
 .valuation-currency-modal-option__description,
 .value-currency-modal-option__description {
-  color: rgba(17, 17, 17, 0.52) !important;
+  color: rgba(var(--ink-rgb), 0.52) !important;
   font-size: 12px !important;
   line-height: 1.2 !important;
   font-weight: 500 !important;
@@ -2448,13 +2546,13 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   margin: 6px 0 0 !important;
   font-size: 12px !important;
   line-height: 1.35 !important;
-  color: rgba(17, 17, 17, 0.52) !important;
+  color: rgba(var(--ink-rgb), 0.52) !important;
 }
 
 /* Keep the Value in pill clean */
 .valuation-selector-pill {
-  border: 1px solid rgba(17, 17, 17, 0.12) !important;
-  background: #ffffff !important;
+  border: 1px solid rgba(var(--ink-rgb), 0.12) !important;
+  background: var(--bg-surface) !important;
   border-radius: 999px !important;
   min-height: 34px !important;
   padding: 0 15px !important;
@@ -2463,13 +2561,13 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .valuation-selector-pill span {
-  color: rgba(17, 17, 17, 0.56) !important;
+  color: rgba(var(--ink-rgb), 0.56) !important;
   font-size: 13px !important;
   font-weight: 650 !important;
 }
 
 .valuation-selector-pill strong {
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-size: 13px !important;
   font-weight: 800 !important;
 }
@@ -2566,7 +2664,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-size: 12px !important;
   line-height: 1.1 !important;
   font-weight: 550 !important;
-  color: rgba(17, 17, 17, 0.52) !important;
+  color: rgba(var(--ink-rgb), 0.52) !important;
 }
 
 /* In extension popup/fullscreen wallet frame, keep modal visually inside the card */
@@ -2685,7 +2783,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .value-currency-modal-option__description {
   font-size: 11px !important;
   font-weight: 550 !important;
-  color: rgba(17, 17, 17, 0.52) !important;
+  color: rgba(var(--ink-rgb), 0.52) !important;
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
@@ -2703,7 +2801,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .valuation-modal-backdrop,
 .valuation-currency-modal-backdrop,
 .value-currency-modal-backdrop {
-  background: rgba(17, 17, 17, 0.18) !important;
+  background: rgba(var(--ink-rgb), 0.18) !important;
   backdrop-filter: blur(7px) !important;
   -webkit-backdrop-filter: blur(7px) !important;
 }
@@ -2752,7 +2850,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   width: 7px !important;
   height: 7px !important;
   border-radius: 50% !important;
-  background: #f59e0b !important;
+  background: var(--warn) !important;
   border: 1.5px solid white !important;
 }
 
@@ -2834,7 +2932,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   border: 0 !important;
   background: transparent !important;
   cursor: pointer !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
 }
 
 .home-total-balance-value {
@@ -2842,152 +2940,15 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   line-height: 0.95 !important;
   font-weight: 800 !important;
   letter-spacing: -0.05em !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-family: var(--font-display, inherit) !important;
 }
 
 .home-total-balance-chevron {
   width: 22px !important;
   height: 22px !important;
-  color: #777777 !important;
+  color: var(--ink-3) !important;
   opacity: 0.7 !important;
-  flex-shrink: 0 !important;
-}
-
-
-/* ============================================================
-   Valuation currency modal — wallet-native redesign
-   Uses .valuation-modal (panel) + .valuation-option-list / .valuation-option.
-   Placed last so these win over all earlier valuation-modal-* rules.
-   ============================================================ */
-
-.valuation-modal {
-  width: min(100%, 344px) !important;
-  background: #ffffff !important;
-  border: 1px solid #e5e7eb !important;
-  border-radius: 22px !important;
-  box-shadow: 0 8px 40px rgba(17, 17, 17, 0.13), 0 2px 8px rgba(17, 17, 17, 0.06) !important;
-  padding: 20px !important;
-  box-sizing: border-box !important;
-  overflow: hidden !important;
-}
-
-.valuation-modal .valuation-modal-header {
-  display: flex !important;
-  align-items: flex-start !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  margin-bottom: 16px !important;
-}
-
-.valuation-modal .valuation-modal-title {
-  font-size: 16px !important;
-  font-weight: 750 !important;
-  letter-spacing: -0.03em !important;
-  color: #111111 !important;
-  line-height: 1.2 !important;
-  margin: 0 !important;
-}
-
-.valuation-modal .valuation-modal-subtitle {
-  margin: 5px 0 0 !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  color: #6b7280 !important;
-  line-height: 1.4 !important;
-  letter-spacing: 0 !important;
-}
-
-.valuation-modal .valuation-modal-close {
-  appearance: none !important;
-  width: 30px !important;
-  height: 30px !important;
-  min-width: 30px !important;
-  border-radius: 999px !important;
-  border: 1px solid #e5e7eb !important;
-  background: #f9fafb !important;
-  color: #6b7280 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-  padding: 0 !important;
-  font-size: 0 !important;
-}
-
-.valuation-modal .valuation-modal-close:hover {
-  background: #f3f4f6 !important;
-  color: #111111 !important;
-}
-
-.valuation-option-list {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 4px !important;
-}
-
-.valuation-option {
-  appearance: none !important;
-  width: 100% !important;
-  display: grid !important;
-  grid-template-columns: 36px 1fr 20px !important;
-  align-items: center !important;
-  gap: 12px !important;
-  padding: 10px 10px !important;
-  border: 1px solid transparent !important;
-  border-radius: 16px !important;
-  background: transparent !important;
-  cursor: pointer !important;
-  text-align: left !important;
-  font-family: inherit !important;
-  box-sizing: border-box !important;
-}
-
-.valuation-option:hover {
-  background: #f9fafb !important;
-}
-
-.valuation-option--active {
-  background: #f1f1ee !important;
-  border-color: rgba(17, 17, 17, 0.08) !important;
-}
-
-.valuation-option-icon {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex-shrink: 0 !important;
-}
-
-.valuation-option-body {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 2px !important;
-  min-width: 0 !important;
-}
-
-.valuation-option-code {
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.02em !important;
-  color: #111111 !important;
-  line-height: 1.2 !important;
-}
-
-.valuation-option-name {
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  color: #6b7280 !important;
-  line-height: 1.3 !important;
-}
-
-.valuation-option-check {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 20px !important;
-  height: 20px !important;
-  color: #111111 !important;
   flex-shrink: 0 !important;
 }
 
@@ -3000,7 +2961,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   position: fixed !important;
   inset: 0 !important;
   z-index: 9999 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   backdrop-filter: blur(10px) !important;
   -webkit-backdrop-filter: blur(10px) !important;
   display: flex !important;
@@ -3012,8 +2973,8 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 
 .asset-details-modal {
   width: min(100%, 344px) !important;
-  background: #ffffff !important;
-  border: 1px solid #e5e7eb !important;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 22px !important;
   box-shadow: 0 8px 40px rgba(17, 17, 17, 0.13), 0 2px 8px rgba(17, 17, 17, 0.06) !important;
   padding: 20px !important;
@@ -3037,7 +2998,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-size: 16px !important;
   font-weight: 700 !important;
   letter-spacing: -0.03em !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   line-height: 1.2 !important;
   white-space: nowrap !important;
   overflow: hidden !important;
@@ -3047,7 +3008,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-modal-symbol {
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   line-height: 1.3 !important;
   margin-top: 2px !important;
 }
@@ -3056,9 +3017,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   display: flex !important;
   flex-direction: column !important;
   margin-bottom: 14px !important;
-  background: #f9fafb !important;
+  background: var(--bg-muted) !important;
   border-radius: 14px !important;
-  border: 1px solid #f3f4f6 !important;
+  border: 1px solid var(--bg-muted) !important;
   overflow: hidden !important;
 }
 
@@ -3070,13 +3031,13 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-details-modal-stat + .asset-details-modal-stat {
-  border-top: 1px solid #f3f4f6 !important;
+  border-top: 1px solid var(--bg-muted) !important;
 }
 
 .asset-details-modal-stat-label {
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   line-height: 1.3 !important;
   flex-shrink: 0 !important;
 }
@@ -3084,7 +3045,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-modal-stat-value {
   font-size: 13px !important;
   font-weight: 600 !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   line-height: 1.3 !important;
   text-align: right !important;
   margin-left: 12px !important;
@@ -3098,7 +3059,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-size: 11px !important;
   font-weight: 500 !important;
   letter-spacing: 0.02em !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
 }
 
 .asset-details-modal-primary-actions {
@@ -3132,41 +3093,41 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-details-modal-btn--primary {
-  background: #111111 !important;
-  color: #ffffff !important;
-  border-color: #111111 !important;
+  background: var(--ink-1) !important;
+  color: var(--bg-surface) !important;
+  border-color: var(--ink-1) !important;
 }
 
 .asset-details-modal-btn--primary:hover {
-  background: #222222 !important;
+  background: var(--ink-1) !important;
 }
 
 .asset-details-modal-btn--secondary {
-  background: #f3f4f6 !important;
-  color: #111111 !important;
-  border-color: #e5e7eb !important;
+  background: var(--bg-muted) !important;
+  color: var(--ink-1) !important;
+  border-color: var(--line) !important;
 }
 
 .asset-details-modal-btn--secondary:hover {
-  background: #e9eaec !important;
+  background: var(--bg-active) !important;
 }
 
 .asset-details-modal-btn--ghost {
   background: transparent !important;
-  color: #374151 !important;
-  border-color: #e5e7eb !important;
+  color: var(--ink-2) !important;
+  border-color: var(--line) !important;
   height: 38px !important;
   font-size: 13px !important;
   font-weight: 500 !important;
 }
 
 .asset-details-modal-btn--ghost:hover {
-  background: #f9fafb !important;
+  background: var(--bg-muted) !important;
 }
 
 .asset-details-modal-btn--danger {
   background: transparent !important;
-  color: #dc2626 !important;
+  color: var(--danger) !important;
   border-color: transparent !important;
   height: 34px !important;
   font-size: 13px !important;
@@ -3174,13 +3135,13 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-details-modal-btn--danger:hover {
-  background: #fef2f2 !important;
+  background: var(--danger-soft) !important;
 }
 
 /* Confirm removal section */
 .asset-remove-confirm {
-  background: #fef2f2 !important;
-  border: 1px solid #fecaca !important;
+  background: var(--danger-soft) !important;
+  border: 1px solid var(--danger-soft) !important;
   border-radius: 14px !important;
   padding: 14px !important;
 }
@@ -3188,7 +3149,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-remove-confirm-title {
   font-size: 14px !important;
   font-weight: 700 !important;
-  color: #dc2626 !important;
+  color: var(--danger) !important;
   letter-spacing: -0.02em !important;
   line-height: 1.2 !important;
   margin-bottom: 6px !important;
@@ -3197,7 +3158,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-remove-confirm-text {
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   line-height: 1.5 !important;
   margin-bottom: 12px !important;
 }
@@ -3224,29 +3185,29 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-remove-btn--cancel {
-  background: #ffffff !important;
-  color: #374151 !important;
-  border-color: #e5e7eb !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-2) !important;
+  border-color: var(--line) !important;
 }
 
 .asset-remove-btn--cancel:hover {
-  background: #f9fafb !important;
+  background: var(--bg-muted) !important;
 }
 
 .asset-remove-btn--confirm {
-  background: #dc2626 !important;
-  color: #ffffff !important;
-  border-color: #dc2626 !important;
+  background: var(--danger) !important;
+  color: var(--bg-surface) !important;
+  border-color: var(--danger) !important;
 }
 
 .asset-remove-btn--confirm:hover {
-  background: #b91c1c !important;
+  background: var(--danger) !important;
 }
 
 .asset-details-view-note {
   padding: 0 16px 14px !important;
   font-size: 11px !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   text-align: center !important;
   line-height: 1.45 !important;
 }
@@ -3254,7 +3215,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-native-note {
   padding: 6px 16px 14px !important;
   font-size: 11px !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   text-align: center !important;
   line-height: 1.45 !important;
 }
@@ -3274,8 +3235,8 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   width: 36px !important;
   height: 36px !important;
   border-radius: 50% !important;
-  background: #f3f4f6 !important;
-  color: #374151 !important;
+  background: var(--bg-muted) !important;
+  color: var(--ink-2) !important;
   font-size: 20px !important;
   font-weight: 400 !important;
   line-height: 1 !important;
@@ -3288,32 +3249,124 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-weight: 600 !important;
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
 }
 
 .assets-mgr-restore-btn {
   appearance: none !important;
-  background: #f0fdf4 !important;
-  border: 1px solid #bbf7d0 !important;
+  background: var(--secure-soft) !important;
+  border: 1px solid var(--secure-soft) !important;
   border-radius: 8px !important;
   padding: 4px 10px !important;
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: #16a34a !important;
+  color: var(--secure) !important;
   cursor: pointer !important;
   white-space: nowrap !important;
   font-family: inherit !important;
 }
 
 .assets-mgr-restore-btn:hover {
-  background: #dcfce7 !important;
+  background: var(--secure-soft) !important;
 }
 
 .assets-mgr-empty {
   padding: 16px 4px !important;
   font-size: 12px !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   text-align: center !important;
+}
+
+/* ============================================================
+   MANAGE ASSETS PAGE — full screen, compact & top-aligned
+   Scoped to .manage-assets-* so HomePage / Settings / SelectNetwork
+   are untouched. The body stacks intro → add-token → hidden list at the
+   top of the screen (never vertically centered, never a bottom sheet).
+   ============================================================ */
+.manage-assets-body {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  padding-top: 10px !important;
+}
+
+.manage-assets-intro {
+  padding-top: 2px !important;
+}
+
+.manage-assets-title {
+  font-size: 22px !important;
+}
+
+.manage-assets-subtitle {
+  margin-top: 4px !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+/* Fullscreen / large viewport: a roomier hero in a narrower centred column,
+   so the page reads as a tidy card rather than stretching edge-to-edge. */
+html[data-simple-surface="fullscreen"] .manage-assets-body {
+  max-width: 520px !important;
+  gap: 16px !important;
+  padding-top: 18px !important;
+}
+
+html[data-simple-surface="fullscreen"] .manage-assets-title {
+  font-size: 30px !important;
+}
+
+/* ============================================================
+   VALUE CURRENCY PAGE — full screen, compact & top-aligned
+   Scoped to .value-currency-* so it mirrors the Manage assets layout
+   (intro → currency rows) without a modal/backdrop. Active row gets a
+   subtle highlight + checkmark; light/dark via tokens.
+   ============================================================ */
+.value-currency-body {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  padding-top: 10px !important;
+}
+
+.value-currency-intro {
+  padding-top: 2px !important;
+}
+
+.value-currency-title {
+  font-size: 22px !important;
+}
+
+.value-currency-subtitle {
+  margin-top: 4px !important;
+  color: var(--ink-3) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+.value-currency-row--active {
+  background: var(--bg-muted) !important;
+  border-radius: 12px !important;
+}
+
+.value-currency-row--active .num {
+  color: var(--secure) !important;
+}
+
+/* Fullscreen / large viewport: roomier hero in a narrower centred column. */
+html[data-simple-surface="fullscreen"] .value-currency-body {
+  max-width: 480px !important;
+  gap: 16px !important;
+  padding-top: 18px !important;
+}
+
+html[data-simple-surface="fullscreen"] .value-currency-title {
+  font-size: 30px !important;
 }
 
 /* ============================================================
@@ -3330,9 +3383,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-info-card {
   margin-bottom: 14px !important;
   padding: 12px 14px !important;
-  background: #f9fafb !important;
+  background: var(--bg-muted) !important;
   border-radius: 14px !important;
-  border: 1px solid #f3f4f6 !important;
+  border: 1px solid var(--bg-muted) !important;
 }
 
 .asset-details-info-row {
@@ -3345,7 +3398,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-info-label {
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   flex-shrink: 0 !important;
   white-space: nowrap !important;
 }
@@ -3355,7 +3408,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   min-width: 0 !important;
   font-size: 13px !important;
   font-weight: 600 !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -3365,14 +3418,14 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-family: var(--font-mono, ui-monospace, monospace) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   letter-spacing: 0.02em !important;
 }
 
 .asset-details-info-note {
   margin: 6px 0 0 !important;
   font-size: 11px !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   line-height: 1.5 !important;
 }
 
@@ -3381,12 +3434,12 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   appearance: none !important;
   flex-shrink: 0 !important;
   padding: 2px 8px !important;
-  background: #e9eaec !important;
+  background: var(--bg-active) !important;
   border: none !important;
   border-radius: 6px !important;
   font-size: 11px !important;
   font-weight: 600 !important;
-  color: #374151 !important;
+  color: var(--ink-2) !important;
   cursor: pointer !important;
   font-family: inherit !important;
   transition: background 100ms ease !important;
@@ -3394,7 +3447,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-copy-btn:hover {
-  background: #d1d5db !important;
+  background: var(--line-strong) !important;
 }
 
 /* Explorer link */
@@ -3403,16 +3456,16 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   margin-top: 9px !important;
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: #374151 !important;
+  color: var(--ink-2) !important;
   text-decoration: none !important;
-  border-bottom: 1px solid #d1d5db !important;
+  border-bottom: 1px solid var(--line-strong) !important;
   padding-bottom: 1px !important;
   line-height: 1.3 !important;
   transition: color 100ms ease !important;
 }
 
 .asset-details-explorer-btn:hover {
-  color: #111111 !important;
+  color: var(--ink-1) !important;
 }
 
 /* Activity section */
@@ -3425,23 +3478,23 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-weight: 700 !important;
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   margin-bottom: 8px !important;
 }
 
 .asset-activity-empty {
   padding: 11px 14px !important;
   font-size: 12px !important;
-  color: #9ca3af !important;
-  background: #f9fafb !important;
+  color: var(--ink-4) !important;
+  background: var(--bg-muted) !important;
   border-radius: 12px !important;
-  border: 1px solid #f3f4f6 !important;
+  border: 1px solid var(--bg-muted) !important;
   margin-bottom: 8px !important;
 }
 
 .asset-activity-list {
   border-radius: 12px !important;
-  border: 1px solid #f3f4f6 !important;
+  border: 1px solid var(--bg-muted) !important;
   overflow: hidden !important;
   margin-bottom: 8px !important;
 }
@@ -3451,17 +3504,17 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   align-items: center !important;
   gap: 6px !important;
   padding: 9px 12px !important;
-  background: #f9fafb !important;
+  background: var(--bg-muted) !important;
 }
 
 .asset-activity-row + .asset-activity-row {
-  border-top: 1px solid #f3f4f6 !important;
+  border-top: 1px solid var(--bg-muted) !important;
 }
 
 .asset-activity-type {
   font-size: 12px !important;
   font-weight: 600 !important;
-  color: #374151 !important;
+  color: var(--ink-2) !important;
   white-space: nowrap !important;
   flex-shrink: 0 !important;
   min-width: 44px !important;
@@ -3472,7 +3525,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   min-width: 0 !important;
   font-size: 11px !important;
   font-weight: 600 !important;
-  color: #111111 !important;
+  color: var(--ink-1) !important;
   font-family: var(--font-mono, ui-monospace, monospace) !important;
   text-align: right !important;
   overflow: hidden !important;
@@ -3491,31 +3544,31 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-activity-status--submitted {
-  background: #fef9c3 !important;
-  color: #a16207 !important;
+  background: var(--warn-soft) !important;
+  color: var(--warn) !important;
 }
 
 .asset-activity-status--confirmed {
-  background: #dcfce7 !important;
-  color: #166534 !important;
+  background: var(--secure-soft) !important;
+  color: var(--secure) !important;
 }
 
 .asset-activity-status--failed {
-  background: #fee2e2 !important;
-  color: #991b1b !important;
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
 }
 
 .asset-activity-link {
   flex-shrink: 0 !important;
   font-size: 13px !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   text-decoration: none !important;
   padding: 0 2px !important;
   line-height: 1 !important;
 }
 
 .asset-activity-link:hover {
-  color: #374151 !important;
+  color: var(--ink-2) !important;
 }
 
 .asset-activity-view-all {
@@ -3525,14 +3578,14 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   padding: 0 !important;
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #9ca3af !important;
+  color: var(--ink-4) !important;
   cursor: pointer !important;
   font-family: inherit !important;
   display: block !important;
 }
 
 .asset-activity-view-all:hover {
-  color: #374151 !important;
+  color: var(--ink-2) !important;
 }
 
 
@@ -3544,7 +3597,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  background: var(--bg-canvas, #ffffff) !important;
+  background: var(--bg-canvas) !important;
 }
 
 .asset-details-header-title {
@@ -3561,7 +3614,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   padding: 0 10px !important;
   border-radius: 999px !important;
   border: 1px solid var(--line) !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-3) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
@@ -3615,7 +3668,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-stats {
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   padding: 2px 14px !important;
 }
 
@@ -3623,7 +3676,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-chart-card {
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   padding: 14px 14px 12px !important;
 }
 
@@ -3662,7 +3715,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-chart-change--down {
-  color: #a83939 !important;
+  color: var(--danger) !important;
 }
 
 .asset-chart-change--muted {
@@ -3761,8 +3814,8 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-chart-type-btn--active {
-  background: var(--bg-surface, #ffffff) !important;
-  color: var(--ink-1, #111111) !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-1) !important;
   font-weight: 700 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
@@ -3772,7 +3825,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-market-card {
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   padding: 12px 14px !important;
   display: flex !important;
   flex-direction: column !important;
@@ -3810,7 +3863,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-no-market {
   border: 1px solid var(--line) !important;
   border-radius: 14px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   padding: 12px 14px !important;
   display: flex !important;
   flex-direction: column !important;
@@ -3843,12 +3896,12 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-swap-note {
   padding: 10px 14px !important;
   margin: 0 0 6px !important;
-  background: #f9fafb !important;
-  border: 1px solid #f3f4f6 !important;
+  background: var(--bg-muted) !important;
+  border: 1px solid var(--bg-muted) !important;
   border-radius: 12px !important;
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   text-align: center !important;
   line-height: 1.4 !important;
 }
@@ -3858,7 +3911,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   padding: 0 8px !important;
   border: 1px solid var(--line) !important;
   border-radius: 999px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-3) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
@@ -3867,9 +3920,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-chart-range--active {
-  border-color: var(--ink-1, #111111) !important;
-  background: var(--ink-1, #111111) !important;
-  color: #ffffff !important;
+  border-color: var(--ink-1) !important;
+  background: var(--ink-1) !important;
+  color: var(--bg-surface) !important;
 }
 
 .asset-chart-body {
@@ -3899,7 +3952,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   margin: 8px 0 0 10px !important;
   padding: 5px 8px !important;
   border-radius: 8px !important;
-  background: var(--surface, #ffffff) !important;
+  background: var(--surface) !important;
   border: 1px solid var(--line, rgba(0, 0, 0, 0.08)) !important;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12) !important;
   white-space: nowrap !important;
@@ -3909,13 +3962,13 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-size: 12px !important;
   font-weight: 600 !important;
   font-family: var(--font-mono, monospace) !important;
-  color: var(--ink-1, #111) !important;
+  color: var(--ink-1) !important;
 }
 
 .price-chart__tooltip-date {
   margin-top: 1px !important;
   font-size: 10px !important;
-  color: var(--ink-3, #888) !important;
+  color: var(--ink-3) !important;
 }
 
 .price-chart__loading {
@@ -3981,7 +4034,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   height: 48px !important;
   border-radius: 14px !important;
   border: 1px solid var(--line) !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-1) !important;
   font-size: 14px !important;
   font-weight: 700 !important;
@@ -3990,14 +4043,14 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-action-btn--primary {
-  border-color: var(--ink-1, #111111) !important;
-  background: var(--ink-1, #111111) !important;
-  color: #ffffff !important;
+  border-color: var(--ink-1) !important;
+  background: var(--ink-1) !important;
+  color: var(--bg-surface) !important;
 }
 
 .asset-action-btn--outline:hover {
-  border-color: rgba(17, 17, 17, 0.35) !important;
-  background: rgba(17, 17, 17, 0.03) !important;
+  border-color: rgba(var(--ink-rgb), 0.35) !important;
+  background: rgba(var(--ink-rgb), 0.03) !important;
 }
 
 .asset-action-btn:disabled {
@@ -4034,7 +4087,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   height: 42px !important;
   border-radius: 12px !important;
   border: 1px solid var(--line) !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-2) !important;
   font-size: 13px !important;
   font-weight: 650 !important;
@@ -4043,11 +4096,11 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .asset-details-ghost-btn:hover {
-  background: rgba(17, 17, 17, 0.03) !important;
+  background: rgba(var(--ink-rgb), 0.03) !important;
 }
 
 .asset-details-danger-btn {
-  color: #a83939 !important;
+  color: var(--danger) !important;
   border-color: rgba(168, 57, 57, 0.3) !important;
 }
 
@@ -4114,7 +4167,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   padding: 7px 10px !important;
   border-radius: 8px !important;
   background: var(--warn-soft, rgba(180, 130, 20, 0.1)) !important;
-  color: var(--warn, #9a6b1e) !important;
+  color: var(--warn) !important;
   font-size: 11.5px !important;
   line-height: 1.4 !important;
 }
@@ -4168,9 +4221,9 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   flex-shrink: 0 !important;
   padding: 2px 6px !important;
   border-radius: 999px !important;
-  background: #f7f7f7 !important;
-  border: 1px solid #e5e5e5 !important;
-  color: #888888 !important;
+  background: var(--bg-muted) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--ink-3) !important;
   font-size: 10px !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
@@ -4252,12 +4305,12 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .asset-details-watch-note {
   padding: 10px 14px !important;
   margin-bottom: 6px !important;
-  background: #f9fafb !important;
-  border: 1px solid #f3f4f6 !important;
+  background: var(--bg-muted) !important;
+  border: 1px solid var(--bg-muted) !important;
   border-radius: 12px !important;
   font-size: 12px !important;
   font-weight: 500 !important;
-  color: #6b7280 !important;
+  color: var(--ink-3) !important;
   text-align: center !important;
   line-height: 1.4 !important;
 }
@@ -4345,6 +4398,69 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 /* ============================================================
+   Send page — side panel layout
+   The side panel is tall (100vh) and can be wide, so it matches
+   NEITHER condition of the compact-popup media query above and
+   would otherwise fall back to roomy spacing. On top of that the
+   send body is `display:grid; flex:1`, so grid align-content
+   stretches the rows across the tall panel — that is what creates
+   the big empty gaps between sections. Here we pack the flow to the
+   top with a compact, even rhythm. Scoped to the sidepanel
+   entrypoint only — popup and fullscreen are untouched. The wallet
+   column itself is already centered + capped (~520px) by the shared
+   sidepanel shell rules, so widths need no extra handling here.
+   ============================================================ */
+html[data-simple-surface="sidepanel"] .send-page .screen-body {
+  /* Pack sections at the top instead of stretching them down the panel. */
+  align-content: start !important;
+  gap: 18px !important;
+  padding: 20px clamp(16px, 4vw, 28px) 24px !important;
+}
+
+html[data-simple-surface="sidepanel"] .send-page .send-hero {
+  padding-top: 4px !important;
+}
+
+html[data-simple-surface="sidepanel"] .send-page .send-hero .t-h2 {
+  font-size: 30px !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.03em !important;
+}
+
+/* "Asset to send" card aligns with the form fields, tight under its label. */
+html[data-simple-surface="sidepanel"] .send-page .send-asset-compact {
+  display: grid !important;
+  gap: 8px !important;
+  padding: 0 !important;
+}
+
+html[data-simple-surface="sidepanel"] .send-page .send-asset-card {
+  min-height: 66px !important;
+  padding: 10px 12px !important;
+  border-radius: 16px !important;
+}
+
+/* Label + input sit close together; inputs stay a comfortable height. */
+html[data-simple-surface="sidepanel"] .send-page .send-field {
+  gap: 6px !important;
+}
+
+html[data-simple-surface="sidepanel"] .send-page .input.lg {
+  height: 52px !important;
+}
+
+/* From / Network / Asset summary: compact rows. */
+html[data-simple-surface="sidepanel"] .send-page .send-summary .send-meta-row {
+  min-height: 36px !important;
+  padding: 7px 12px !important;
+}
+
+/* Continue sits right after the details, not pushed to the panel bottom. */
+html[data-simple-surface="sidepanel"] .send-page .send-submit {
+  margin-top: 4px !important;
+}
+
+/* ============================================================
    Receive page — compact popup layout (matches Send / Home)
    New, page-scoped classes; safe across popup + fullscreen.
    ============================================================ */
@@ -4386,7 +4502,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   align-items: center !important;
   justify-content: center !important;
   margin-top: 1px !important;
-  color: #8a5a13 !important;
+  color: var(--warn) !important;
 }
 
 .receive-page .receive-notice__icon svg {
@@ -4397,7 +4513,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .receive-page .receive-notice__title {
   font-size: 13px !important;
   font-weight: 750 !important;
-  color: #8a5a13 !important;
+  color: var(--warn) !important;
   line-height: 1.2 !important;
 }
 
@@ -4434,6 +4550,44 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   gap: 12px !important;
 }
 
+/* QR block — centered light panel inside the address card. Always uses a light
+   background so the code stays high-contrast and scannable in dark theme. */
+.receive-page .receive-qr {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 2px 0 !important;
+}
+
+.receive-page .receive-qr__frame {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 14px !important;
+  border-radius: 18px !important;
+  background: #ffffff !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Skeleton shown while the receive address is still resolving. */
+.receive-page .receive-qr__skeleton {
+  width: 184px !important;
+  height: 184px !important;
+  border-radius: 12px !important;
+  background: rgba(0, 0, 0, 0.07) !important;
+  animation: balance-pulse 1.6s ease-in-out infinite !important;
+}
+
+.receive-page .receive-qr__helper {
+  max-width: 260px !important;
+  text-align: center !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  color: var(--ink-3) !important;
+}
+
 .receive-page .receive-address-short {
   font-family: var(--font-mono) !important;
   font-size: 21px !important;
@@ -4468,7 +4622,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .receive-page .receive-copy-btn--copied {
   background: var(--secure) !important;
   border-color: var(--secure) !important;
-  color: #ffffff !important;
+  color: var(--bg-surface) !important;
 }
 
 
@@ -4488,11 +4642,11 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .receive-account-row:hover {
-  background: rgba(17, 17, 17, 0.03) !important;
+  background: rgba(var(--ink-rgb), 0.03) !important;
 }
 
 .receive-account-row:active {
-  background: rgba(17, 17, 17, 0.06) !important;
+  background: rgba(var(--ink-rgb), 0.06) !important;
 }
 
 .receive-account-row__value {
@@ -4520,7 +4674,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-weight: 700 !important;
   cursor: pointer !important;
   text-decoration: underline !important;
-  text-decoration-color: rgba(17, 17, 17, 0.22) !important;
+  text-decoration-color: rgba(var(--ink-rgb), 0.22) !important;
   text-underline-offset: 2px !important;
 }
 
@@ -4551,7 +4705,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   border-radius: 12px !important;
   border: 1px solid var(--danger-soft, rgba(190, 48, 48, 0.25)) !important;
   background: var(--danger-soft, rgba(190, 48, 48, 0.08)) !important;
-  color: var(--danger, #be3030) !important;
+  color: var(--danger) !important;
   padding: 8px 12px !important;
   font-size: 12px !important;
   line-height: 1.4 !important;
@@ -4564,7 +4718,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  background: var(--bg-canvas, #ffffff) !important;
+  background: var(--bg-canvas) !important;
 }
 
 .select-network-page .select-network-body {
@@ -4594,7 +4748,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   font-weight: 700 !important;
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
-  color: var(--ink-4, #9aa0a6) !important;
+  color: var(--ink-4) !important;
   padding: 2px 2px 0 !important;
 }
 
@@ -4607,7 +4761,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   border-radius: 999px !important;
   border: 1px solid var(--warn-soft, rgba(180, 130, 20, 0.25)) !important;
   background: var(--warn-soft, rgba(180, 130, 20, 0.10)) !important;
-  color: var(--warn, #9a6b00) !important;
+  color: var(--warn) !important;
   font-size: 10px !important;
   font-weight: 700 !important;
   letter-spacing: 0.02em !important;
@@ -4625,7 +4779,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 .select-network-list {
   border: 1px solid var(--line) !important;
   border-radius: 18px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   overflow: hidden !important;
 }
 
@@ -4642,11 +4796,11 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
 }
 
 .select-network-row:hover {
-  background: rgba(17, 17, 17, 0.03) !important;
+  background: rgba(var(--ink-rgb), 0.03) !important;
 }
 
 .select-network-row:active {
-  background: rgba(17, 17, 17, 0.06) !important;
+  background: rgba(var(--ink-rgb), 0.06) !important;
 }
 
 /* Selected — subtle sunken tint, green check sits in the end slot */
@@ -4725,7 +4879,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   padding: 0 10px !important;
   border-radius: 999px !important;
   border: 1px solid var(--line) !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-3) !important;
   font-size: 12px !important;
   font-weight: 600 !important;
@@ -4748,7 +4902,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   height: 46px !important;
   border-radius: 50% !important;
   border: 1px solid var(--line) !important;
-  background: var(--bg-sunken, #f4f2ec) !important;
+  background: var(--bg-sunken) !important;
   color: var(--ink-2) !important;
 }
 
@@ -4801,7 +4955,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  color: var(--secure, #5d8f3f) !important;
+  color: var(--secure) !important;
   pointer-events: none !important;
 }
 
@@ -4818,7 +4972,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   padding: 10px 12px !important;
   border-radius: 16px !important;
   border: 1px solid var(--line) !important;
-  background: var(--bg-sunken, #f4f2ec) !important;
+  background: var(--bg-sunken) !important;
 }
 
 .add-watch-page .awatch-notice__icon {
@@ -4863,7 +5017,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   position: absolute !important;
   inset: 0 !important;
   border: 0 !important;
-  background: rgba(17, 17, 17, 0.22) !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
   cursor: pointer !important;
 }
 
@@ -4875,7 +5029,7 @@ html[data-simple-surface="fullscreen"] .popup-app-frame {
   overflow: auto !important;
   border-top: 1px solid var(--line) !important;
   border-radius: 22px 22px 0 0 !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   padding: 14px 12px 16px !important;
   box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
 }
@@ -4940,7 +5094,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  background: var(--bg-canvas, #ffffff) !important;
+  background: var(--bg-canvas) !important;
 }
 
 .import-acct-title {
@@ -4996,7 +5150,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background: var(--bg-sunken, #f1f1ee) !important;
+  background: var(--bg-sunken) !important;
   color: var(--ink-1) !important;
 }
 
@@ -5033,21 +5187,21 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 .import-acct-notice__icon {
   flex: 0 0 auto !important;
   display: inline-flex !important;
-  color: var(--warn, #9a6b1e) !important;
+  color: var(--warn) !important;
   margin-top: 1px !important;
 }
 
 .import-acct-notice__title {
   font-size: 13px !important;
   font-weight: 700 !important;
-  color: var(--warn, #9a6b1e) !important;
+  color: var(--warn) !important;
 }
 
 .import-acct-notice__body {
   margin-top: 2px !important;
   font-size: 12px !important;
   line-height: 1.4 !important;
-  color: var(--ink-2, #4a4a45) !important;
+  color: var(--ink-2) !important;
 }
 
 /* Field group + helper text */
@@ -5104,9 +5258,9 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 .import-acct-input {
   width: 100% !important;
   box-sizing: border-box !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 14px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-1) !important;
   font-size: 15px !important;
   font-family: inherit !important;
@@ -5129,7 +5283,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 
 .import-acct-textarea:focus,
 .import-acct-input:focus {
-  border-color: var(--ink-1, #111111) !important;
+  border-color: var(--ink-1) !important;
 }
 
 .import-acct-input--key {
@@ -5161,7 +5315,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 
 .import-acct-wordcount {
   font-weight: 700 !important;
-  color: var(--ink-2, #4a4a45) !important;
+  color: var(--ink-2) !important;
 }
 
 /* "Optional" tag next to a field label */
@@ -5211,7 +5365,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 }
 
 .import-acct-preview__check {
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
   font-weight: 700 !important;
 }
 
@@ -5221,7 +5375,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   border-radius: 14px !important;
   border: 1px solid var(--warn-soft, rgba(180, 130, 20, 0.25)) !important;
   background: var(--warn-soft, rgba(180, 130, 20, 0.08)) !important;
-  color: var(--warn, #9a6b1e) !important;
+  color: var(--warn) !important;
   padding: 10px 12px !important;
   font-size: 12px !important;
   line-height: 1.45 !important;
@@ -5241,8 +5395,8 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   width: 56px !important;
   height: 56px !important;
   border-radius: 999px !important;
-  background: var(--secure, #2a6f4e) !important;
-  color: #ffffff !important;
+  background: var(--secure) !important;
+  color: var(--bg-surface) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -5268,7 +5422,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  background: var(--bg-canvas, #ffffff) !important;
+  background: var(--bg-canvas) !important;
 }
 
 .asset-select-titlebox {
@@ -5311,9 +5465,9 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   width: 100% !important;
   box-sizing: border-box !important;
   height: 46px !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 13px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   color: var(--ink-1) !important;
   font-size: 15px !important;
   font-family: inherit !important;
@@ -5323,7 +5477,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 }
 
 .asset-select-search:focus {
-  border-color: var(--ink-1, #111111) !important;
+  border-color: var(--ink-1) !important;
 }
 
 .asset-select-clear {
@@ -5335,7 +5489,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
   height: 26px !important;
   border: 0 !important;
   border-radius: 999px !important;
-  background: var(--bg-sunken, #f1f1ee) !important;
+  background: var(--bg-sunken) !important;
   color: var(--ink-3) !important;
   font-size: 16px !important;
   line-height: 1 !important;
@@ -5380,16 +5534,16 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 }
 
 .asset-select-row:hover {
-  background: rgba(17, 17, 17, 0.03) !important;
+  background: rgba(var(--ink-rgb), 0.03) !important;
 }
 
 .asset-select-row:active {
-  background: rgba(17, 17, 17, 0.06) !important;
+  background: rgba(var(--ink-rgb), 0.06) !important;
 }
 
 .asset-select-row--active,
 .asset-select-row--active:hover {
-  background: var(--bg-sunken, #f1f1ee) !important;
+  background: var(--bg-sunken) !important;
 }
 
 .asset-select-row__body {
@@ -5446,7 +5600,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 .asset-select-row__check {
   flex: 0 0 auto !important;
   display: inline-flex !important;
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
   margin-left: 2px !important;
 }
 
@@ -5489,9 +5643,9 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 .set-status {
   padding: 10px 12px !important;
   border-radius: 12px !important;
-  background: var(--bg-sunken, #f5f5f3) !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
-  color: var(--ink-2, #2a2a2a) !important;
+  background: var(--bg-sunken) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--ink-2) !important;
   font-size: 12px !important;
   line-height: 1.45 !important;
 }
@@ -5522,10 +5676,17 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 .set-card {
   display: flex !important;
   flex-direction: column !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 20px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
   overflow: hidden !important;
+}
+
+/* Light theme: a very soft lift so the white cards read a touch more premium
+   without changing the flat look. Dark theme keeps its flat borders. */
+html:not([data-theme="dark"]) .set-card {
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.03),
+    0 6px 16px rgba(17, 24, 39, 0.04) !important;
 }
 
 /* Rows */
@@ -5548,7 +5709,7 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 .set-row + .set-row,
 .set-row + .set-touchid-form,
 .set-touchid-form + .set-row {
-  border-top: 1px solid var(--line, #e5e5e5) !important;
+  border-top: 1px solid var(--line) !important;
 }
 
 .set-row--static {
@@ -5557,17 +5718,17 @@ html[data-simple-surface="fullscreen"] .account-sheet-backdrop {
 
 button.set-row:hover:not(:disabled),
 .set-danger__row:hover {
-  background: rgba(17, 17, 17, 0.03) !important;
+  background: rgba(var(--ink-rgb), 0.03) !important;
 }
 
 button.set-row:active:not(:disabled) {
-  background: rgba(17, 17, 17, 0.06) !important;
+  background: rgba(var(--ink-rgb), 0.06) !important;
 }
 
 button.set-row:focus-visible,
 .set-danger__row:focus-visible,
 .set-toggle:focus-visible {
-  outline: 2px solid var(--ink-1, #111111) !important;
+  outline: 2px solid var(--ink-1) !important;
   outline-offset: -2px !important;
   border-radius: 12px !important;
 }
@@ -5585,8 +5746,8 @@ button.set-row:disabled {
   align-items: center !important;
   justify-content: center !important;
   border-radius: 11px !important;
-  background: var(--bg-sunken, #f3f3f1) !important;
-  color: var(--ink-2, #2a2a2a) !important;
+  background: var(--bg-sunken) !important;
+  color: var(--ink-2) !important;
 }
 
 .set-row__icon svg {
@@ -5603,22 +5764,22 @@ button.set-row:disabled {
 
 .set-row__icon--neutral {
   background: rgba(96, 108, 128, 0.10) !important;
-  color: #56627a !important;
+  color: var(--ink-3) !important;
 }
 
 .set-row__icon--secure {
   background: var(--secure-soft, rgba(42, 111, 78, 0.10)) !important;
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
 }
 
 .set-row__icon--warn {
   background: var(--warn-soft, rgba(154, 107, 30, 0.12)) !important;
-  color: var(--warn, #9a6b1e) !important;
+  color: var(--warn) !important;
 }
 
 .set-row__icon--danger {
   background: var(--danger-soft, rgba(190, 48, 48, 0.10)) !important;
-  color: var(--danger, #be3030) !important;
+  color: var(--danger) !important;
 }
 
 .set-row__body {
@@ -5632,7 +5793,7 @@ button.set-row:disabled {
 .set-row__title {
   font-size: 14px !important;
   font-weight: 600 !important;
-  color: var(--ink-1, #111111) !important;
+  color: var(--ink-1) !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -5641,7 +5802,7 @@ button.set-row:disabled {
 .set-row__sub {
   font-size: 12px !important;
   line-height: 1.4 !important;
-  color: var(--ink-3, #747474) !important;
+  color: var(--ink-3) !important;
 }
 
 /* Right-side affordances */
@@ -5650,24 +5811,159 @@ button.set-row:disabled {
   display: inline-flex !important;
   align-items: center !important;
   gap: 8px !important;
-  color: var(--ink-4, #9a9a9a) !important;
+  color: var(--ink-4) !important;
 }
 
 .set-row__chev {
-  color: var(--ink-4, #9a9a9a) !important;
+  color: var(--ink-4) !important;
 }
 
-.set-row__change {
+/* Opening behavior subpage: padded body inside a standard .set-card holding a
+   hint + a row of small chips ("Open by default" / "Open now"). */
+.set-display__pad {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 14px !important;
+}
+
+.set-display__hint {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  color: var(--ink-3) !important;
+}
+
+.set-display__chips {
+  display: flex !important;
+  gap: 8px !important;
+}
+
+/* Small icon chip — fits two-per-row at 360px; label ellipsizes if needed. */
+.disp-chip {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 38px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-1) !important;
+  font: inherit !important;
   font-size: 13px !important;
-  font-weight: 650 !important;
-  color: var(--ink-2, #2a2a2a) !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: background 100ms ease, border-color 100ms ease !important;
+}
+
+.disp-chip svg {
+  flex: 0 0 auto !important;
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.disp-chip__label {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.disp-chip:hover {
+  background: rgba(var(--ink-rgb), 0.03) !important;
+}
+
+.disp-chip:focus-visible {
+  outline: 2px solid var(--ink-1) !important;
+  outline-offset: -2px !important;
+}
+
+/* Selected default mode: subtle fill + darker border + check (no big pill). */
+.disp-chip--on {
+  border-color: var(--ink-1) !important;
+  background: rgba(var(--ink-rgb), 0.05) !important;
+}
+
+.disp-chip__check {
+  color: var(--ink-1) !important;
+}
+
+/* Language selector — a vertical list of full-width rows. Better than chips for
+   5 options whose native names vary in length and never truncate. */
+.set-lang-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+}
+
+.set-lang-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-height: 40px !important;
+  padding: 8px 12px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-1) !important;
+  font: inherit !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background 100ms ease, border-color 100ms ease !important;
+}
+
+/* Optional leading glyph (e.g. theme icon in the Appearance selector). */
+.set-lang-row__lead {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+}
+
+.set-lang-row__lead svg {
+  flex: 0 0 auto !important;
+  width: 18px !important;
+  height: 18px !important;
+  color: var(--ink-3) !important;
+}
+
+.set-lang-row__name {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.set-lang-row:hover {
+  background: rgba(var(--ink-rgb), 0.03) !important;
+}
+
+.set-lang-row:focus-visible {
+  outline: 2px solid var(--ink-1) !important;
+  outline-offset: -2px !important;
+}
+
+.set-lang-row--on {
+  border-color: var(--ink-1) !important;
+  background: rgba(var(--ink-rgb), 0.05) !important;
+}
+
+.set-lang-row .disp-chip__check {
+  flex: 0 0 auto !important;
 }
 
 .set-row__pill {
   padding: 3px 10px !important;
   border-radius: 999px !important;
   background: var(--secure-soft, rgba(42, 111, 78, 0.10)) !important;
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   letter-spacing: 0.02em !important;
@@ -5676,29 +5972,35 @@ button.set-row:disabled {
 /* Pill tone variants (Security Center status pills) */
 .set-row__pill--secure {
   background: var(--secure-soft, rgba(42, 111, 78, 0.10)) !important;
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
 }
 
 .set-row__pill--warn {
   background: var(--warn-soft, rgba(154, 107, 30, 0.12)) !important;
-  color: var(--warn, #9a6b1e) !important;
+  color: var(--warn) !important;
 }
 
 .set-row__pill--danger {
   background: var(--danger-soft, rgba(190, 48, 48, 0.10)) !important;
-  color: var(--danger, #be3030) !important;
+  color: var(--danger) !important;
 }
 
 .set-row__pill--neutral {
   background: rgba(96, 108, 128, 0.12) !important;
-  color: #56627a !important;
+  color: var(--ink-3) !important;
 }
 
-/* Neutral value text on the right of a row (e.g. auto-lock "15 min") */
+/* Neutral value text on the right of a row (e.g. auto-lock "15 min",
+   Opening behavior "Side panel"). Capped + ellipsized so it never overflows
+   the row at 360px. */
 .set-row__value {
+  max-width: 120px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
   font-size: 13px !important;
   font-weight: 650 !important;
-  color: var(--ink-2, #2a2a2a) !important;
+  color: var(--ink-2) !important;
 }
 
 /* Security tips — compact bullet rows inside a section card */
@@ -5710,7 +6012,7 @@ button.set-row:disabled {
 }
 
 .sec-tip + .sec-tip {
-  border-top: 1px solid var(--line, #e5e5e5) !important;
+  border-top: 1px solid var(--line) !important;
 }
 
 .sec-tip__icon {
@@ -5720,7 +6022,7 @@ button.set-row:disabled {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
   margin-top: 1px !important;
 }
 
@@ -5728,7 +6030,7 @@ button.set-row:disabled {
   min-width: 0 !important;
   font-size: 12.5px !important;
   line-height: 1.45 !important;
-  color: var(--ink-2, #2a2a2a) !important;
+  color: var(--ink-2) !important;
 }
 
 /* Toggle switch */
@@ -5740,13 +6042,13 @@ button.set-row:disabled {
   padding: 0 !important;
   border: 0 !important;
   border-radius: 999px !important;
-  background: var(--line-strong, #d4d4d4) !important;
+  background: var(--line-strong) !important;
   cursor: pointer !important;
   transition: background 140ms ease !important;
 }
 
 .set-toggle--on {
-  background: var(--secure, #2a6f4e) !important;
+  background: var(--secure) !important;
 }
 
 .set-toggle:disabled {
@@ -5761,7 +6063,7 @@ button.set-row:disabled {
   width: 20px !important;
   height: 20px !important;
   border-radius: 999px !important;
-  background: #ffffff !important;
+  background: var(--bg-surface) !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
   transition: transform 140ms ease !important;
 }
@@ -5814,13 +6116,13 @@ button.set-row:disabled {
   font-weight: 800 !important;
   letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
-  color: var(--danger, #be3030) !important;
+  color: var(--danger) !important;
 }
 
 .set-danger__desc {
   font-size: 12px !important;
   line-height: 1.45 !important;
-  color: var(--ink-3, #747474) !important;
+  color: var(--ink-3) !important;
 }
 
 .set-danger__row {
@@ -5841,7 +6143,7 @@ button.set-row:disabled {
 }
 
 .set-danger__row .set-row__title {
-  color: var(--danger, #be3030) !important;
+  color: var(--danger) !important;
 }
 
 .set-danger__row:hover {
@@ -5892,8 +6194,8 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   align-items: center !important;
   justify-content: center !important;
   border-radius: 12px !important;
-  background: var(--bg-sunken, #f3f3f1) !important;
-  color: var(--ink-2, #2a2a2a) !important;
+  background: var(--bg-sunken) !important;
+  color: var(--ink-2) !important;
 }
 
 .reveal-hero__icon svg {
@@ -5909,14 +6211,14 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   font-size: 16px !important;
   font-weight: 750 !important;
   letter-spacing: -0.01em !important;
-  color: var(--ink-1, #111111) !important;
+  color: var(--ink-1) !important;
 }
 
 .reveal-hero__sub {
   margin-top: 2px !important;
   font-size: 12.5px !important;
   line-height: 1.4 !important;
-  color: var(--ink-3, #747474) !important;
+  color: var(--ink-3) !important;
 }
 
 /* Small helper line above the revealed seed grid */
@@ -5924,14 +6226,14 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   margin: 0 !important;
   font-size: 12.5px !important;
   line-height: 1.45 !important;
-  color: var(--ink-3, #747474) !important;
+  color: var(--ink-3) !important;
 }
 
 /* Primary reveal button — intentional disabled state */
 .reveal-page .btn.primary:disabled {
-  background: var(--bg-sunken, #f1f1ee) !important;
-  color: var(--ink-4, #9a9a9a) !important;
-  border-color: var(--line, #e5e5e5) !important;
+  background: var(--bg-sunken) !important;
+  color: var(--ink-4) !important;
+  border-color: var(--line) !important;
   cursor: not-allowed !important;
 }
 
@@ -5943,7 +6245,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  color: var(--ink-4, #9a9a9a) !important;
+  color: var(--ink-4) !important;
 }
 
 /* Account context (private key page) */
@@ -5952,9 +6254,9 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   align-items: center !important;
   gap: 12px !important;
   padding: 12px 14px !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 16px !important;
-  background: var(--bg-surface, #ffffff) !important;
+  background: var(--bg-surface) !important;
 }
 
 .reveal-acct__body {
@@ -5964,7 +6266,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
 .reveal-acct__name {
   font-size: 14px !important;
   font-weight: 700 !important;
-  color: var(--ink-1, #111111) !important;
+  color: var(--ink-1) !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -5974,7 +6276,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   margin-top: 2px !important;
   font-family: var(--font-mono, monospace) !important;
   font-size: 12px !important;
-  color: var(--ink-3, #747474) !important;
+  color: var(--ink-3) !important;
 }
 
 /* ── Seed phrase: numbered word chips ── */
@@ -5990,7 +6292,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   gap: 8px !important;
   min-width: 0 !important;
   padding: 9px 11px !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 12px !important;
   background: var(--secure-soft, rgba(42, 111, 78, 0.06)) !important;
 }
@@ -6000,7 +6302,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   width: 18px !important;
   font-size: 11px !important;
   font-weight: 700 !important;
-  color: var(--ink-4, #9a9a9a) !important;
+  color: var(--ink-4) !important;
   text-align: right !important;
   font-variant-numeric: tabular-nums !important;
 }
@@ -6009,7 +6311,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   min-width: 0 !important;
   font-size: 13.5px !important;
   font-weight: 650 !important;
-  color: var(--ink-1, #111111) !important;
+  color: var(--ink-1) !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -6021,7 +6323,7 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   flex-direction: column !important;
   gap: 8px !important;
   padding: 14px !important;
-  border: 1px solid var(--line, #e5e5e5) !important;
+  border: 1px solid var(--line) !important;
   border-radius: 16px !important;
   background: var(--secure-soft, rgba(42, 111, 78, 0.06)) !important;
 }
@@ -6031,14 +6333,14 @@ html[data-simple-surface="fullscreen"] .reveal-body {
   font-weight: 700 !important;
   letter-spacing: 0.1em !important;
   text-transform: uppercase !important;
-  color: var(--ink-3, #747474) !important;
+  color: var(--ink-3) !important;
 }
 
 .reveal-secret__value {
   font-family: var(--font-mono, monospace) !important;
   font-size: 13px !important;
   line-height: 1.55 !important;
-  color: var(--ink-1, #111111) !important;
+  color: var(--ink-1) !important;
   word-break: break-all !important;
   overflow-wrap: anywhere !important;
 }
@@ -6055,6 +6357,208 @@ html[data-simple-surface="fullscreen"] .reveal-body {
 }
 
 .reveal-copied {
-  border-color: var(--secure, #2a6f4e) !important;
-  color: var(--secure, #2a6f4e) !important;
+  border-color: var(--secure) !important;
+  color: var(--secure) !important;
+}
+
+/* ============================================================
+   Dark theme refinements
+   Targeted tweaks that the token swap alone cannot express.
+   ============================================================ */
+
+/* Brand wordmark (simpl-logo.png) is dark ink on a solid white background.
+   invert() flips it to a light wordmark; the screen blend drops the now-black
+   plate into the page so only the mark shows. */
+html[data-theme="dark"] .app-logo {
+  filter: invert(1) brightness(1.05) !important;
+  mix-blend-mode: screen !important;
+}
+
+/* Inputs share the card surface after the token swap; in dark, drop them to the
+   muted surface so fields read as distinct, recessed wells against the cards. */
+html[data-theme="dark"] .input,
+html[data-theme="dark"] .input.lg,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  background-color: var(--bg-muted) !important;
+}
+
+/* Native scrollbars + form controls follow the dark scheme. */
+html[data-theme="dark"] {
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* ----------------------------------------------------------------------------
+   Onboarding header + Preferences sheet
+   Modeled on .network-sheet so it overlays correctly in popup, side panel and
+   fullscreen. Vertical option lists only — no wide segmented controls — so
+   every row fits the 360px popup without truncation or horizontal scroll.
+---------------------------------------------------------------------------- */
+
+/* Compact icon button used for "Preferences" in the onboarding header. */
+.onboarding-prefs-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 6px 10px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 999px !important;
+  background: var(--bg-surface) !important;
+  color: var(--ink-2) !important;
+  font: 600 12px/1 var(--font-sans) !important;
+  cursor: pointer !important;
+  transition: background 0.12s ease, color 0.12s ease !important;
+  max-width: 100% !important;
+}
+
+.onboarding-prefs-btn:hover {
+  background: var(--bg-hover) !important;
+  color: var(--ink-1) !important;
+}
+
+.onboarding-prefs-btn svg {
+  width: 16px !important;
+  height: 16px !important;
+  stroke-width: 1.7 !important;
+}
+
+.prefs-sheet-backdrop {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 90 !important;
+  display: grid !important;
+  align-items: end !important;
+  pointer-events: auto !important;
+}
+
+.prefs-sheet-scrim {
+  position: absolute !important;
+  inset: 0 !important;
+  border: 0 !important;
+  background: rgba(var(--ink-rgb), 0.22) !important;
+  cursor: pointer !important;
+}
+
+.prefs-sheet {
+  position: relative !important;
+  z-index: 1 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  max-height: 82% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  border-top: 1px solid var(--line) !important;
+  border-radius: 22px 22px 0 0 !important;
+  background: var(--bg-surface) !important;
+  padding: 14px 14px 18px !important;
+  box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.12) !important;
+}
+
+.prefs-sheet-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 2px 2px 10px !important;
+}
+
+.prefs-sheet-title {
+  color: var(--ink-1) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+}
+
+.prefs-group {
+  padding: 8px 0 2px !important;
+}
+
+.prefs-group__label {
+  padding: 0 2px 6px !important;
+  color: var(--ink-3) !important;
+  font: 600 11px/1.2 var(--font-sans) !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+.prefs-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+.prefs-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  min-height: 42px !important;
+  padding: 9px 12px !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  background: var(--bg-sunken) !important;
+  color: var(--ink-1) !important;
+  font: 600 13px/1.25 var(--font-sans) !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  transition: background 0.12s ease, border-color 0.12s ease !important;
+}
+
+.prefs-row:hover {
+  background: var(--bg-hover) !important;
+}
+
+.prefs-row--on {
+  border-color: var(--ink-1) !important;
+  background: var(--bg-active, var(--bg-hover)) !important;
+}
+
+.prefs-row__label {
+  min-width: 0 !important;
+  overflow-wrap: anywhere !important;
+}
+
+.prefs-row__check {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  color: var(--ink-1) !important;
+}
+
+/* Side panel + fullscreen: center the sheet as a card instead of a bottom sheet,
+   matching how the other sheets behave on wider surfaces. */
+html[data-simple-surface="fullscreen"] .prefs-sheet-backdrop,
+html[data-simple-surface="sidepanel"] .prefs-sheet-backdrop {
+  position: fixed !important;
+  align-items: center !important;
+  justify-items: center !important;
+}
+
+html[data-simple-surface="fullscreen"] .prefs-sheet,
+html[data-simple-surface="sidepanel"] .prefs-sheet {
+  width: min(420px, calc(100vw - 32px)) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Onboarding action rows (Import / Watch) are primary choices, not data rows:
+   their title + description must wrap instead of truncating. This overrides the
+   global `.body .nm/.sub` ellipsis clamp (higher specificity + !important). */
+[data-screen-label="01 Welcome"] .row {
+  min-height: 56px !important;
+  align-items: center !important;
+}
+
+[data-screen-label="01 Welcome"] .row .body {
+  min-width: 0 !important;
+}
+
+[data-screen-label="01 Welcome"] .row .body .nm,
+[data-screen-label="01 Welcome"] .row .body .sub {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
 }

@@ -180,10 +180,10 @@ body {
   display: flex; align-items: center; justify-content: center;
   font: 600 12px/1 var(--font-sans); flex-shrink: 0;
 }
-.row .tok.usdc { background: #2C5C8F; }
-.row .tok.wbtc { background: #5D4A2C; }
+.row .tok.usdc { background: var(--info); }
+.row .tok.wbtc { background: var(--warn); }
 .row .tok.uni  { background: #B4426F; }
-.row .tok.arb  { background: #2B3849; }
+.row .tok.arb  { background: var(--ink-2); }
 .row .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .row .body .nm { font: 500 13px/1.2 var(--font-sans); color: var(--ink-1); }
 .row .body .sub { font: 400 11px/1.2 var(--font-sans); color: var(--ink-3); }
@@ -201,7 +201,7 @@ body {
   border: 1px solid transparent;
 }
 .btn.primary { background: var(--ink-1); color: var(--ink-on-dark); }
-.btn.primary:hover { background: #2a2920; }
+.btn.primary:hover { background: var(--ink-2); }
 .btn.secondary { background: var(--bg-surface); color: var(--ink-1); border-color: var(--line-strong); }
 .btn.secondary:hover { background: var(--bg-hover); }
 .btn.ghost { background: transparent; color: var(--ink-1); }
@@ -269,5 +269,5 @@ body {
 /* Toggle */
 .toggle { width: 32px; height: 18px; background: var(--ink-1); border-radius: 999px; position: relative; cursor: pointer; flex-shrink: 0; }
 .toggle.off { background: var(--line-strong); }
-.toggle:after { content: ''; position: absolute; top: 2px; left: 16px; width: 14px; height: 14px; background: #fff; border-radius: 999px; transition: left var(--dur-base) var(--ease-out); }
+.toggle:after { content: ''; position: absolute; top: 2px; left: 16px; width: 14px; height: 14px; background: var(--bg-surface); border-radius: 999px; transition: left var(--dur-base) var(--ease-out); }
 .toggle.off:after { left: 2px; }

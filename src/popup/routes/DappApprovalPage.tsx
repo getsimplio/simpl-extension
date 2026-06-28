@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { t, useTranslation } from "../../i18n";
 
 // chrome is a global in extension pages
 declare const chrome: typeof globalThis extends { chrome: infer C } ? C : never;
@@ -107,22 +108,22 @@ function formatHexEth(hexValue: string, symbol: string): string {
 // ─── Design tokens (match WalletConnectPage exactly) ─────────────────────────
 
 const C = {
-  bg: "#f7f7f4",
-  fg: "#111111",
-  fgMuted: "#6f6f68",
-  fgDim: "#77766f",
-  border: "#e7e5df",
-  cardBg: "#ffffff",
-  cardBorder: "#dfddd6",
-  previewBg: "#fbfbf8",
-  previewBorder: "#e5e3dc",
-  previewText: "#5e5e57",
-  warnBg: "#fff8df",
-  warnBorder: "#f2df9b",
-  warnText: "#6c4b00",
-  noticeBg: "#efeee9",
-  noticeText: "#77766f",
-  danger: "#a23b2d",
+  bg: "var(--bg-muted)",
+  fg: "var(--ink-1)",
+  fgMuted: "var(--ink-3)",
+  fgDim: "var(--ink-3)",
+  border: "var(--line)",
+  cardBg: "var(--bg-surface)",
+  cardBorder: "var(--line)",
+  previewBg: "var(--bg-muted)",
+  previewBorder: "var(--line)",
+  previewText: "var(--ink-3)",
+  warnBg: "var(--warn-soft)",
+  warnBorder: "var(--warn-soft)",
+  warnText: "var(--warn)",
+  noticeBg: "var(--bg-muted)",
+  noticeText: "var(--ink-3)",
+  danger: "var(--danger)",
   monoFont: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace',
 };
 
@@ -155,7 +156,7 @@ function ApprovalHeader({ title, onClose, disabled }: { title: string; onClose: 
     }}>
       <button
         type="button"
-        aria-label="Close"
+        aria-label={t("common.close")}
         onClick={onClose}
         disabled={disabled}
         style={{
@@ -224,13 +225,13 @@ function ApprovalFooter({
         style={{
           width: "100%", height: 46,
           borderRadius: 13, border: "none",
-          background: blocked ? "#b9b9b2" : C.fg,
-          color: "#ffffff",
+          background: blocked ? "var(--line-strong)" : C.fg,
+          color: "var(--bg-surface)",
           fontSize: 16, fontWeight: 850,
           cursor: blocked ? "default" : "pointer",
         }}
       >
-        {working ? "Processing…" : primaryLabel}
+        {working ? t("common.processing") : primaryLabel}
       </button>
       <button
         type="button"
@@ -239,14 +240,14 @@ function ApprovalFooter({
         style={{
           width: "100%", height: 46,
           borderRadius: 13,
-          border: "1px solid #d6d3cb",
+          border: "1px solid var(--line-strong)",
           background: C.cardBg,
           color: C.fg,
           fontSize: 16, fontWeight: 750,
           cursor: working ? "default" : "pointer",
         }}
       >
-        Reject
+        {t("approval.reject")}
       </button>
     </footer>
   );
@@ -258,7 +259,7 @@ function SimplIcon() {
   return (
     <div style={{
       width: 46, height: 46, borderRadius: 15,
-      background: C.fg, color: "#ffffff",
+      background: C.fg, color: "var(--bg-surface)",
       display: "grid", placeItems: "center",
       fontSize: 15, fontWeight: 800,
       flexShrink: 0,
@@ -298,7 +299,7 @@ function AccountRow({ address }: { address: string }) {
         background: C.fg, opacity: 0.12, flexShrink: 0,
       }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>Wallet</div>
+        <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>{t("approval.wallet")}</div>
         <div style={{
           fontSize: 13, fontWeight: 700,
           fontFamily: C.monoFont,
@@ -309,12 +310,12 @@ function AccountRow({ address }: { address: string }) {
       </div>
       <div style={{
         fontSize: 11, fontWeight: 800,
-        color: "#1d7a3f",
-        background: "#e8f8ef",
+        color: "var(--secure)",
+        background: "var(--secure-soft)",
         padding: "2px 8px", borderRadius: 8,
         flexShrink: 0,
       }}>
-        Active
+        {t("approval.active")}
       </div>
     </div>
   );
@@ -349,7 +350,7 @@ function MonoPre({ text }: { text: string }) {
       color: C.previewText,
       fontSize: 12, lineHeight: "18px",
     }}>
-      {text.trim() || "(empty)"}
+      {text.trim() || t("approval.empty")}
     </pre>
   );
 }
@@ -364,7 +365,7 @@ function SigningWarning() {
       padding: "10px 12px",
       fontSize: 12, lineHeight: "17px", fontWeight: 750,
     }}>
-      Signing this message does not send funds, but it may log you in or authorize actions on this site.
+      {t("approval.signingWarning")}
     </div>
   );
 }
@@ -379,7 +380,7 @@ function TransactionWarning() {
       padding: "10px 12px",
       fontSize: 12, lineHeight: "17px", fontWeight: 750,
     }}>
-      You are about to send a transaction. This action cannot be undone and may result in loss of funds.
+      {t("approval.transactionWarning")}
     </div>
   );
 }
@@ -394,7 +395,7 @@ function UnlimitedApprovalWarning() {
       padding: "10px 12px",
       fontSize: 12, lineHeight: "17px", fontWeight: 750,
     }}>
-      Unlimited approval: this spender can move this token from your wallet at any time until you revoke the permission.
+      {t("approval.unlimitedWarning")}
     </div>
   );
 }
@@ -408,7 +409,7 @@ function OriginNotice({ domain, method }: { domain: string; method: string }) {
       padding: "10px 12px",
       fontSize: 12, lineHeight: "17px",
     }}>
-      {method} requested by <strong style={{ color: C.fg }}>{domain}</strong>
+      {t("approval.requestedBy", { method, domain })}
     </div>
   );
 }
@@ -430,12 +431,12 @@ function PasswordInput({
         fontSize: 11, fontWeight: 850, letterSpacing: "0.12em",
         textTransform: "uppercase", color: C.fgMuted,
       }}>
-        Wallet password
+        {t("common.walletPassword")}
       </label>
       <input
         type="password"
         autoComplete="current-password"
-        placeholder="Enter password to sign"
+        placeholder={t("approval.enterPasswordToSign")}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
@@ -469,6 +470,7 @@ function ErrorLine({ message }: { message: string }) {
 // ─── Page component ───────────────────────────────────────────────────────────
 
 export default function DappApprovalPage() {
+  const { t } = useTranslation();
   const [state, setState] = useState<PageState>({ status: "loading" });
   const [working, setWorking] = useState(false);
   const [password, setPassword] = useState("");
@@ -478,7 +480,7 @@ export default function DappApprovalPage() {
 
   useEffect(() => {
     if (!approvalId) {
-      setState({ status: "error", message: "Missing approval ID." });
+      setState({ status: "error", message: t("approval.missingId") });
       return;
     }
 
@@ -487,7 +489,7 @@ export default function DappApprovalPage() {
       { type: "SIMPL_DAPP_GET_PENDING", id: approvalId },
       (response: { ok: boolean; pending?: PendingData; error?: string } | null) => {
         if (!response?.ok) {
-          setState({ status: "error", message: response?.error ?? "Request not found." });
+          setState({ status: "error", message: response?.error ?? t("approval.requestNotFound") });
           return;
         }
         const pending = response.pending!;
@@ -526,7 +528,7 @@ export default function DappApprovalPage() {
           window.close();
         } else {
           setWorking(false);
-          setErrorMsg(response?.error ?? "Action failed.");
+          setErrorMsg(response?.error ?? t("approval.actionFailed"));
         }
       },
     );
@@ -541,7 +543,7 @@ export default function DappApprovalPage() {
           flex: 1,
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          <span style={{ color: C.fgMuted, fontSize: 14 }}>Loading…</span>
+          <span style={{ color: C.fgMuted, fontSize: 14 }}>{t("common.loading")}</span>
         </div>
       </Shell>
     );
@@ -572,7 +574,7 @@ export default function DappApprovalPage() {
               fontSize: 14, fontWeight: 700, cursor: "pointer",
             }}
           >
-            Close
+            {t("common.close")}
           </button>
         </div>
       </Shell>
@@ -592,10 +594,10 @@ export default function DappApprovalPage() {
         }}>
           <span style={{ fontSize: 40 }}>🔒</span>
           <p style={{ fontWeight: 800, fontSize: 17, margin: 0, letterSpacing: "-0.02em" }}>
-            Wallet is locked
+            {t("approval.walletLockedTitle")}
           </p>
           <p style={{ color: C.fgMuted, fontSize: 13, textAlign: "center", margin: 0, lineHeight: "19px" }}>
-            Open the SIMPL extension and unlock your wallet, then try again.
+            {t("approval.walletLockedBody")}
           </p>
           <button
             type="button"
@@ -607,7 +609,7 @@ export default function DappApprovalPage() {
               fontSize: 15, fontWeight: 750, cursor: "pointer",
             }}
           >
-            Close
+            {t("common.close")}
           </button>
         </div>
       </Shell>
@@ -625,7 +627,7 @@ export default function DappApprovalPage() {
   if (kind === "personal_sign") {
     return (
       <Shell>
-        <ApprovalHeader title="Sign message" onClose={reject} disabled={working} />
+        <ApprovalHeader title={t("approval.signMessage")} onClose={reject} disabled={working} />
         <ScrollSection>
           <div style={{ display: "grid", gap: 14 }}>
             <SimplIcon />
@@ -634,17 +636,17 @@ export default function DappApprovalPage() {
                 margin: 0, fontSize: 24, lineHeight: "27px",
                 letterSpacing: "-0.055em", fontWeight: 880,
               }}>
-                Sign message
+                {t("approval.signMessage")}
               </h1>
               <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
-                <strong>{domain}</strong> is requesting a message signature.
+                {t("approval.signMessageDesc", { domain })}
               </p>
             </div>
           </div>
 
           <ApprovalCard>
             <AccountRow address={data.address!} />
-            <PreviewBox title="Message preview">
+            <PreviewBox title={t("approval.messagePreview")}>
               <MonoPre text={data.displayMessage ?? ""} />
             </PreviewBox>
           </ApprovalCard>
@@ -664,7 +666,7 @@ export default function DappApprovalPage() {
           <OriginNotice domain={domain} method="personal_sign" />
         </ScrollSection>
         <ApprovalFooter
-          primaryLabel="Sign"
+          primaryLabel={t("approval.sign")}
           onPrimary={approve}
           onReject={reject}
           working={working}
@@ -680,7 +682,7 @@ export default function DappApprovalPage() {
     const td = data.typedDataDisplay ?? {};
     return (
       <Shell>
-        <ApprovalHeader title="Sign typed data" onClose={reject} disabled={working} />
+        <ApprovalHeader title={t("approval.signTypedData")} onClose={reject} disabled={working} />
         <ScrollSection>
           <div style={{ display: "grid", gap: 14 }}>
             <SimplIcon />
@@ -689,10 +691,10 @@ export default function DappApprovalPage() {
                 margin: 0, fontSize: 24, lineHeight: "27px",
                 letterSpacing: "-0.055em", fontWeight: 880,
               }}>
-                Sign typed data
+                {t("approval.signTypedData")}
               </h1>
               <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
-                <strong>{domain}</strong> is requesting a typed data signature.
+                {t("approval.signTypedDataDesc", { domain })}
               </p>
             </div>
           </div>
@@ -701,23 +703,23 @@ export default function DappApprovalPage() {
             <AccountRow address={data.address!} />
 
             {(td.domainName || td.primaryType || td.verifyingContract) && (
-              <PreviewBox title="Details">
+              <PreviewBox title={t("approval.details")}>
                 <div style={{ display: "grid", gap: 8 }}>
                   {td.domainName && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                      <span style={{ color: C.fgMuted }}>App</span>
+                      <span style={{ color: C.fgMuted }}>{t("approval.app")}</span>
                       <span style={{ fontWeight: 700 }}>{td.domainName}</span>
                     </div>
                   )}
                   {td.primaryType && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                      <span style={{ color: C.fgMuted }}>Type</span>
+                      <span style={{ color: C.fgMuted }}>{t("common.type")}</span>
                       <span style={{ fontWeight: 700 }}>{td.primaryType}</span>
                     </div>
                   )}
                   {td.verifyingContract && (
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                      <span style={{ color: C.fgMuted }}>Contract</span>
+                      <span style={{ color: C.fgMuted }}>{t("common.contract")}</span>
                       <span style={{ fontFamily: C.monoFont, fontSize: 12 }}>
                         {shortAddress(td.verifyingContract)}
                       </span>
@@ -728,7 +730,7 @@ export default function DappApprovalPage() {
             )}
 
             {td.messageJson && (
-              <PreviewBox title="Data preview">
+              <PreviewBox title={t("approval.dataPreview")}>
                 <MonoPre text={td.messageJson} />
               </PreviewBox>
             )}
@@ -749,7 +751,7 @@ export default function DappApprovalPage() {
           <OriginNotice domain={domain} method="eth_signTypedData_v4" />
         </ScrollSection>
         <ApprovalFooter
-          primaryLabel="Sign"
+          primaryLabel={t("approval.sign")}
           onPrimary={approve}
           onReject={reject}
           working={working}
@@ -767,7 +769,7 @@ export default function DappApprovalPage() {
     const symbol = tx?.nativeCurrencySymbol ?? "ETH";
     const hasData = !erc20 && tx?.data && tx.data !== "0x" && tx.data.length > 2;
 
-    const title = erc20 ? "Approve token spending" : "Confirm transaction";
+    const title = erc20 ? t("approval.approveTokenSpending") : t("approval.confirmTransaction");
 
     return (
       <Shell>
@@ -790,8 +792,8 @@ export default function DappApprovalPage() {
               </h1>
               <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
                 {erc20
-                  ? <><strong>{domain}</strong> is requesting permission to spend your tokens.</>
-                  : <><strong>{domain}</strong> is requesting to send a transaction.</>
+                  ? t("approval.spendPermissionDesc", { domain })
+                  : t("approval.transactionDesc", { domain })
                 }
               </p>
             </div>
@@ -801,20 +803,20 @@ export default function DappApprovalPage() {
             <AccountRow address={data.address!} />
 
             {erc20 ? (
-              <PreviewBox title="Token approval">
+              <PreviewBox title={t("approval.tokenApproval")}>
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "grid", gap: 3 }}>
-                    <span style={{ fontSize: 11, color: C.fgMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Token contract</span>
+                    <span style={{ fontSize: 11, color: C.fgMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{t("approval.tokenContract")}</span>
                     <span style={{ fontSize: 12, fontFamily: C.monoFont, wordBreak: "break-all" }}>{tx?.to}</span>
                   </div>
                   <div style={{ display: "grid", gap: 3 }}>
-                    <span style={{ fontSize: 11, color: C.fgMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Spender</span>
+                    <span style={{ fontSize: 11, color: C.fgMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{t("approval.spender")}</span>
                     <span style={{ fontSize: 12, fontFamily: C.monoFont, wordBreak: "break-all" }}>{erc20.spender}</span>
                   </div>
                   <div style={{ display: "grid", gap: 3 }}>
-                    <span style={{ fontSize: 11, color: C.fgMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Amount</span>
+                    <span style={{ fontSize: 11, color: C.fgMuted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{t("common.amount")}</span>
                     {erc20.isUnlimited ? (
-                      <span style={{ fontSize: 14, fontWeight: 800, color: C.danger }}>Unlimited</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.danger }}>{t("approval.unlimited")}</span>
                     ) : (
                       <span style={{ fontSize: 12, fontFamily: C.monoFont, wordBreak: "break-all" }}>
                         {erc20.amountRaw}
@@ -824,22 +826,22 @@ export default function DappApprovalPage() {
                 </div>
               </PreviewBox>
             ) : (
-              <PreviewBox title="Transaction details">
+              <PreviewBox title={t("approval.transactionDetails")}>
                 <div style={{ display: "grid", gap: 8 }}>
                   {tx && (
                     <>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, fontSize: 13 }}>
-                        <span style={{ color: C.fgMuted, flexShrink: 0 }}>To</span>
+                        <span style={{ color: C.fgMuted, flexShrink: 0 }}>{t("common.to")}</span>
                         <span style={{ fontWeight: 700, fontFamily: C.monoFont, fontSize: 12, textAlign: "right", wordBreak: "break-all" }}>
                           {tx.to}
                         </span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                        <span style={{ color: C.fgMuted }}>Network</span>
+                        <span style={{ color: C.fgMuted }}>{t("common.network")}</span>
                         <span style={{ fontWeight: 700 }}>{tx.networkName}</span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                        <span style={{ color: C.fgMuted }}>Value</span>
+                        <span style={{ color: C.fgMuted }}>{t("common.value")}</span>
                         <span style={{ fontWeight: 700 }}>{formatHexEth(tx.value, symbol)}</span>
                       </div>
                     </>
@@ -849,10 +851,10 @@ export default function DappApprovalPage() {
             )}
 
             {hasData && tx?.data && (
-              <PreviewBox title="Contract data">
+              <PreviewBox title={t("approval.contractData")}>
                 <div style={{ display: "grid", gap: 6 }}>
                   <div style={{ fontSize: 12, color: C.fgMuted }}>
-                    Function: <span style={{ fontFamily: C.monoFont, color: C.fg }}>{tx.data.slice(0, 10)}</span>
+                    {t("approval.function")} <span style={{ fontFamily: C.monoFont, color: C.fg }}>{tx.data.slice(0, 10)}</span>
                   </div>
                   <MonoPre text={tx.data.length > 200 ? `${tx.data.slice(0, 200)}…` : tx.data} />
                 </div>
@@ -875,7 +877,7 @@ export default function DappApprovalPage() {
           <OriginNotice domain={domain} method="eth_sendTransaction" />
         </ScrollSection>
         <ApprovalFooter
-          primaryLabel={erc20 ? "Approve" : "Confirm"}
+          primaryLabel={erc20 ? t("approval.approve") : t("approval.confirm")}
           onPrimary={approve}
           onReject={reject}
           working={working}
@@ -891,7 +893,7 @@ export default function DappApprovalPage() {
     const sc = data.switchChain;
     return (
       <Shell>
-        <ApprovalHeader title="Switch network" onClose={reject} disabled={working} />
+        <ApprovalHeader title={t("approval.switchNetwork")} onClose={reject} disabled={working} />
         <ScrollSection>
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{
@@ -906,10 +908,10 @@ export default function DappApprovalPage() {
                 margin: 0, fontSize: 24, lineHeight: "27px",
                 letterSpacing: "-0.055em", fontWeight: 880,
               }}>
-                Switch network
+                {t("approval.switchNetwork")}
               </h1>
               <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
-                <strong>{domain}</strong> is requesting a network switch.
+                {t("approval.switchNetworkDesc", { domain })}
               </p>
             </div>
           </div>
@@ -925,7 +927,7 @@ export default function DappApprovalPage() {
                   background: C.previewBg,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>Current network</div>
+                    <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>{t("approval.currentNetwork")}</div>
                     <div style={{ fontSize: 14, fontWeight: 700 }}>{sc.currentChainName}</div>
                   </div>
                 </div>
@@ -945,15 +947,15 @@ export default function DappApprovalPage() {
                   background: C.previewBg,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>Requested network</div>
+                    <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>{t("approval.requestedNetwork")}</div>
                     <div style={{ fontSize: 14, fontWeight: 700 }}>{sc.requestedChainName}</div>
                   </div>
                   <div style={{
                     fontSize: 11, fontWeight: 800,
-                    color: "#1d7a3f", background: "#e8f8ef",
+                    color: "var(--secure)", background: "var(--secure-soft)",
                     padding: "2px 8px", borderRadius: 8, flexShrink: 0,
                   }}>
-                    New
+                    {t("approval.new")}
                   </div>
                 </div>
               </div>
@@ -967,7 +969,7 @@ export default function DappApprovalPage() {
               padding: "10px 12px",
               fontSize: 12, lineHeight: "17px", fontWeight: 750,
             }}>
-              This site is requesting to switch your active network. All future requests will use the new network until you switch back.
+              {t("approval.switchNetworkWarning")}
             </div>
           </ApprovalCard>
 
@@ -976,7 +978,7 @@ export default function DappApprovalPage() {
           {errorMsg && <ErrorLine message={errorMsg} />}
         </ScrollSection>
         <ApprovalFooter
-          primaryLabel="Switch"
+          primaryLabel={t("approval.switch")}
           onPrimary={approve}
           onReject={reject}
           working={working}
@@ -990,7 +992,7 @@ export default function DappApprovalPage() {
   if (kind === "tron_connect") {
     return (
       <Shell>
-        <ApprovalHeader title="Connect wallet" onClose={reject} disabled={working} />
+        <ApprovalHeader title={t("approval.connectWallet")} onClose={reject} disabled={working} />
         <ScrollSection>
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{
@@ -1008,7 +1010,7 @@ export default function DappApprovalPage() {
                 {domain}
               </h1>
               <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
-                This site is requesting access to your TRON wallet address.
+                {t("approval.tronConnectDesc")}
               </p>
             </div>
           </div>
@@ -1022,7 +1024,7 @@ export default function DappApprovalPage() {
               display: "grid", gap: 10,
             }}>
               <div style={{ fontSize: 13, fontWeight: 850, letterSpacing: "-0.01em" }}>
-                Network
+                {t("common.network")}
               </div>
               <div style={{ fontSize: 13, color: C.fgMuted }}>
                 {data.network ?? "TRON Mainnet"}
@@ -1035,13 +1037,13 @@ export default function DappApprovalPage() {
               display: "grid", gap: 10,
             }}>
               <div style={{ fontSize: 13, fontWeight: 850, letterSpacing: "-0.01em" }}>
-                Permissions
+                {t("approval.permissions")}
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                {(["View your TRON address", "View your account balance"] as const).map((p) => (
+                {(["approval.viewTronAddress", "approval.viewBalance"] as const).map((p) => (
                   <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                    <span style={{ color: "#1d7a3f", fontSize: 14, fontWeight: 700 }}>✓</span>
-                    <span style={{ color: C.fgMuted }}>{p}</span>
+                    <span style={{ color: "var(--secure)", fontSize: 14, fontWeight: 700 }}>✓</span>
+                    <span style={{ color: C.fgMuted }}>{t(p)}</span>
                   </div>
                 ))}
               </div>
@@ -1053,7 +1055,7 @@ export default function DappApprovalPage() {
           {errorMsg && <ErrorLine message={errorMsg} />}
         </ScrollSection>
         <ApprovalFooter
-          primaryLabel="Connect"
+          primaryLabel={t("approval.connect")}
           onPrimary={approve}
           onReject={reject}
           working={working}
@@ -1068,7 +1070,7 @@ export default function DappApprovalPage() {
     const ttx = data.tronTransaction ?? {};
     return (
       <Shell>
-        <ApprovalHeader title="Sign TRON transaction" onClose={reject} disabled={working} />
+        <ApprovalHeader title={t("approval.signTronTx")} onClose={reject} disabled={working} />
         <ScrollSection>
           <div style={{ display: "grid", gap: 14 }}>
             <div style={{
@@ -1083,10 +1085,10 @@ export default function DappApprovalPage() {
                 margin: 0, fontSize: 24, lineHeight: "27px",
                 letterSpacing: "-0.055em", fontWeight: 880,
               }}>
-                Sign TRON transaction
+                {t("approval.signTronTx")}
               </h1>
               <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
-                <strong>{domain}</strong> is requesting a transaction signature.
+                {t("approval.tronTxDesc", { domain })}
               </p>
             </div>
           </div>
@@ -1094,15 +1096,15 @@ export default function DappApprovalPage() {
           <ApprovalCard>
             <AccountRow address={data.address!} />
 
-            <PreviewBox title="Transaction">
+            <PreviewBox title={t("approval.transaction")}>
               <div style={{ display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <span style={{ color: C.fgMuted }}>Network</span>
+                  <span style={{ color: C.fgMuted }}>{t("common.network")}</span>
                   <span style={{ fontWeight: 700 }}>{data.network ?? "TRON Mainnet"}</span>
                 </div>
                 {ttx.contractType && (
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                    <span style={{ color: C.fgMuted }}>Type</span>
+                    <span style={{ color: C.fgMuted }}>{t("common.type")}</span>
                     <span style={{ fontWeight: 700 }}>{ttx.contractType}</span>
                   </div>
                 )}
@@ -1110,7 +1112,7 @@ export default function DappApprovalPage() {
             </PreviewBox>
 
             {ttx.json && (
-              <PreviewBox title="Raw transaction">
+              <PreviewBox title={t("approval.rawTransaction")}>
                 <MonoPre text={ttx.json} />
               </PreviewBox>
             )}
@@ -1131,7 +1133,7 @@ export default function DappApprovalPage() {
           <OriginNotice domain={domain} method="tron_signTransaction" />
         </ScrollSection>
         <ApprovalFooter
-          primaryLabel="Sign"
+          primaryLabel={t("approval.sign")}
           onPrimary={approve}
           onReject={reject}
           working={working}
@@ -1145,7 +1147,7 @@ export default function DappApprovalPage() {
 
   return (
     <Shell>
-      <ApprovalHeader title="Connect wallet" onClose={reject} disabled={working} />
+      <ApprovalHeader title={t("approval.connectWallet")} onClose={reject} disabled={working} />
       <ScrollSection>
         <div style={{ display: "grid", gap: 14 }}>
           <div style={{
@@ -1165,7 +1167,7 @@ export default function DappApprovalPage() {
               {domain}
             </h1>
             <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
-              This site is requesting access to your wallet address.
+              {t("approval.connectDesc")}
             </p>
           </div>
         </div>
@@ -1181,7 +1183,7 @@ export default function DappApprovalPage() {
             display: "grid", gap: 10,
           }}>
             <div style={{ fontSize: 13, fontWeight: 850, letterSpacing: "-0.01em" }}>
-              Network
+              {t("common.network")}
             </div>
             <div style={{ fontSize: 13, color: C.fgMuted }}>
               {chainLabel(data.chainId)}
@@ -1196,13 +1198,13 @@ export default function DappApprovalPage() {
             display: "grid", gap: 10,
           }}>
             <div style={{ fontSize: 13, fontWeight: 850, letterSpacing: "-0.01em" }}>
-              Permissions
+              {t("approval.permissions")}
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              {(["View your wallet address", "View your account balance"] as const).map((p) => (
+              {(["approval.viewAddress", "approval.viewBalance"] as const).map((p) => (
                 <div key={p} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  <span style={{ color: "#1d7a3f", fontSize: 14, fontWeight: 700 }}>✓</span>
-                  <span style={{ color: C.fgMuted }}>{p}</span>
+                  <span style={{ color: "var(--secure)", fontSize: 14, fontWeight: 700 }}>✓</span>
+                  <span style={{ color: C.fgMuted }}>{t(p)}</span>
                 </div>
               ))}
             </div>
@@ -1214,7 +1216,7 @@ export default function DappApprovalPage() {
         {errorMsg && <ErrorLine message={errorMsg} />}
       </ScrollSection>
       <ApprovalFooter
-        primaryLabel="Connect"
+        primaryLabel={t("approval.connect")}
         onPrimary={approve}
         onReject={reject}
         working={working}

@@ -10,6 +10,7 @@ import {
   type TransactionHistoryItem,
 } from "../../core/transactions/transaction-history.service";
 import { reconcilePendingBridgeTransactions } from "../../core/bridge/bridge-history.service";
+import { t, useTranslation } from "../../i18n";
 
 type TransactionHistoryPageProps = {
   selectedAccount: WalletAccount | null;
@@ -157,17 +158,21 @@ function formatAmount(value: string | null | undefined): string {
 
 function getRowTitle(item: TransactionHistoryItem): string {
   if (item.direction === "bridge") {
-    return `Cross-chain swap ${
-      item.bridgeFromSymbol ?? item.swapFromSymbol ?? "Token"
-    } ${item.bridgeFromChainName ?? ""} → ${
-      item.bridgeToChainName ?? ""
-    }`.trim();
+    return t("activity.bridgeTitle", {
+      from: item.bridgeFromSymbol ?? item.swapFromSymbol ?? "Token",
+      fromChain: item.bridgeFromChainName ?? "",
+      toChain: item.bridgeToChainName ?? "",
+    }).trim();
   }
   if (item.direction === "swap") {
-    return `Swapped ${item.swapFromSymbol ?? "Token"} → ${item.swapToSymbol ?? "Token"}`;
+    return t("activity.swappedTitle", {
+      from: item.swapFromSymbol ?? "Token",
+      to: item.swapToSymbol ?? "Token",
+    });
   }
-  if (item.direction === "receive") return `Received ${item.assetSymbol}`;
-  return `Sent ${item.assetSymbol}`;
+  if (item.direction === "receive")
+    return t("activity.receivedTitle", { symbol: item.assetSymbol });
+  return t("activity.sentTitle", { symbol: item.assetSymbol });
 }
 
 function getRowSecondary(item: TransactionHistoryItem): string {
@@ -175,16 +180,30 @@ function getRowSecondary(item: TransactionHistoryItem): string {
   const net = item.chainName || "";
   if (item.direction === "bridge") {
     const route =
-      item.bridgeProvider != null ? `via ${item.bridgeProvider}` : "";
+      item.bridgeProvider != null
+        ? t("activity.viaProvider", { provider: item.bridgeProvider })
+        : "";
     return [route, ts].filter(Boolean).join(" · ");
   }
   if (item.direction === "swap") {
     return [net, ts].filter(Boolean).join(" · ");
   }
   if (item.direction === "receive") {
-    return [`From ${shortAddress(item.fromAddress)}`, net, ts].filter(Boolean).join(" · ");
+    return [
+      t("activity.fromAddress", { address: shortAddress(item.fromAddress) }),
+      net,
+      ts,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   }
-  return [`To ${shortAddress(item.toAddress)}`, net, ts].filter(Boolean).join(" · ");
+  return [
+    t("activity.toAddress", { address: shortAddress(item.toAddress) }),
+    net,
+    ts,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function getRowAmount(item: TransactionHistoryItem): string {
@@ -211,9 +230,9 @@ function getIconVariant(item: TransactionHistoryItem): "send" | "receive" | "swa
 }
 
 function getStatusLabel(status: string): string {
-  if (status === "confirmed") return "Confirmed";
-  if (status === "failed") return "Failed";
-  return "Pending";
+  if (status === "confirmed") return t("activity.status.confirmed");
+  if (status === "failed") return t("activity.status.failed");
+  return t("activity.status.pending");
 }
 
 // Bridge rows use the granular source/bridge statuses so a finalized source tx
@@ -228,15 +247,15 @@ function getBridgeBadge(item: TransactionHistoryItem): {
     item.bridgeStatus === "failed" ||
     item.bridgeSourceTxStatus === "failed"
   ) {
-    return { label: "Failed", variant: "failed" };
+    return { label: t("activity.status.failed"), variant: "failed" };
   }
   if (item.bridgeStatus === "completed" || item.status === "confirmed") {
-    return { label: "Completed", variant: "confirmed" };
+    return { label: t("activity.status.completed"), variant: "confirmed" };
   }
   if (item.bridgeSourceTxStatus === "confirmed") {
-    return { label: "In progress", variant: "submitted" };
+    return { label: t("activity.status.inProgress"), variant: "submitted" };
   }
-  return { label: "Pending", variant: "submitted" };
+  return { label: t("activity.status.pending"), variant: "submitted" };
 }
 
 // ── Date grouping ──────────────────────────────────────────────────
@@ -257,9 +276,9 @@ function groupByDate(items: TransactionHistoryItem[]): DateGroup[] {
   yesterday.setDate(yesterday.getDate() - 1);
 
   const groups: DateGroup[] = [
-    { label: "Today", items: [] },
-    { label: "Yesterday", items: [] },
-    { label: "Earlier", items: [] },
+    { label: t("activity.dateToday"), items: [] },
+    { label: t("activity.dateYesterday"), items: [] },
+    { label: t("activity.dateEarlier"), items: [] },
   ];
 
   for (const item of items) {
@@ -337,6 +356,7 @@ export function TransactionHistoryPage({
   onBack,
   onViewTransaction,
 }: TransactionHistoryPageProps) {
+  const { t } = useTranslation();
   const [items, setItems] = useState<TransactionHistoryItem[]>([]);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
@@ -488,19 +508,19 @@ export function TransactionHistoryPage({
           className="icbtn"
           type="button"
           onClick={onBack}
-          aria-label="Back"
+          aria-label={t("common.back")}
         >
           <BackIcon />
         </button>
         <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          Activity
+          {t("activity.title")}
         </div>
         <span style={{ flex: 1 }} />
         <button
           className="icbtn"
           type="button"
           onClick={() => void refresh()}
-          aria-label="Refresh"
+          aria-label={t("common.refresh")}
         >
           <RefreshIcon />
         </button>
@@ -509,9 +529,11 @@ export function TransactionHistoryPage({
       {/* Body */}
       <div className="screen-body">
         <div className="activity-intro">
-          <div className="activity-intro-title">Transaction history</div>
+          <div className="activity-intro-title">
+            {t("activity.transactionHistory")}
+          </div>
           <div className="activity-intro-subtitle">
-            Local history of wallet activity.
+            {t("activity.subtitle")}
           </div>
         </div>
 
@@ -520,16 +542,16 @@ export function TransactionHistoryPage({
             <div className="activity-empty-icon">
               <ClockEmptyIcon />
             </div>
-            <div className="activity-empty-title">No activity yet</div>
+            <div className="activity-empty-title">{t("activity.emptyTitle")}</div>
             <div className="activity-empty-text">
-              Your sent transactions and swaps will appear here.
+              {t("activity.emptyBody")}
             </div>
             <button
               type="button"
               className="btn secondary lg"
               onClick={onBack}
             >
-              Back to wallet
+              {t("common.backToWallet")}
             </button>
           </div>
         ) : (
@@ -553,7 +575,7 @@ export function TransactionHistoryPage({
               onClick={() => setConfirmClearOpen(true)}
               style={{ marginTop: 16 }}
             >
-              Clear local history
+              {t("activity.clearHistory")}
             </button>
           </>
         )}
@@ -578,14 +600,14 @@ export function TransactionHistoryPage({
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Clear history confirmation"
+            aria-label={t("activity.clearConfirmLabel")}
             onClick={(e) => e.stopPropagation()}
           >
             <div
               style={{
                 border: "1px solid var(--line)",
                 borderRadius: 24,
-                background: "#fff",
+                background: "var(--bg-surface)",
                 boxShadow: "0 24px 80px rgba(0, 0, 0, 0.18)",
                 padding: 18,
               }}
@@ -598,7 +620,7 @@ export function TransactionHistoryPage({
                   color: "var(--ink-1)",
                 }}
               >
-                Clear activity?
+                {t("activity.clearConfirmTitle")}
               </div>
               <p
                 style={{
@@ -616,16 +638,16 @@ export function TransactionHistoryPage({
                   type="button"
                   className="btn primary lg full"
                   onClick={executeClearHistory}
-                  style={{ background: "#a23b2d", borderColor: "#a23b2d" }}
+                  style={{ background: "var(--danger)", borderColor: "var(--danger)" }}
                 >
-                  Clear activity
+                  {t("activity.clearConfirm")}
                 </button>
                 <button
                   type="button"
                   className="btn secondary lg full"
                   onClick={() => setConfirmClearOpen(false)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>

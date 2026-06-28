@@ -7,6 +7,7 @@
 // mirrors the canonical EVM swap header's `swap-page-title` styling.
 
 import type { ReactNode } from "react";
+import { useTranslation } from "../../i18n";
 
 type SwapHeaderProps = {
   title?: string;
@@ -24,9 +25,10 @@ export function SwapHeader({
   onBack,
   right,
 }: SwapHeaderProps) {
+  const { t } = useTranslation();
   return (
     <div className="bar-top">
-      <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+      <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
         <svg
           viewBox="0 0 24 24"
           width="18"

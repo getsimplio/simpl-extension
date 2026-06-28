@@ -9,6 +9,7 @@ import type {
   WalletAccount,
   WalletAccountId,
 } from "../../core/accounts/account.types";
+import { useTranslation } from "../../i18n";
 import { AccountBlockie } from "./AccountBlockie";
 
 type AccountSelectSheetProps = {
@@ -48,12 +49,13 @@ export function AccountSelectSheet({
   onSelect,
   onClose,
 }: AccountSelectSheetProps) {
+  const { t } = useTranslation();
   return (
     <div className="account-sheet-backdrop">
       <button
         type="button"
         className="account-sheet-scrim"
-        aria-label="Close account selector"
+        aria-label={t("accounts.closeSelector")}
         onClick={onClose}
       />
 
@@ -61,20 +63,20 @@ export function AccountSelectSheet({
         className="account-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Select account"
+        aria-label={t("accounts.selectAccountTitle")}
       >
         <div className="account-sheet-head">
           <div>
-            <div className="account-sheet-title">Select account</div>
+            <div className="account-sheet-title">{t("accounts.selectAccountTitle")}</div>
             <div className="account-sheet-subtitle">
-              Choose which account receives funds.
+              {t("accounts.selectAccountSub")}
             </div>
           </div>
 
           <button
             type="button"
             className="icbtn"
-            aria-label="Close account selector"
+            aria-label={t("accounts.closeSelector")}
             onClick={onClose}
           >
             ×
@@ -106,10 +108,10 @@ export function AccountSelectSheet({
                 <div className="body">
                   <div className="nm account-sheet-name">
                     <span className="account-sheet-name-text">
-                      {account.label || "Account"}
+                      {account.label || t("accounts.unnamed")}
                     </span>
                     {isWatch ? (
-                      <span className="acct-watch-pill">Watch-only</span>
+                      <span className="acct-watch-pill">{t("accounts.watchOnly")}</span>
                     ) : null}
                   </div>
                   <div className="sub">{shortAddress(account.address)}</div>
@@ -119,7 +121,7 @@ export function AccountSelectSheet({
                   {pending ? (
                     <span className="account-sheet-pending">···</span>
                   ) : active ? (
-                    <span className="account-sheet-check" aria-label="Selected">
+                    <span className="account-sheet-check" aria-label={t("common.selected")}>
                       <CheckIcon />
                     </span>
                   ) : null}

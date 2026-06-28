@@ -15,6 +15,7 @@ import { Wallet } from "ethers";
 import { walletService } from "../../core/wallet/wallet.service";
 import { mnemonicService } from "../../core/mnemonic/mnemonic.service";
 import { SimpleInstrumentIcon } from "../components/SimpleInstrumentIcon";
+import { t, useTranslation } from "../../i18n";
 
 type ImportAccountPageProps = {
   onBack: () => void;
@@ -63,7 +64,7 @@ function normalizeAccountLabel(input: string): LabelResult {
   const trimmed = input.trim();
   if (!trimmed) return { ok: true, label: null };
   if (trimmed.length > MAX_LABEL_LENGTH) {
-    return { ok: false, error: "Name must be 32 characters or less." };
+    return { ok: false, error: t("accounts.nameTooLong32") };
   }
   return { ok: true, label: trimmed };
 }
@@ -71,7 +72,7 @@ function normalizeAccountLabel(input: string): LabelResult {
 function Header({ title, onBack }: { title: string; onBack: () => void }) {
   return (
     <div className="bar-top">
-      <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+      <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
         <BackIcon />
       </button>
       <span className="import-acct-title">{title}</span>
@@ -175,6 +176,7 @@ function SecurityNotice({ title, body }: { title: string; body: string }) {
 }
 
 export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<ImportStep>("choose");
 
   // Shared
@@ -237,13 +239,13 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
       setError(
         seedPhrase.trim()
           ? seedValidation.message
-          : "Enter a valid recovery phrase.",
+          : t("accounts.invalidSeed"),
       );
       return;
     }
 
     if (!walletPassword) {
-      setError("Enter your wallet password to confirm.");
+      setError(t("accounts.passwordToConfirm"));
       return;
     }
 
@@ -277,12 +279,12 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
     setError(null);
 
     if (!keyPreviewAddress) {
-      setError("Enter a valid EVM private key.");
+      setError(t("accounts.invalidPrivateKey"));
       return;
     }
 
     if (!walletPassword) {
-      setError("Enter your wallet password to confirm.");
+      setError(t("accounts.passwordToConfirm"));
       return;
     }
 
@@ -315,14 +317,16 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
   // ── Success ──
   if (step === "success") {
     const successTitle =
-      importedKind === "seed" ? "Wallet imported" : "Account imported";
+      importedKind === "seed"
+        ? t("accounts.walletImported")
+        : t("accounts.accountImported");
     const successSub = importedCustomName
-      ? `${importedCustomName} was added as a signer account.`
-      : "Signer account added.";
+      ? t("accounts.signerAddedNamed", { name: importedCustomName })
+      : t("accounts.signerAdded");
 
     return (
       <div className="ext-popup import-acct-page" data-screen-label="Import done">
-        <Header title="Imported" onBack={() => void onImported()} />
+        <Header title={t("accounts.imported")} onBack={() => void onImported()} />
         <div className="screen-body import-acct-body">
           <div className="import-acct-success">
             <div className="import-acct-success__check" aria-hidden="true">
@@ -337,7 +341,7 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
             type="button"
             onClick={() => void onImported()}
           >
-            Use this account
+            {t("accounts.use")}
           </button>
         </div>
       </div>
@@ -352,30 +356,30 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
 
     return (
       <div className="ext-popup import-acct-page" data-screen-label="Import seed">
-        <Header title="Seed phrase" onBack={goChoose} />
+        <Header title={t("accounts.seedOption")} onBack={goChoose} />
         <div className="screen-body import-acct-body">
           <ImportHero
             icon={<PhraseIcon />}
-            title="Import recovery phrase"
-            subtitle="Restore accounts from a wallet you own."
+            title={t("accounts.importPhraseTitle")}
+            subtitle={t("accounts.importPhraseSub")}
           />
 
           <SecurityNotice
-            title="Keep it private"
-            body="Anyone with this phrase can control your funds."
+            title={t("accounts.keepPrivate")}
+            body={t("accounts.seedKeepPrivateBody")}
           />
 
           <div className="import-acct-field">
             <div className="import-acct-label-row">
-              <span className="import-acct-field-label">Recovery phrase</span>
+              <span className="import-acct-field-label">{t("accounts.recoveryPhrase")}</span>
               <span className="import-acct-wordcount">
-                {seedWordCount} {seedWordCount === 1 ? "word" : "words"}
+                {t("accounts.wordCount", { count: seedWordCount })}
               </span>
             </div>
 
             <textarea
               className="import-acct-textarea"
-              placeholder="Enter 12, 18, or 24 words"
+              placeholder={t("accounts.seedPlaceholder")}
               value={seedPhrase}
               onChange={(event) => setSeedPhrase(event.target.value)}
               autoComplete="off"
@@ -388,7 +392,7 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
             {seedInvalid ? (
               <div className="send-field-error">{seedValidation.message}</div>
             ) : (
-              <p className="import-acct-help">Separate each word with a space.</p>
+              <p className="import-acct-help">{t("accounts.seedHelp")}</p>
             )}
           </div>
 
@@ -398,15 +402,15 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
                 className="import-acct-field-label"
                 htmlFor="import-seed-name"
               >
-                Account name
+                {t("common.accountName")}
               </label>
-              <span className="import-acct-optional">Optional</span>
+              <span className="import-acct-optional">{t("common.optional")}</span>
             </div>
             <input
               id="import-seed-name"
               className="import-acct-input"
               type="text"
-              placeholder="Name this wallet"
+              placeholder={t("accounts.nameWalletPlaceholder")}
               value={accountName}
               onChange={(event) => setAccountName(event.target.value)}
               autoComplete="off"
@@ -417,25 +421,25 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
             {nameError ? (
               <div className="send-field-error">{nameError}</div>
             ) : (
-              <p className="import-acct-help">You can rename it later.</p>
+              <p className="import-acct-help">{t("accounts.renameLater")}</p>
             )}
           </div>
 
           <div className="import-acct-field">
             <label className="import-acct-field-label" htmlFor="import-seed-pwd">
-              Wallet password
+              {t("common.walletPassword")}
             </label>
             <input
               id="import-seed-pwd"
               className="import-acct-input"
               type="password"
-              placeholder="Enter wallet password"
+              placeholder={t("common.enterWalletPassword")}
               value={walletPassword}
               onChange={(event) => setWalletPassword(event.target.value)}
               autoComplete="current-password"
             />
             <p className="import-acct-help">
-              Required to encrypt imported accounts.
+              {t("accounts.passwordToEncrypt")}
             </p>
           </div>
 
@@ -447,7 +451,7 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
             disabled={importing || !canImport}
             onClick={() => void handleImportSeed()}
           >
-            {importing ? "Importing…" : "Import wallet"}
+            {importing ? t("common.importing") : t("accounts.importWalletButton")}
           </button>
         </div>
       </div>
@@ -463,22 +467,22 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
 
     return (
       <div className="ext-popup import-acct-page" data-screen-label="Import key">
-        <Header title="Private key" onBack={goChoose} />
+        <Header title={t("accounts.keyOption")} onBack={goChoose} />
         <div className="screen-body import-acct-body">
           <ImportHero
             icon={<KeyIcon />}
-            title="Import private key"
-            subtitle="Add one EVM signer account."
+            title={t("accounts.importKeyTitle")}
+            subtitle={t("accounts.importKeySub")}
           />
 
           <SecurityNotice
-            title="Keep it private"
-            body="A private key gives full access to this account."
+            title={t("accounts.keepPrivate")}
+            body={t("accounts.keyKeepPrivateBody")}
           />
 
           <div className="import-acct-field">
             <label className="import-acct-field-label" htmlFor="import-key-input">
-              Private key
+              {t("accounts.privateKey")}
             </label>
             <div className="import-acct-key-wrap">
               <input
@@ -497,24 +501,24 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
                 type="button"
                 className="import-acct-reveal"
                 onClick={() => setKeyVisible((visible) => !visible)}
-                aria-label={keyVisible ? "Hide private key" : "Show private key"}
+                aria-label={keyVisible ? t("accounts.hidePrivateKey") : t("accounts.showPrivateKey")}
               >
-                {keyVisible ? "Hide" : "Show"}
+                {keyVisible ? t("common.hide") : t("common.show")}
               </button>
             </div>
 
             {keyInvalid ? (
               <div className="send-field-error">
-                Enter a valid EVM private key.
+                {t("accounts.invalidPrivateKey")}
               </div>
             ) : (
-              <p className="import-acct-help">Imports one account only.</p>
+              <p className="import-acct-help">{t("accounts.importsOneAccount")}</p>
             )}
           </div>
 
           {keyPreviewAddress ? (
             <div className="import-acct-preview">
-              <div className="import-acct-preview__label">Address</div>
+              <div className="import-acct-preview__label">{t("common.address")}</div>
               <div className="import-acct-preview__value">
                 <span>{shortAddress(keyPreviewAddress)}</span>
                 <span className="import-acct-preview__check" aria-hidden="true">
@@ -530,15 +534,15 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
                 className="import-acct-field-label"
                 htmlFor="import-key-name"
               >
-                Account name
+                {t("common.accountName")}
               </label>
-              <span className="import-acct-optional">Optional</span>
+              <span className="import-acct-optional">{t("common.optional")}</span>
             </div>
             <input
               id="import-key-name"
               className="import-acct-input"
               type="text"
-              placeholder="Name this account"
+              placeholder={t("accounts.nameAccountPlaceholder")}
               value={accountName}
               onChange={(event) => setAccountName(event.target.value)}
               autoComplete="off"
@@ -549,25 +553,25 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
             {nameError ? (
               <div className="send-field-error">{nameError}</div>
             ) : (
-              <p className="import-acct-help">You can rename it later.</p>
+              <p className="import-acct-help">{t("accounts.renameLater")}</p>
             )}
           </div>
 
           <div className="import-acct-field">
             <label className="import-acct-field-label" htmlFor="import-key-pwd">
-              Wallet password
+              {t("common.walletPassword")}
             </label>
             <input
               id="import-key-pwd"
               className="import-acct-input"
               type="password"
-              placeholder="Enter wallet password"
+              placeholder={t("common.enterWalletPassword")}
               value={walletPassword}
               onChange={(event) => setWalletPassword(event.target.value)}
               autoComplete="current-password"
             />
             <p className="import-acct-help">
-              Required to encrypt imported account.
+              {t("accounts.passwordToEncryptOne")}
             </p>
           </div>
 
@@ -579,7 +583,7 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
             disabled={importing || !canImport}
             onClick={() => void handleImportKey()}
           >
-            {importing ? "Importing…" : "Import account"}
+            {importing ? t("common.importing") : t("accounts.importAccountButton")}
           </button>
         </div>
       </div>
@@ -589,12 +593,12 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
   // ── Chooser ──
   return (
     <div className="ext-popup import-acct-page" data-screen-label="Import wallet">
-      <Header title="Import wallet" onBack={onBack} />
+      <Header title={t("accounts.importWalletOption")} onBack={onBack} />
       <div className="screen-body import-acct-body">
         <div className="import-acct-hero">
-          <div className="import-acct-hero__title">Import existing wallet</div>
+          <div className="import-acct-hero__title">{t("accounts.importExisting")}</div>
           <div className="import-acct-hero__sub">
-            Use a seed phrase or private key to add a signer account.
+            {t("accounts.importExistingSub")}
           </div>
         </div>
 
@@ -608,8 +612,8 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
         >
           <SimpleInstrumentIcon instrument="security" />
           <div className="body">
-            <div className="nm">Seed phrase</div>
-            <div className="sub">Import accounts from a recovery phrase.</div>
+            <div className="nm">{t("accounts.seedOption")}</div>
+            <div className="sub">{t("accounts.seedOptionSub")}</div>
           </div>
           <div className="num">
             <span className="acct-chevron">
@@ -628,8 +632,8 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
         >
           <SimpleInstrumentIcon instrument="developer" />
           <div className="body">
-            <div className="nm">Private key</div>
-            <div className="sub">Import one account.</div>
+            <div className="nm">{t("accounts.keyOption")}</div>
+            <div className="sub">{t("accounts.keyOptionSub")}</div>
           </div>
           <div className="num">
             <span className="acct-chevron">
@@ -639,8 +643,7 @@ export function ImportAccountPage({ onBack, onImported }: ImportAccountPageProps
         </button>
 
         <div className="import-acct-warning">
-          Your seed phrase or private key gives full access to your funds. Never
-          import a wallet you do not trust.
+          {t("accounts.importWarning")}
         </div>
       </div>
     </div>

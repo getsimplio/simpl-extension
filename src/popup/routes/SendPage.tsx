@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isAddress, keccak256 } from "ethers";
+import { useTranslation } from "../../i18n";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
@@ -16,6 +17,7 @@ import {
   isTronChainId,
   isBitcoinChainId,
   isSolanaChainId,
+  isTonChainId,
   TRON_MAINNET_CHAIN_ID,
   BITCOIN_MAINNET_CHAIN_ID,
   BITCOIN_TESTNET_CHAIN_ID,
@@ -25,6 +27,11 @@ import {
 import { isValidTronAddress } from "../../chains/tron/tron.address";
 import { isValidBitcoinAddress } from "../../chains/bitcoin/bitcoin.address";
 import { isValidSolanaAddress } from "../../chains/solana/solana.address";
+import { isValidTonAddress } from "../../chains/ton/ton.address";
+import {
+  getTonTransactionExplorerUrl,
+  getTonConfigByChainId,
+} from "../../chains/ton/ton.config";
 import {
   getBitcoinConfigByChainId,
   getBitcoinTransactionExplorerUrl,
@@ -92,6 +99,10 @@ function isValidRecipientForChain(chainId: number, address: string): boolean {
     return isValidSolanaAddress(trimmed);
   }
 
+  if (isTonChainId(chainId)) {
+    return isValidTonAddress(trimmed);
+  }
+
   return isAddress(trimmed);
 }
 
@@ -113,6 +124,11 @@ function getExplorerTransactionUrl(chainId: number, hash: string): string | null
   const bitcoinConfig = getBitcoinConfigByChainId(chainId);
   if (bitcoinConfig) {
     return getBitcoinTransactionExplorerUrl(bitcoinConfig, hash);
+  }
+
+  const tonConfig = getTonConfigByChainId(chainId);
+  if (tonConfig) {
+    return getTonTransactionExplorerUrl(tonConfig, hash);
   }
 
   return null;
@@ -555,6 +571,7 @@ export function SendPage({
   onSent,
   onChanged,
 }: SendPageProps) {
+  const { t } = useTranslation();
   const [selectedAsset, setSelectedAsset] = useState<WalletAssetBalance>(asset);
   const [availableAssets, setAvailableAssets] = useState<WalletAssetBalance[]>([
     asset,
@@ -627,12 +644,12 @@ export function SendPage({
   const toAddressError =
     toAddressTouched && toAddress.length > 0 && !recipientIsValid
       ? isTron
-        ? "Enter a valid TRON address."
+        ? t("send.invalidTronAddress")
         : isBitcoin
-          ? "Enter a valid Bitcoin address."
+          ? t("send.invalidBitcoinAddress")
           : isSolana
-            ? "Enter a valid Solana address."
-            : "Enter a valid EVM address."
+            ? t("send.invalidSolanaAddress")
+            : t("send.invalidEvmAddress")
       : null;
 
   // The chosen Bitcoin fee rate (sat/vB) and a representative network-fee
@@ -663,7 +680,7 @@ export function SendPage({
     amountIsValid && Number(normalizedAmount) > assetBalance;
   const amountError =
     amountTouched && hasInsufficientBalance
-      ? `Insufficient ${selectedAsset.symbol} balance.`
+      ? t("send.insufficientSymbolBalance", { symbol: selectedAsset.symbol })
       : null;
 
   const fiatEstimate: string | null = (() => {
@@ -891,7 +908,7 @@ export function SendPage({
       const nextAssets = portfolio.assets.filter((item) => item.visible);
 
       if (nextAssets.length === 0) {
-        throw new Error("No assets available on selected network.");
+        throw new Error(t("send.noAssetsAvailable"));
       }
 
       const preferredAsset =
@@ -956,7 +973,7 @@ export function SendPage({
       const reserve = GAS_RESERVES[currentChainId] ?? 0.002;
       const maxSend = balance - reserve;
       if (maxSend <= 0) {
-        setError("Balance too low to cover gas fees.");
+        setError(t("send.balanceTooLowForGas"));
         return;
       }
       setAmount(trimDecimal(maxSend.toFixed(8)));
@@ -984,27 +1001,27 @@ export function SendPage({
     setAmountTouched(true);
 
     if (isWatchOnly) {
-      setError("Watch-only account cannot send transactions.");
+      setError(t("send.watchOnlyCannotSend"));
       return;
     }
 
     if (!recipientIsValid) {
-      setError("Enter a valid recipient address.");
+      setError(t("send.invalidRecipient"));
       return;
     }
 
     if (!amountIsValid) {
-      setError("Enter a valid amount.");
+      setError(t("errors.invalidAmount"));
       return;
     }
 
     if (hasInsufficientBalance) {
-      setError(`Insufficient ${selectedAsset.symbol} balance.`);
+      setError(t("send.insufficientSymbolBalance", { symbol: selectedAsset.symbol }));
       return;
     }
 
     if (!amountCanBeConverted) {
-      setError("USD price is unavailable for this asset.");
+      setError(t("send.noPriceForAsset"));
       return;
     }
 
@@ -1064,17 +1081,16 @@ export function SendPage({
             <BackIcon />
           </button>
           <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-            Send
+            {t("send.title")}
           </div>
         </div>
         <div className="screen-body watch-only-guard">
-          <div className="watch-only-guard__title">Watch-only account</div>
+          <div className="watch-only-guard__title">{t("send.watchOnlyTitle")}</div>
           <div className="watch-only-guard__text">
-            This account cannot send assets because it does not have a private
-            key in this wallet.
+            {t("send.watchOnlyDescription")}
           </div>
           <button className="btn secondary lg full" type="button" onClick={onBack}>
-            Back to wallet
+            {t("common.backToWallet")}
           </button>
         </div>
       </div>
@@ -1127,7 +1143,7 @@ export function SendPage({
             color: "var(--ink-1)",
           }}
         >
-          Send
+          {t("send.title")}
         </div>
 
         <span style={{ flex: 1 }} />
@@ -1136,8 +1152,8 @@ export function SendPage({
           className="net-chip network-pill-button send-network-chip"
           type="button"
           onClick={() => setNetworkSelectorOpen(true)}
-          aria-label="Select network"
-          title="Select network"
+          aria-label={t("common.selectNetwork")}
+          title={t("common.selectNetwork")}
         >
           <NetworkIcon chainId={currentChainId} size={16} showTestnetBadge={false} />
           {networkLabel}
@@ -1172,7 +1188,7 @@ export function SendPage({
 
           <div style={{ minWidth: 0 }}>
             <div className="t-h2" style={{ fontSize: 30 }}>
-              Send {selectedAsset.symbol}
+              {t("send.sendSymbol", { symbol: selectedAsset.symbol })}
             </div>
 
             <div
@@ -1185,7 +1201,10 @@ export function SendPage({
                 whiteSpace: "nowrap",
               }}
             >
-              Balance: {hideBalances ? "••••" : formatAssetBalance(selectedAsset)} {selectedAsset.symbol}
+              {t("send.balanceLine", {
+                amount: hideBalances ? "••••" : formatAssetBalance(selectedAsset),
+                symbol: selectedAsset.symbol,
+              })}
             </div>
           </div>
         </section>
@@ -1193,7 +1212,7 @@ export function SendPage({
         {/* Asset selector card */}
         <section className="send-asset-compact">
           <div className="sect-head">
-            <div className="lbl">Asset to send</div>
+            <div className="lbl">{t("send.assetToSend")}</div>
 
             <button
               type="button"
@@ -1201,7 +1220,7 @@ export function SendPage({
               onClick={() => setAssetSelectorOpen(true)}
               disabled={loadingAssets}
             >
-              {loadingAssets ? "Loading…" : "Change"}
+              {loadingAssets ? t("common.loading") : t("common.change")}
             </button>
           </div>
 
@@ -1234,13 +1253,13 @@ export function SendPage({
         </section>
 
         {isWatchOnly ? (
-          <Notice title="Watch-only account" tone="warning">
-            This account can receive assets, but cannot sign outgoing transactions.
+          <Notice title={t("send.watchOnlyTitle")} tone="warning">
+            {t("send.watchOnlyNotice")}
           </Notice>
         ) : null}
 
         {error ? (
-          <Notice title="Send error" tone="danger">
+          <Notice title={t("send.error")} tone="danger">
             {error}
           </Notice>
         ) : null}
@@ -1255,7 +1274,7 @@ export function SendPage({
           >
             {/* Recipient address */}
             <div className="send-field" style={{ display: "grid", gap: 6 }}>
-              <SectionLabel left="Recipient address" />
+              <SectionLabel left={t("send.recipientAddress")} />
 
               <div style={{ position: "relative" }}>
                 <input
@@ -1269,7 +1288,7 @@ export function SendPage({
                           ? "tb1q..."
                           : "bc1q..."
                         : isSolana
-                          ? "Recipient's Solana address"
+                          ? t("send.solanaRecipientPlaceholder")
                           : "0x..."
                   }
                   autoComplete="off"
@@ -1290,9 +1309,9 @@ export function SendPage({
                   type="button"
                   className="send-paste-btn"
                   onClick={() => void handlePasteAddress()}
-                  aria-label="Paste address from clipboard"
+                  aria-label={t("send.pasteAddress")}
                 >
-                  Paste
+                  {t("common.paste")}
                 </button>
               </div>
 
@@ -1311,7 +1330,7 @@ export function SendPage({
                   gap: 10,
                 }}
               >
-                <SectionLabel left="Amount" />
+                <SectionLabel left={t("common.amount")} />
 
                 <button
                   type="button"
@@ -1324,7 +1343,7 @@ export function SendPage({
                     color: "var(--secure)",
                   }}
                 >
-                  Max
+                  {t("common.max")}
                 </button>
               </div>
 
@@ -1352,7 +1371,7 @@ export function SendPage({
                   type="button"
                   className="amount-unit-toggle"
                   onClick={toggleAmountMode}
-                  title="Switch amount currency"
+                  title={t("send.switchCurrency")}
                   style={{
                     position: "absolute",
                     right: 8,
@@ -1374,10 +1393,10 @@ export function SendPage({
             </div>
 
             <section className="row-list send-summary">
-              <MetaRow label="From" value={shortAddress(fromAddress)} />
-              <MetaRow label="Network" value={networkLabel} />
+              <MetaRow label={t("common.from")} value={shortAddress(fromAddress)} />
+              <MetaRow label={t("common.network")} value={networkLabel} />
               {!isBitcoin ? (
-                <MetaRow label="Asset" value={assetStandardLabel} />
+                <MetaRow label={t("home.assetHeader")} value={assetStandardLabel} />
               ) : null}
             </section>
 
@@ -1385,15 +1404,17 @@ export function SendPage({
             {isBitcoin ? (
               <section className="send-field" style={{ display: "grid", gap: 8 }}>
                 <SectionLabel
-                  left="Network fee"
+                  left={t("send.networkFee")}
                   right={
-                    bitcoinFeeQuotes?.isFallback ? "Estimated (offline)" : undefined
+                    bitcoinFeeQuotes?.isFallback
+                      ? t("send.feesEstimatedOffline")
+                      : undefined
                   }
                 />
 
                 <div
                   role="group"
-                  aria-label="Bitcoin fee speed"
+                  aria-label={t("send.bitcoinFeeSpeed")}
                   style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}
                 >
                   {(["slow", "normal", "fast"] as BitcoinFeePreset[]).map(
@@ -1413,7 +1434,9 @@ export function SendPage({
                             textTransform: "capitalize",
                           }}
                         >
-                          <strong style={{ fontSize: 13 }}>{preset}</strong>
+                          <strong style={{ fontSize: 13 }}>
+                            {t(`send.feePreset.${preset}`)}
+                          </strong>
                           <small style={{ fontSize: 11, opacity: 0.8 }}>
                             {quote ? `${quote.satPerVb} sat/vB` : "…"}
                           </small>
@@ -1425,7 +1448,7 @@ export function SendPage({
 
                 {bitcoinEstimatedFeeBtc ? (
                   <div className="send-meta-row">
-                    <span className="send-meta-label">Estimated fee</span>
+                    <span className="send-meta-label">{t("send.estimatedFee")}</span>
                     <strong className="send-meta-value">
                       ≈ {bitcoinEstimatedFeeBtc} BTC
                       {bitcoinFeeRate != null ? ` · ${bitcoinFeeRate} sat/vB` : ""}
@@ -1436,16 +1459,14 @@ export function SendPage({
             ) : null}
 
             {isTron ? (
-              <Notice title="TRON network resources" tone="warning">
-                TRON uses Bandwidth/Energy. If resources are insufficient, TRX may
-                be burned as network fee.
+              <Notice title={t("send.tronResourcesTitle")} tone="warning">
+                {t("send.tronResourcesBody")}
               </Notice>
             ) : null}
 
             {isSolana ? (
-              <Notice title="Solana network fee" tone="warning">
-                A small amount of SOL is paid as the network fee and kept in
-                reserve. No token approval is required.
+              <Notice title={t("send.solanaFeeTitle")} tone="warning">
+                {t("send.solanaFeeBody")}
               </Notice>
             ) : null}
 
@@ -1455,7 +1476,7 @@ export function SendPage({
               disabled={!canContinue || isWatchOnly}
               style={{ marginTop: 4 }}
             >
-              Continue
+              {t("common.continue")}
             </button>
           </form>
         ) : null}
@@ -1502,35 +1523,35 @@ export function SendPage({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  To {shortAddress(toAddress.trim())}
+                  {t("activity.toAddress", { address: shortAddress(toAddress.trim()) })}
                 </div>
               </div>
             </div>
 
             <section style={{ display: "grid", gap: 8 }}>
-              <SectionLabel left="Review transfer" />
+              <SectionLabel left={t("send.reviewTransfer")} />
 
               <div className="row-list">
                 <MetaRow
-                  label="Amount"
+                  label={t("common.amount")}
                   value={`${normalizedAmount} ${selectedAsset.symbol}`}
                 />
-                <MetaRow label="To" value={shortAddress(toAddress.trim())} />
-                <MetaRow label="From" value={shortAddress(fromAddress)} />
+                <MetaRow label={t("common.to")} value={shortAddress(toAddress.trim())} />
+                <MetaRow label={t("common.from")} value={shortAddress(fromAddress)} />
                 {isBitcoin && bitcoinEstimatedFeeBtc ? (
                   <MetaRow
-                    label="Network fee"
+                    label={t("send.networkFee")}
                     value={`≈ ${bitcoinEstimatedFeeBtc} BTC${
                       bitcoinFeeRate != null ? ` (${bitcoinFeeRate} sat/vB)` : ""
                     }`}
                   />
                 ) : null}
                 {isBitcoin && bitcoinTotalBtc ? (
-                  <MetaRow label="Total" value={`≈ ${bitcoinTotalBtc} BTC`} />
+                  <MetaRow label={t("common.total")} value={`≈ ${bitcoinTotalBtc} BTC`} />
                 ) : null}
-                <MetaRow label="Network" value={networkLabel} />
+                <MetaRow label={t("common.network")} value={networkLabel} />
                 {!isBitcoin ? (
-                  <MetaRow label="Asset" value={selectedAsset.symbol} />
+                  <MetaRow label={t("home.assetHeader")} value={selectedAsset.symbol} />
                 ) : null}
               </div>
 
@@ -1545,21 +1566,21 @@ export function SendPage({
                       padding: "2px 0",
                     }}
                   >
-                    Advanced details
+                    {t("send.advancedDetails")}
                   </summary>
                   <div className="row-list" style={{ marginTop: 6 }}>
                     <MetaRow
-                      label="Change"
-                      value="Returns to your wallet"
+                      label={t("common.change")}
+                      value={t("send.changeReturnsNote")}
                     />
-                    <MetaRow label="Fee" value="Recalculated from UTXOs at send" />
+                    <MetaRow label={t("common.fee")} value={t("send.feeRecalcNote")} />
                   </div>
                 </details>
               ) : null}
             </section>
 
-            <Notice title="Check carefully" tone="warning">
-              Transactions cannot be cancelled after they are sent.
+            <Notice title={t("send.checkCarefullyTitle")} tone="warning">
+              {t("send.checkCarefullyBody")}
             </Notice>
 
             <button
@@ -1569,7 +1590,7 @@ export function SendPage({
               disabled={sending}
             >
               <SendIcon />
-              {sending ? "Sending…" : "Send transaction"}
+              {sending ? t("send.sending") : t("send.sendTransaction")}
             </button>
 
             <button
@@ -1578,7 +1599,7 @@ export function SendPage({
               onClick={() => setStep("form")}
               disabled={sending}
             >
-              Edit details
+              {t("send.editDetails")}
             </button>
           </section>
         ) : null}
@@ -1601,11 +1622,7 @@ export function SendPage({
             </div>
 
             <div>
-              <div className="t-h2">
-                Transaction
-                <br />
-                sent
-              </div>
+              <div className="t-h2">{t("send.transactionSent")}</div>
 
               <div
                 style={{
@@ -1615,14 +1632,14 @@ export function SendPage({
                   lineHeight: 1.45,
                 }}
               >
-                Your {selectedAsset.symbol} transfer was submitted to the network.
+                {t("send.transactionSubmitted", { symbol: selectedAsset.symbol })}
               </div>
             </div>
 
             <div className="row-list">
-              <MetaRow label="Hash" value={shortAddress(sentTransaction.hash)} />
+              <MetaRow label={t("common.hash")} value={shortAddress(sentTransaction.hash)} />
               <MetaRow
-                label="Amount"
+                label={t("common.amount")}
                 value={`${normalizedAmount} ${selectedAsset.symbol}`}
               />
             </div>
@@ -1636,12 +1653,12 @@ export function SendPage({
                 style={{ textDecoration: "none" }}
               >
                 <ExternalIcon />
-                Open in explorer
+                {t("common.openInExplorer")}
               </a>
             ) : null}
 
             <button className="btn primary lg full" type="button" onClick={onSent}>
-              Done
+              {t("common.done")}
             </button>
           </section>
         ) : null}

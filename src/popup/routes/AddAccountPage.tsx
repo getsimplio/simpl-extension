@@ -17,6 +17,7 @@ import {
   type SimpleInstrument,
 } from "../components/SimpleInstrumentIcon";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
 import "./AccountPage.css";
 
 type AddAccountPageProps = {
@@ -105,6 +106,7 @@ export function AddAccountPage({
   onImportWallet,
   onAddWatchWallet,
 }: AddAccountPageProps) {
+  const { t } = useTranslation();
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,12 +133,12 @@ export function AddAccountPage({
           className="icbtn"
           type="button"
           onClick={onBack}
-          aria-label="Back"
+          aria-label={t("common.back")}
         >
           <BackIcon />
         </button>
 
-        <span className="acct-title">Add account</span>
+        <span className="acct-title">{t("accounts.addAccount")}</span>
 
         <span style={{ width: 32, flexShrink: 0 }} />
       </div>
@@ -144,10 +146,9 @@ export function AddAccountPage({
       {/* ── Scrollable body ── */}
       <div className="screen-body">
         <div className="import-acct-hero">
-          <div className="import-acct-hero__title">Choose account type</div>
+          <div className="import-acct-hero__title">{t("accounts.chooseType")}</div>
           <div className="import-acct-hero__sub">
-            Add a new account, import an existing wallet, or track an address
-            without private keys.
+            {t("accounts.chooseTypeSub")}
           </div>
         </div>
 
@@ -155,24 +156,24 @@ export function AddAccountPage({
 
         <OptionCard
           instrument="multiWallet"
-          title={adding ? "Adding account…" : "Add account"}
-          subtitle="Create the next account from this wallet."
+          title={adding ? t("accounts.addingAccount") : t("accounts.addAccount")}
+          subtitle={t("accounts.addAccountSub")}
           disabled={adding}
           onClick={() => void handleAddAccount()}
         />
 
         <OptionCard
           instrument="security"
-          title="Import wallet"
-          subtitle="Use a seed phrase or private key."
+          title={t("accounts.importWalletOption")}
+          subtitle={t("accounts.importWalletOptionSub")}
           disabled={adding}
           onClick={onImportWallet}
         />
 
         <OptionCard
           instrument="addressBook"
-          title="Add watch wallet"
-          subtitle="Track an address without private keys."
+          title={t("accounts.addWatchWallet")}
+          subtitle={t("accounts.addWatchWalletSub")}
           disabled={adding}
           onClick={onAddWatchWallet}
         />

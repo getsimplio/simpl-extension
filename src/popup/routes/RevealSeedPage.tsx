@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { walletService } from "../../core/wallet/wallet.service";
 import { Notice } from "../components/Notice";
+import { useTranslation } from "../../i18n";
 
 type RevealSeedPageProps = {
   onBack: () => void;
@@ -78,6 +79,7 @@ function PhraseIcon() {
 }
 
 export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +104,7 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
       setMnemonic(result.mnemonic);
       setPassword("");
     } catch {
-      setError("Incorrect password. Please try again.");
+      setError(t("backup.incorrectPassword"));
     } finally {
       setBusy(false);
     }
@@ -130,10 +132,10 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
   return (
     <div className="ext-popup import-acct-page reveal-page" data-screen-label="Reveal seed">
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <BackIcon />
         </button>
-        <span className="import-acct-title">Reveal seed phrase</span>
+        <span className="import-acct-title">{t("backup.revealSeed")}</span>
         <span className="reveal-bar-icon" aria-hidden="true">
           <ShieldIcon />
         </span>
@@ -147,27 +149,26 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
                 <PhraseIcon />
               </span>
               <div className="reveal-hero__text">
-                <div className="reveal-hero__title">Recovery phrase</div>
+                <div className="reveal-hero__title">{t("backup.recoveryPhrase")}</div>
                 <div className="reveal-hero__sub">
-                  This phrase gives full access to your wallet.
+                  {t("backup.revealSeedSub")}
                 </div>
               </div>
             </div>
 
-            <Notice tone="warning" title="Sensitive information">
-              Never share your recovery phrase. Anyone with it can control your
-              wallet.
+            <Notice tone="warning" title={t("common.sensitiveInfo")}>
+              {t("backup.sensitiveBody")}
             </Notice>
 
             <div className="import-acct-field">
               <label className="import-acct-field-label" htmlFor="reveal-seed-pwd">
-                Wallet password
+                {t("common.walletPassword")}
               </label>
               <input
                 id="reveal-seed-pwd"
                 className="import-acct-input"
                 type="password"
-                placeholder="Enter password"
+                placeholder={t("common.enterPassword")}
                 value={password}
                 autoComplete="current-password"
                 onChange={(event) => {
@@ -181,7 +182,7 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
             </div>
 
             {error ? (
-              <Notice tone="danger" title="Couldn’t reveal">
+              <Notice tone="danger" title={t("backup.couldntReveal")}>
                 {error}
               </Notice>
             ) : null}
@@ -192,7 +193,7 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
               onClick={() => void reveal()}
               disabled={busy || !password}
             >
-              {busy ? "Revealing…" : "Reveal seed phrase"}
+              {busy ? t("common.revealing") : t("backup.revealSeed")}
             </button>
 
             <button
@@ -200,14 +201,13 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
               className="btn secondary lg full"
               onClick={onBack}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </>
         ) : (
           <>
             <p className="reveal-subtle">
-              Write these {words.length} words down in order, then store them
-              offline.
+              {t("backup.writeDownInstructions", { count: words.length })}
             </p>
 
             <div className="reveal-seed-grid">
@@ -219,9 +219,8 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
               ))}
             </div>
 
-            <Notice tone="warning" title="Keep it offline">
-              Store this phrase offline. Do not paste it into websites or send it
-              to anyone.
+            <Notice tone="warning" title={t("backup.keepOffline")}>
+              {t("backup.keepOfflineBody")}
             </Notice>
 
             <div className="reveal-actions">
@@ -230,14 +229,14 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
                 className={`btn secondary lg${copied ? " reveal-copied" : ""}`}
                 onClick={() => void copyPhrase()}
               >
-                {copied ? "Copied" : "Copy phrase"}
+                {copied ? t("common.copied") : t("backup.copyPhrase")}
               </button>
               <button
                 type="button"
                 className="btn secondary lg"
                 onClick={hide}
               >
-                Hide phrase
+                {t("backup.hidePhrase")}
               </button>
             </div>
 
@@ -246,7 +245,7 @@ export function RevealSeedPage({ onBack }: RevealSeedPageProps) {
               className="btn primary lg full"
               onClick={onBack}
             >
-              Done
+              {t("common.done")}
             </button>
           </>
         )}

@@ -32,13 +32,23 @@ export type JsonRpcResponse<T> =
   | JsonRpcSuccessResponse<T>
   | JsonRpcErrorResponse;
 
+// Opt-in per-request timeout. Omitted by default so existing callers (incl.
+// eth_sendRawTransaction) keep their current no-timeout behavior — only the
+// read paths below pass a timeout, which can never cause a double-broadcast.
+export type RpcRequestOptions = {
+  timeoutMs?: number;
+};
+
+const DEFAULT_READ_TIMEOUT_MS = 12_000;
+
 export class RpcClient {
   private requestId = 1;
 
   async request<T>(
     rpcUrl: string,
     method: string,
-    params: unknown[] = []
+    params: unknown[] = [],
+    options: RpcRequestOptions = {}
   ): Promise<T> {
     const body: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -49,13 +59,34 @@ export class RpcClient {
 
     this.requestId += 1;
 
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    // Bound the request so a hung/slow RPC can't stall a balance refresh
+    // forever (a common cause of the "stuck loading → error" path on flaky
+    // public nodes). No timeout is applied unless the caller opts in.
+    const controller =
+      typeof options.timeoutMs === "number" ? new AbortController() : null;
+    const timer =
+      controller !== null
+        ? setTimeout(() => controller.abort(), options.timeoutMs)
+        : null;
+
+    let response: Response;
+    try {
+      response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller?.signal,
+      });
+    } catch (error) {
+      if (controller?.signal.aborted) {
+        throw new Error(`RPC timeout after ${options.timeoutMs}ms (${method})`);
+      }
+      throw error;
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
 
     if (!response.ok) {
       throw new Error(`RPC HTTP error: ${response.status}`);
@@ -71,18 +102,38 @@ export class RpcClient {
   }
 
   async getChainId(rpcUrl: string): Promise<number> {
-    const chainIdHex = await this.request<string>(rpcUrl, "eth_chainId", []);
+    const chainIdHex = await this.request<string>(rpcUrl, "eth_chainId", [], {
+      timeoutMs: DEFAULT_READ_TIMEOUT_MS,
+    });
 
     return Number.parseInt(chainIdHex, 16);
   }
 
   async getBalance(rpcUrl: string, address: string): Promise<bigint> {
-    const balanceHex = await this.request<string>(rpcUrl, "eth_getBalance", [
-      address,
-      "latest",
-    ]);
+    // Native balance is the critical leg of a portfolio refresh: if it throws,
+    // the whole refresh fails. It's a read (idempotent), so one retry on a
+    // transient hiccup is safe and noticeably cuts the BNB "Couldn't refresh"
+    // rate without any fallback-RPC / schema change.
+    const params = [address, "latest"];
 
-    return BigInt(balanceHex);
+    try {
+      const balanceHex = await this.request<string>(
+        rpcUrl,
+        "eth_getBalance",
+        params,
+        { timeoutMs: DEFAULT_READ_TIMEOUT_MS }
+      );
+      return BigInt(balanceHex);
+    } catch (firstError) {
+      console.debug("eth_getBalance failed, retrying once:", firstError);
+      const balanceHex = await this.request<string>(
+        rpcUrl,
+        "eth_getBalance",
+        params,
+        { timeoutMs: DEFAULT_READ_TIMEOUT_MS }
+      );
+      return BigInt(balanceHex);
+    }
   }
 }
 

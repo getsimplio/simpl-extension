@@ -31,7 +31,20 @@ import {
   isTronChainId,
   isBitcoinChainId,
   isSolanaChainId,
+  isTonChainId,
 } from "../networks/chain-registry";
+import {
+  getRequiredTonConfigByChainId,
+  getTonAddressExplorerUrl,
+  TON_MAINNET,
+} from "../../chains/ton/ton.config";
+import { deriveTonAccountFromMnemonic } from "../../chains/ton/ton.derivation";
+import { nanoToTon } from "../../chains/ton/ton.format";
+import { tonErrorFor } from "../../chains/ton/ton.errors";
+import {
+  getTonNativeBalanceNano,
+  getTonPortfolio,
+} from "../../chains/ton/ton.adapter";
 import {
   getRequiredSolanaConfigByChainId,
   getSolanaAddressExplorerUrl,
@@ -700,6 +713,60 @@ export class WalletService {
     return { walletState: nextWalletState, selectedAccount };
   }
 
+  // Remove a watch-only account. Watch accounts hold no key material, so this
+  // only drops the account record (no vault re-encryption). The password is
+  // still verified first — removal must never happen without confirmation, and
+  // it keeps the UX identical to imported-account removal. Non-watch accounts
+  // are rejected (they use removeImportedAccount / the Danger Zone reset).
+  async removeWatchAccount(input: {
+    accountId: WalletAccountId;
+    password: string;
+  }): Promise<{ walletState: WalletState; selectedAccount: WalletAccount | null }> {
+    const walletState = await this.storage.getWalletState();
+
+    const account = walletState.accounts.find(
+      (item) => item.id === input.accountId,
+    );
+
+    if (!account) {
+      throw new Error("Account not found.");
+    }
+
+    if (account.type !== "watch") {
+      throw new Error("Only watch-only accounts can be removed here.");
+    }
+
+    // Verify the wallet password before touching any account data. We don't need
+    // the payload (no secret to drop) — this is purely the confirmation gate.
+    await this.unlockPayloadWithPassword(input.password);
+
+    const remainingAccounts = walletState.accounts.filter(
+      (item) => item.id !== input.accountId,
+    );
+
+    const nextSelectedId =
+      walletState.selectedAccountId === input.accountId
+        ? pickFallbackAccountId(remainingAccounts)
+        : walletState.selectedAccountId;
+
+    const nextWalletState: WalletState = {
+      ...walletState,
+      accounts: remainingAccounts,
+      selectedAccountId: nextSelectedId,
+    };
+
+    await this.storage.saveStoredWalletData({
+      encryptedVault: await this.getRequiredEncryptedVault(),
+      walletState: nextWalletState,
+    });
+
+    const selectedAccount = nextSelectedId
+      ? remainingAccounts.find((item) => item.id === nextSelectedId) ?? null
+      : null;
+
+    return { walletState: nextWalletState, selectedAccount };
+  }
+
   // Reject duplicate imports. A clearer message when the address is already
   // tracked as watch-only (it must be removed before importing as a signer).
   private assertNoDuplicateAddress(
@@ -861,6 +928,29 @@ export class WalletService {
       };
     }
 
+    if (isTonChainId(walletState.selectedChainId)) {
+      const config = getRequiredTonConfigByChainId(
+        walletState.selectedChainId,
+      );
+      const address = await this.ensureTonAddressForAccount(
+        walletState,
+        selectedAccount,
+      );
+      const nano = await getTonNativeBalanceNano(config, address);
+
+      return {
+        // Display-only field; TON uses its user-friendly address here.
+        address: address as EvmAddress,
+        chainId: config.chainId,
+        chainName: config.name,
+        symbol: config.symbol,
+        decimals: config.decimals,
+        balanceWei: nano.toString(),
+        formatted: nanoToTon(nano),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
     return balanceService.getNativeBalance(
       selectedAccount.address,
       walletState.selectedChainId,
@@ -924,6 +1014,26 @@ export class WalletService {
 
       return {
         // Display-only field; Solana uses its base58 address here.
+        address: address as EvmAddress,
+        chainId: config.chainId,
+        chainName: config.name,
+        assets,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    if (isTonChainId(walletState.selectedChainId)) {
+      const config = getRequiredTonConfigByChainId(
+        walletState.selectedChainId,
+      );
+      const address = await this.ensureTonAddressForAccount(
+        walletState,
+        selectedAccount,
+      );
+      const assets = await getTonPortfolio(config, address);
+
+      return {
+        // Display-only field; TON uses its user-friendly address here.
         address: address as EvmAddress,
         chainId: config.chainId,
         chainName: config.name,
@@ -1001,6 +1111,13 @@ export class WalletService {
 
     if (isSolanaChainId(walletState.selectedChainId)) {
       return this.sendSelectedSolanaAsset(walletState, selectedAccount, input);
+    }
+
+    if (isTonChainId(walletState.selectedChainId)) {
+      // Sending TON is not wired in this receive-only MVP; the UI hides the Send
+      // action for TON. This backstop fails cleanly with a coded error instead
+      // of misrouting a TON send through the EVM signing path.
+      throw tonErrorFor("TON_SEND_UNSUPPORTED");
     }
 
     const privateKey = await this.getPrivateKeyForAccount(
@@ -2279,6 +2396,129 @@ export class WalletService {
     });
   }
 
+  // --- TON (Ed25519, smart-contract wallet) --------------------------------
+
+  // Resolve the selected account's TON address (user-friendly UQ… form).
+  // Returns the persisted value when present (no vault needed); otherwise
+  // derives it from the vault and persists it on the account (lazy migration,
+  // mirroring the Solana path). Requires the wallet to be unlocked or a
+  // password. Watch-only and private-key imports have no Ed25519 TON key.
+  private async ensureTonAddressForAccount(
+    walletState: WalletState,
+    account: WalletAccount,
+    password?: string,
+  ): Promise<string> {
+    if (
+      (account.type === "mnemonic" || account.type === "importedMnemonic") &&
+      account.tonAddress
+    ) {
+      return account.tonAddress;
+    }
+
+    if (account.type === "watch") {
+      throw new Error("Watch-only accounts do not support TON.");
+    }
+
+    if (account.type === "privateKey") {
+      throw new Error(
+        "Private-key imports do not support TON (TON uses Ed25519, not the imported secp256k1 key).",
+      );
+    }
+
+    const payload =
+      await this.getDecryptedPayloadForSensitiveOperation(password);
+    const address = this.deriveTonAddressForAccount(account, payload);
+
+    await this.persistTonAddress(walletState, account.id, address);
+
+    return address;
+  }
+
+  // Derive the TON address for an account from decrypted vault material. Only
+  // mnemonic-derivable accounts are supported: primary-seed accounts use
+  // m/44'/607'/index'/0'; imported recovery phrases use the same path on their
+  // own seed. Receive-only — this returns the PUBLIC address only and never
+  // holds or returns secret key material.
+  private deriveTonAddressForAccount(
+    account: WalletAccount,
+    payload: VaultPayload,
+  ): string {
+    if (account.type === "mnemonic") {
+      return deriveTonAccountFromMnemonic(payload.mnemonic, account.index)
+        .address;
+    }
+
+    if (account.type === "importedMnemonic") {
+      const secret = (payload.importedAccounts ?? []).find(
+        (item) => item.id === account.id,
+      );
+
+      if (!secret) {
+        throw new Error(
+          "Key material for this imported account is missing. Re-import the account.",
+        );
+      }
+
+      if (secret.type === "importedMnemonic") {
+        return deriveTonAccountFromMnemonic(secret.mnemonic, secret.index)
+          .address;
+      }
+    }
+
+    throw new Error(
+      "This account type does not support TON. Use a recovery-phrase account.",
+    );
+  }
+
+  private async persistTonAddress(
+    walletState: WalletState,
+    accountId: WalletAccountId,
+    tonAddress: string,
+  ): Promise<void> {
+    const accounts = walletState.accounts.map((account) => {
+      if (account.id !== accountId) {
+        return account;
+      }
+
+      if (account.type === "mnemonic" || account.type === "importedMnemonic") {
+        return { ...account, tonAddress };
+      }
+
+      return account;
+    });
+
+    await this.storage.saveWalletState({ ...walletState, accounts });
+  }
+
+  // Resolve a TON address for display: the persisted value if present, else
+  // derive from the vault when unlocked. Watch-only / private-key → none.
+  // Display-only: no key material is held or persisted here.
+  private resolveTonDisplayAddress(
+    account: WalletAccount,
+    payload: VaultPayload | null,
+  ): string | null {
+    if (account.type === "watch" || account.type === "privateKey") {
+      return null;
+    }
+
+    if (
+      (account.type === "mnemonic" || account.type === "importedMnemonic") &&
+      account.tonAddress
+    ) {
+      return account.tonAddress;
+    }
+
+    if (!payload) {
+      return null;
+    }
+
+    try {
+      return this.deriveTonAddressForAccount(account, payload);
+    } catch {
+      return null;
+    }
+  }
+
   // Sign a Simpl-API/Jupiter swap transaction locally for the selected Solana
   // account. The backend builds the UNSIGNED transaction (base64); this signs it
   // with the account's Solana keypair and returns the signed base64 transaction
@@ -2644,6 +2884,10 @@ export class WalletService {
       return this.ensureSolanaAddressForAccount(walletState, account);
     }
 
+    if (isTonChainId(walletState.selectedChainId)) {
+      return this.ensureTonAddressForAccount(walletState, account);
+    }
+
     return account.address;
   }
 
@@ -2849,6 +3093,33 @@ export class WalletService {
           label: "Solana",
           address: solanaAddress,
           explorerUrl: getSolanaAddressExplorerUrl(SOLANA_MAINNET, solanaAddress),
+        });
+      }
+
+      // TON: a single user-friendly address. Resolved from persisted state or
+      // derived for display only — no key material exposed.
+      const tonAddress = this.resolveTonDisplayAddress(account, payload);
+
+      if (tonAddress) {
+        if (
+          (account.type === "mnemonic" ||
+            account.type === "importedMnemonic") &&
+          account.tonAddress !== tonAddress
+        ) {
+          nextAccounts = nextAccounts.map((item) =>
+            item.id === account.id &&
+            (item.type === "mnemonic" || item.type === "importedMnemonic")
+              ? { ...item, tonAddress }
+              : item,
+          );
+          mutated = true;
+        }
+
+        rows.push({
+          family: "ton",
+          label: "TON",
+          address: tonAddress,
+          explorerUrl: getTonAddressExplorerUrl(TON_MAINNET, tonAddress),
         });
       }
 

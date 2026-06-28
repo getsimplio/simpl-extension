@@ -12,6 +12,7 @@
 // private key never leaves the extension; only the signed base64 tx is sent.
 
 import { useEffect, useMemo, useState } from "react";
+import { t, useTranslation } from "../../i18n";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
@@ -86,7 +87,7 @@ function solReserveBaseUnits(decimals: number): bigint {
 function decimalToBaseUnits(amount: string, decimals: number): bigint {
   const trimmed = amount.trim();
   if (!/^\d*(?:\.\d*)?$/u.test(trimmed) || trimmed === "" || trimmed === ".") {
-    throw new Error("Enter a valid amount.");
+    throw new Error(t("errors.invalidAmount"));
   }
   const [intPart, fracPart = ""] = trimmed.split(".");
   if (fracPart.length > decimals) {
@@ -169,6 +170,7 @@ export function SolanaSwapPage({
   onSwapCompleted,
   initialToAsset,
 }: SolanaSwapPageProps) {
+  const { t } = useTranslation();
   const config = useMemo(
     () => getRequiredSolanaConfigByChainId(selectedChainId),
     [selectedChainId],
@@ -401,9 +403,9 @@ export function SolanaSwapPage({
   }
 
   const validation = useMemo<string | null>(() => {
-    if (isWatchOnly) return "Watch-only accounts cannot swap.";
+    if (isWatchOnly) return t("swap.watchOnlyCannotSwap");
     if (!solanaAddress) return "Solana address unavailable for this account.";
-    if (!fromToken || !toToken) return "Select tokens to swap.";
+    if (!fromToken || !toToken) return t("bridge.selectTokensToSwap");
     if (fromToken.mint === toToken.mint) return "Choose two different tokens.";
     // The discovered Wrapped SOL token (non-native, NATIVE_MINT) can't be swapped
     // directly here — Jupiter wrap/unwrap expects native SOL. Show a clear,
@@ -429,14 +431,14 @@ export function SolanaSwapPage({
       }
     }
 
-    if (!amount.trim() || Number(amount) <= 0) return "Enter an amount.";
+    if (!amount.trim() || Number(amount) <= 0) return t("swap.enterAmount");
     let amountBase: bigint;
     try {
       amountBase = decimalToBaseUnits(amount, fromToken.decimals);
     } catch (e) {
-      return e instanceof Error ? e.message : "Enter a valid amount.";
+      return e instanceof Error ? e.message : t("errors.invalidAmount");
     }
-    if (amountBase <= 0n) return "Enter an amount.";
+    if (amountBase <= 0n) return t("swap.enterAmount");
     if (balancesKnown) {
       try {
         const balanceRaw = BigInt(fromToken.balanceRaw);
@@ -447,7 +449,7 @@ export function SolanaSwapPage({
             return "Keep some SOL for network fees.";
           }
         } else if (amountBase > balanceRaw) {
-          return "Insufficient balance.";
+          return t("swap.insufficientBalance");
         }
       } catch {
         // Unknown balance — let the backend validate.
@@ -480,12 +482,12 @@ export function SolanaSwapPage({
         slippageBps,
       });
       if (!nextOrder.transaction || !nextOrder.requestId) {
-        throw new Error("Could not prepare this swap. Try again.");
+        throw new Error(t("swap.couldNotPrepare"));
       }
       setOrder(nextOrder);
       setStep("review");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not prepare this swap. Try again.");
+      setError(e instanceof Error ? e.message : t("swap.couldNotPrepare"));
     } finally {
       setReviewLoading(false);
     }
@@ -509,7 +511,7 @@ export function SolanaSwapPage({
       });
       const sig = getExecuteSignature(result);
       if (!sig) {
-        throw new Error("Could not prepare this swap. Try again.");
+        throw new Error(t("swap.couldNotPrepare"));
       }
 
       const outFormatted = formatBaseUnits(order.outAmount, toToken.decimals);
@@ -551,7 +553,7 @@ export function SolanaSwapPage({
       void onSwapCompleted?.();
     } catch (e) {
       setSubmitStatus("error");
-      setError(e instanceof Error ? e.message : "Swap failed. Try again.");
+      setError(e instanceof Error ? e.message : t("swap.swapFailed"));
     }
   }
 
@@ -614,11 +616,11 @@ export function SolanaSwapPage({
   if (step === "success") {
     return (
       <div className="ext-popup swap-page" data-screen-label="Swap – Solana">
-        <SwapHeader title="Swap" subtitle="Solana" onBack={onBack} />
+        <SwapHeader title={t("swap.title")} subtitle="Solana" onBack={onBack} />
         <div className="screen-body">
           <div className="swap-quote-card" style={{ textAlign: "center", gap: 6 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink-1)" }}>
-              Swap submitted
+              {t("swap.submitted")}
             </div>
             <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
               {fromToken?.symbol} → {toToken?.symbol} via Jupiter
@@ -626,15 +628,15 @@ export function SolanaSwapPage({
           </div>
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>You paid</span>
+              <span>{t("swap.youPaid")}</span>
               <strong>{amount} {fromToken?.symbol}</strong>
             </div>
             <div className="swap-quote-row">
-              <span>You receive (est.)</span>
+              <span>{t("swap.youReceiveEst")}</span>
               <strong>{estimatedOut} {toToken?.symbol}</strong>
             </div>
             <div className="swap-quote-row swap-quote-row--route">
-              <span>Signature</span>
+              <span>{t("swap.signature")}</span>
               <strong title={signature ?? undefined}>
                 {signature ? `${signature.slice(0, 6)}…${signature.slice(-6)}` : "—"}
               </strong>
@@ -643,14 +645,14 @@ export function SolanaSwapPage({
           <div className="swap-review-cta" style={{ display: "grid", gap: 8 }}>
             {explorerUrl ? (
               <a className="btn primary lg full" href={explorerUrl} target="_blank" rel="noreferrer">
-                View on explorer
+                {t("common.viewOnExplorer")}
               </a>
             ) : null}
             <button className="btn secondary lg full" type="button" onClick={onBack}>
-              Back to wallet
+              {t("common.backToWallet")}
             </button>
             <button className="btn secondary lg full" type="button" onClick={handleNewSwap}>
-              New swap
+              {t("swap.newSwap")}
             </button>
           </div>
         </div>
@@ -662,7 +664,7 @@ export function SolanaSwapPage({
   return (
     <div className="ext-popup swap-page" data-screen-label="Swap – Solana">
       <SwapHeader
-        title={step === "review" ? "Review swap" : "Swap"}
+        title={step === "review" ? t("swap.reviewSwap") : t("swap.title")}
         subtitle="Solana"
         onBack={step === "review" ? () => setStep("form") : onBack}
       />
@@ -672,7 +674,7 @@ export function SolanaSwapPage({
         <div className="swap-pair-card">
           <div className="swap-half swap-half--from">
             <div className="swap-half-top">
-              <span className="swap-half-label">From</span>
+              <span className="swap-half-label">{t("swap.from")}</span>
               <button
                 className="swap-token-pill"
                 type="button"
@@ -691,7 +693,7 @@ export function SolanaSwapPage({
                 ) : (
                   <span className="swap-token-pill__icon">?</span>
                 )}
-                <span className="swap-token-pill__sym">{fromToken?.symbol ?? "Select"}</span>
+                <span className="swap-token-pill__sym">{fromToken?.symbol ?? t("swap.select")}</span>
                 <span className="swap-token-pill__chevron">▾</span>
               </button>
             </div>
@@ -708,11 +710,11 @@ export function SolanaSwapPage({
             />
             <div className="swap-half-bottom">
               <span className="swap-half-bottom__bal">
-                Balance: {fromToken ? fromToken.balance : "—"} {fromToken?.symbol ?? ""}
+                {t("common.balance")}: {fromToken ? fromToken.balance : "—"} {fromToken?.symbol ?? ""}
               </span>
               {step === "form" && balancesKnown ? (
                 <button className="swap-max-pill swap-percent-chip" type="button" onClick={handleMax}>
-                  MAX
+                  {t("common.max")}
                 </button>
               ) : null}
             </div>
@@ -724,7 +726,7 @@ export function SolanaSwapPage({
               type="button"
               onClick={handleSwitch}
               disabled={step !== "form"}
-              aria-label="Switch tokens"
+              aria-label={t("swap.switchTokens")}
             >
               ⇅
             </button>
@@ -732,7 +734,7 @@ export function SolanaSwapPage({
 
           <div className="swap-half swap-half--to">
             <div className="swap-half-top">
-              <span className="swap-half-label">Estimated receive</span>
+              <span className="swap-half-label">{t("swap.estimatedReceive")}</span>
               <button
                 className="swap-token-pill"
                 type="button"
@@ -751,7 +753,7 @@ export function SolanaSwapPage({
                 ) : (
                   <span className="swap-token-pill__icon">?</span>
                 )}
-                <span className="swap-token-pill__sym">{toToken?.symbol ?? "Select"}</span>
+                <span className="swap-token-pill__sym">{toToken?.symbol ?? t("swap.select")}</span>
                 <span className="swap-token-pill__chevron">▾</span>
               </button>
             </div>
@@ -762,14 +764,14 @@ export function SolanaSwapPage({
               className="swap-estimated-display swap-estimated-display--muted"
               role="status"
               aria-live="polite"
-              aria-label={`Estimated receive${toToken ? ` ${toToken.symbol}` : ""}`}
+              aria-label={`${t("swap.estimatedReceive")}${toToken ? ` ${toToken.symbol}` : ""}`}
               style={{ cursor: "default" }}
             >
               {estimatedOut}
             </div>
             <div className="swap-half-bottom">
               <span className="swap-half-bottom__bal">
-                Exact receive amount is coming later.
+                {t("swap.exactReceiveLater")}
               </span>
             </div>
           </div>
@@ -778,14 +780,14 @@ export function SolanaSwapPage({
         {/* Compact, shared route notice (no longer the large green block) —
             makes the Exact-In behavior obvious without dominating the screen. */}
         <SwapRouteNotice>
-          Enter the amount you want to pay. The receive amount is estimated.
+          {t("swap.exactInNotice")}
         </SwapRouteNotice>
 
         {/* Slippage presets (form only) */}
         {step === "form" ? (
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>Max slippage</span>
+              <span>{t("swap.maxSlippage")}</span>
               <span style={{ display: "flex", gap: 6 }}>
                 {SLIPPAGE_PRESETS.map((bps) => (
                   <button
@@ -813,34 +815,34 @@ export function SolanaSwapPage({
         {step === "review" && order ? (
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>You pay</span>
+              <span>{t("swap.youPay")}</span>
               <strong>{amount} {fromToken?.symbol}</strong>
             </div>
             <div className="swap-quote-row">
-              <span>You receive (est.)</span>
+              <span>{t("swap.youReceiveEst")}</span>
               <strong>{estimatedOut} {toToken?.symbol}</strong>
             </div>
             <div className="swap-quote-row">
-              <span>Price impact</span>
+              <span>{t("swap.priceImpact")}</span>
               <strong>{formatPriceImpact(order)}</strong>
             </div>
             <div className="swap-quote-row">
-              <span>Max slippage</span>
+              <span>{t("swap.maxSlippage")}</span>
               <strong>{formatSlippage(slippageBps)}</strong>
             </div>
             <div className="swap-quote-row swap-quote-row--route">
-              <span>Route</span>
+              <span>{t("swap.route")}</span>
               <strong>Jupiter Ultra</strong>
             </div>
             {resolveFeeBps(order) != null ? (
               <div className="swap-quote-row">
-                <span>Simpl fee</span>
+                <span>{t("swap.simplFee")}</span>
                 <strong>
                   {formatFeeBps(resolveFeeBps(order) as number)}
                   {order.simplFeeApplied ? (
-                    <span className="swap-fee-tag swap-fee-tag--ok">Included</span>
+                    <span className="swap-fee-tag swap-fee-tag--ok">{t("swap.feeIncluded")}</span>
                   ) : (order.requestedFeeBps ?? 0) > 0 ? (
-                    <span className="swap-fee-tag swap-fee-tag--warn">Not applied</span>
+                    <span className="swap-fee-tag swap-fee-tag--warn">{t("swap.feeNotApplied")}</span>
                   ) : null}
                 </strong>
               </div>
@@ -869,7 +871,7 @@ export function SolanaSwapPage({
               disabled={Boolean(validation) || reviewLoading}
               onClick={handleReview}
             >
-              {reviewLoading ? "Finding route…" : validation && amount ? validation : "Review swap"}
+              {reviewLoading ? t("swap.findingRoute") : validation && amount ? validation : t("swap.reviewSwap")}
             </button>
           ) : (
             <button
@@ -879,12 +881,12 @@ export function SolanaSwapPage({
               onClick={handleConfirm}
             >
               {submitStatus === "signing"
-                ? "Signing…"
+                ? t("common.signing")
                 : submitStatus === "executing"
-                  ? "Swapping…"
+                  ? t("swap.swapping")
                   : submitStatus === "error"
-                    ? "Try again"
-                    : "Confirm swap"}
+                    ? t("common.retry")
+                    : t("swap.confirmSwap")}
             </button>
           )}
         </div>
@@ -896,7 +898,7 @@ export function SolanaSwapPage({
       {picker === "from" ? (
         <div className="swap-token-picker-page" role="dialog" aria-modal="true">
           <SwapHeader
-            title="Select token to sell"
+            title={t("swap.selectTokenToSell")}
             subtitle="Solana"
             onBack={() => setPicker(null)}
           />

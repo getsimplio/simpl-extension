@@ -1,38 +1,51 @@
 import type { WalletState } from "../storage/storage.types";
 
+// A stable per-wallet identifier used as the WebAuthn user handle when enrolling.
+// Prefers an already-stored credential id so re-enrollment stays consistent.
 export function getBiometricWalletId(walletState: WalletState): string {
   if (walletState.settings.biometricUnlock.credentialId) {
     return walletState.settings.biometricUnlock.credentialId;
   }
 
-  const rootAccount = walletState.accounts.find((account) => account.index === 0);
-
-  return (
-    rootAccount?.id ??
-    walletState.selectedAccountId ??
-    "default-wallet"
+  const rootAccount = walletState.accounts.find(
+    (account) => account.index === 0,
   );
+
+  return rootAccount?.id ?? walletState.selectedAccountId ?? "default-wallet";
 }
 
-export function encodeSecretToBase64(secret: string): string {
-  const bytes = new TextEncoder().encode(secret);
+export type BiometricPlatform = "apple" | "windows" | "generic";
 
-  let binary = "";
+// Best-effort platform detection so the UI can show the right brand name
+// (Touch ID / Windows Hello / Device biometrics). Falls back to "generic".
+export function detectBiometricPlatform(): BiometricPlatform {
+  try {
+    const uaData = (
+      navigator as Navigator & {
+        userAgentData?: { platform?: string };
+      }
+    ).userAgentData;
+    const platform = (
+      uaData?.platform ??
+      navigator.platform ??
+      navigator.userAgent ??
+      ""
+    ).toLowerCase();
 
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+    if (
+      platform.includes("mac") ||
+      platform.includes("iphone") ||
+      platform.includes("ipad") ||
+      platform.includes("ios")
+    ) {
+      return "apple";
+    }
+    if (platform.includes("win")) {
+      return "windows";
+    }
+  } catch {
+    // Ignore detection failures and fall through to the generic label.
   }
 
-  return btoa(binary);
-}
-
-export function decodeSecretFromBase64(base64: string): string {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return new TextDecoder().decode(bytes);
+  return "generic";
 }

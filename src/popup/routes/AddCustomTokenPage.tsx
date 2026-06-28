@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { isAddress } from "ethers";
+import { t, useTranslation } from "../../i18n";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import {
@@ -163,9 +164,9 @@ function isValidTokenAddressForChain(chainId: number, address: string): boolean 
 
 // The "Enter a valid …" inline error, per chain family.
 function invalidAddressMessage(kind: ChainKind): string {
-  if (kind === "solana") return "Enter a valid Solana token mint address.";
-  if (kind === "tron") return "Enter a valid TRON token contract address.";
-  return "Enter a valid EVM contract address.";
+  if (kind === "solana") return t("asset.invalidSolanaMint");
+  if (kind === "tron") return t("asset.invalidTronContract");
+  return t("asset.invalidEvmContract");
 }
 
 function shortAddress(address: string): string {
@@ -222,6 +223,7 @@ export function AddCustomTokenPage({
   onAdded,
   onChanged,
 }: AddCustomTokenPageProps) {
+  const { t } = useTranslation();
   const [tokenAddress, setTokenAddress] = useState("");
   const [preview, setPreview] = useState<TokenPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -252,8 +254,10 @@ export function AddCustomTokenPage({
 
   // Per-chain UI copy. Solana calls it a "mint address"; EVM/TRON keep
   // "contract". Placeholders hint the expected address shape.
-  const addressInputLabel = isSolana ? "Token mint address" : "Token contract";
-  const addressPlaceholder = isSolana ? "Mint address (base58)" : isTron ? "T…" : "0x…";
+  const addressInputLabel = isSolana
+    ? t("asset.tokenMintAddress")
+    : t("asset.tokenContract");
+  const addressPlaceholder = isSolana ? t("asset.mintAddressPlaceholder") : isTron ? "T…" : "0x…";
 
   async function loadTokenPreview() {
     // Claim the latest-request slot. Any older in-flight load is now stale and
@@ -266,7 +270,7 @@ export function AddCustomTokenPage({
     setTouched(true);
 
     if (!selectedAccount) {
-      setError("Selected account not found.");
+      setError(t("asset.accountNotFound"));
       return;
     }
 
@@ -450,7 +454,7 @@ export function AddCustomTokenPage({
         </button>
 
         <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          Add token
+          {t("asset.addToken")}
         </div>
 
         <span style={{ flex: 1 }} />
@@ -460,7 +464,7 @@ export function AddCustomTokenPage({
           className="net-chip network-pill-button"
           type="button"
           onClick={() => setNetworkSelectorOpen(true)}
-          aria-label="Select network"
+          aria-label={t("common.selectNetwork")}
           title={`Network: ${selectedChainName}`}
         >
           <NetworkIcon
@@ -485,7 +489,7 @@ export function AddCustomTokenPage({
         {/* Intro */}
         <section style={{ paddingTop: 6 }}>
           <div className="t-h2" style={{ fontSize: 30 }}>
-            Import token
+            {t("asset.importToken")}
           </div>
 
           <div
@@ -496,8 +500,7 @@ export function AddCustomTokenPage({
               lineHeight: 1.45,
             }}
           >
-            Paste a token contract address. Simpl will read the token details and
-            show your balance.
+            {t("asset.importTokenSub")}
           </div>
         </section>
 
@@ -544,12 +547,12 @@ export function AddCustomTokenPage({
             style={{ marginTop: 2 }}
           >
             <SearchIcon />
-            {loadingPreview ? "Loading token…" : "Load token"}
+            {loadingPreview ? t("asset.loadingToken") : t("asset.loadToken")}
           </button>
         </section>
 
         {error ? (
-          <Notice tone="danger" title="Couldn’t add this token">
+          <Notice tone="danger" title={t("asset.couldntAddToken")}>
             {error}
           </Notice>
         ) : null}
@@ -557,7 +560,7 @@ export function AddCustomTokenPage({
         {/* Loaded token preview */}
         {preview ? (
           <section style={{ display: "grid", gap: 8 }}>
-            <SectionLabel>Token</SectionLabel>
+            <SectionLabel>{t("asset.token")}</SectionLabel>
 
             <div className="row-list">
               <div className="row" style={{ cursor: "default" }}>
@@ -574,7 +577,7 @@ export function AddCustomTokenPage({
                   <div className="sub">{preview.symbol}</div>
                   {enrichingMetadata ? (
                     <div className="sub" style={{ opacity: 0.6 }}>
-                      Loading metadata…
+                      {t("asset.loadingMetadata")}
                     </div>
                   ) : null}
                 </div>
@@ -588,16 +591,16 @@ export function AddCustomTokenPage({
             </div>
 
             <div className="row-list send-summary">
-              <MetaRow label="Decimals" value={preview.decimals} />
+              <MetaRow label={t("common.decimals")} value={preview.decimals} />
               <MetaRow
-                label="Balance"
+                label={t("common.balance")}
                 value={`${formatTokenAmount(preview.balanceFormatted)} ${
                   preview.symbol
                 }`}
               />
 
               <div className="send-meta-row">
-                <span className="send-meta-label">Contract</span>
+                <span className="send-meta-label">{t("common.contract")}</span>
 
                 <div
                   style={{
@@ -626,8 +629,8 @@ export function AddCustomTokenPage({
                     type="button"
                     className="icbtn"
                     onClick={() => void copyContract()}
-                    aria-label="Copy contract address"
-                    title={copied ? "Copied" : "Copy"}
+                    aria-label={t("asset.copyContractAddress")}
+                    title={copied ? t("common.copied") : t("common.copy")}
                     style={{
                       width: 28,
                       height: 28,
@@ -648,8 +651,8 @@ export function AddCustomTokenPage({
                       href={explorerUrl}
                       target="_blank"
                       rel="noreferrer"
-                      aria-label="View contract on explorer"
-                      title="View on explorer"
+                      aria-label={t("asset.viewContractOnExplorer")}
+                      title={t("common.viewOnExplorer")}
                       style={{
                         width: 28,
                         height: 28,
@@ -675,15 +678,14 @@ export function AddCustomTokenPage({
               style={{ marginTop: 4 }}
             >
               <PlusIcon />
-              {addingToken ? "Importing…" : "Import token"}
+              {addingToken ? t("common.importing") : t("asset.importToken")}
             </button>
           </section>
         ) : null}
 
         {/* Safety */}
-        <Notice tone="warning" title="Check the contract address">
-          Anyone can create fake tokens. Import tokens only from trusted contract
-          addresses.
+        <Notice tone="warning" title={t("asset.checkAddressTitle")}>
+          {t("asset.checkAddressBody")}
         </Notice>
       </div>
     </div>

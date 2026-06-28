@@ -16,8 +16,8 @@
 }
 
 .account-blockie--placeholder {
-  background: var(--bg-sunken, #f1f1ee);
-  border: 1px solid var(--line, #e5e5e5);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
 }
 
 /* ============================================================
@@ -68,9 +68,9 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  border: 1px solid var(--line, #e5e5e5);
+  border: 1px solid var(--line);
   border-radius: 18px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--bg-surface);
   overflow: hidden;
   transition: border-color 100ms ease, background 100ms ease;
 }
@@ -93,15 +93,15 @@
 /* Hover/tap affordance scoped to the header so the address controls below
    don't tint the card (inactive rows tint; active rows stay green). */
 .acct-row-card:not(.acct-row-card--active):hover {
-  border-color: var(--line-strong, #d4d4d4);
+  border-color: var(--line-strong);
 }
 
 .acct-row-card:not(.acct-row-card--active) .acct-row-main:hover {
-  background: rgba(17, 17, 17, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
 }
 
 .acct-row-card:not(.acct-row-card--active) .acct-row-main:active {
-  background: rgba(17, 17, 17, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
 }
 
 .acct-row-card--active {
@@ -130,9 +130,9 @@
   width: 42px;
   padding: 1px 0;
   border-radius: 6px;
-  background: var(--bg-sunken, #f1f1ee);
-  border: 1px solid var(--line, #e5e5e5);
-  color: var(--ink-2, #4a4a45);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -144,14 +144,14 @@
 .acct-addr-badge--tron {
   background: rgba(235, 0, 41, 0.08);
   border-color: rgba(235, 0, 41, 0.22);
-  color: #c20023;
+  color: var(--danger);
 }
 
 /* Bitcoin (BTC + tBTC) badge: subtle orange brand tint. */
 .acct-addr-badge--bitcoin {
   background: rgba(247, 147, 26, 0.1);
   border-color: rgba(247, 147, 26, 0.28);
-  color: #b5710d;
+  color: var(--warn);
 }
 
 .acct-addr-text {
@@ -182,18 +182,18 @@
   border-radius: 7px;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--ink-4, #b4b4b0);
+  color: var(--ink-4);
   cursor: pointer;
   transition: color 100ms ease, background 100ms ease;
 }
 
 .acct-addr-btn:hover {
   color: var(--ink-1);
-  background: rgba(17, 17, 17, 0.05);
+  background: rgba(var(--ink-rgb), 0.05);
 }
 
 .acct-addr-copied {
-  color: var(--secure, #2a6f4e) !important;
+  color: var(--secure) !important;
 }
 
 /* Row internals (no design-kit .row class on the button anymore) */
@@ -222,7 +222,7 @@
 .acct-row-chevron {
   display: inline-flex;
   align-items: center;
-  color: var(--ink-4, #b4b4b0);
+  color: var(--ink-4);
 }
 
 /* ============================================================
@@ -296,13 +296,13 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--bg-sunken, #f1f1ee);
-  color: var(--ink-2, #4a4a45);
+  background: var(--bg-sunken);
+  color: var(--ink-2);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.7;
-  border: 1px solid var(--line, #e5e5e5);
+  border: 1px solid var(--line);
 }
 
 /* Watch-only pill */
@@ -310,8 +310,8 @@
   flex-shrink: 0;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--warn-soft, #f4eedf);
-  color: var(--warn, #9a6b1e);
+  background: var(--warn-soft);
+  color: var(--warn);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -325,8 +325,8 @@
   justify-content: center;
   padding: 3px 9px;
   border-radius: 999px;
-  background: var(--secure, #2a6f4e);
-  color: #ffffff;
+  background: var(--secure);
+  color: var(--bg-surface);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -359,15 +359,15 @@
    ============================================================ */
 
 .acct-action-card {
-  border: 1px solid var(--line, #e5e5e5);
+  border: 1px solid var(--line);
   border-radius: 18px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--bg-surface);
   overflow: hidden;
   transition: border-color 100ms ease, background 100ms ease;
 }
 
 .acct-action-card:hover {
-  border-color: var(--line-strong, #d4d4d4);
+  border-color: var(--line-strong);
 }
 
 .acct-action-card > button.row {
@@ -388,7 +388,7 @@
   gap: 12px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px dashed var(--line-strong, #d4d4d4);
+  border: 1px dashed var(--line-strong);
   border-radius: 16px;
   background: transparent;
   text-align: left;
@@ -399,8 +399,8 @@
 }
 
 .acct-add-discover:hover {
-  border-color: var(--ink-4, #b4b4b0);
-  background: rgba(17, 17, 17, 0.02);
+  border-color: var(--ink-4);
+  background: rgba(var(--ink-rgb), 0.02);
 }
 
 .acct-add-discover:disabled {
@@ -434,15 +434,15 @@
   align-items: center;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid var(--line-strong, #d4d4d4);
-  background: var(--bg-surface, #ffffff);
-  color: var(--ink-1, #111111);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-surface);
+  color: var(--ink-1);
   font-size: 12px;
   font-weight: 700;
 }
 
 .acct-add-discover:hover .acct-add-discover__cta {
-  border-color: var(--ink-4, #b4b4b0);
+  border-color: var(--ink-4);
 }
 
 /* ============================================================
@@ -454,7 +454,7 @@
   border-radius: 12px;
   border: 1px solid rgba(190, 48, 48, 0.2);
   background: rgba(190, 48, 48, 0.07);
-  color: var(--danger, #be3030);
+  color: var(--danger);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -482,8 +482,21 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 .acct-details-page {
   display: flex !important;
   flex-direction: column !important;
+  /* Fill the popup/fullscreen frame so the header pins to the top and only the
+     body scrolls. height:100% keeps the column bounded even if a parent's fixed
+     height is ever relaxed, so the scroll container always has a real height. */
+  height: 100% !important;
+  min-height: 0 !important;
   overflow: hidden !important;
-  background: var(--bg-canvas, #ffffff) !important;
+  background: var(--bg-canvas) !important;
+}
+
+/* Header is a fixed, opaque row above the scroll body — it must never shrink or
+   let scrolled content show through/under it. */
+.acct-details-page .bar-top {
+  flex: 0 0 auto !important;
+  z-index: 2 !important;
+  background: var(--bg-surface) !important;
 }
 
 .acct-details-title {
@@ -502,10 +515,15 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   flex: 1 1 auto !important;
   min-height: 0 !important;
   overflow-y: auto !important;
-  padding: 16px 18px 18px !important;
+  /* Comfortable top spacing below the fixed header, and generous bottom padding
+     so the last action (Remove / Reset) is never clipped at the popup edge. */
+  padding: 18px 18px max(28px, env(safe-area-inset-bottom, 0px)) !important;
   display: flex !important;
   flex-direction: column !important;
   gap: 12px !important;
+  scroll-behavior: smooth !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
 }
 
 /* Direct sections keep their natural height — without this, a flex column
@@ -558,8 +576,8 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  border: 1px solid var(--line, #e5e5e5);
-  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
   color: var(--ink-3);
   cursor: pointer;
   flex-shrink: 0;
@@ -567,7 +585,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 }
 
 .acct-rename-btn:hover {
-  border-color: var(--line-strong, #d4d4d4);
+  border-color: var(--line-strong);
   color: var(--ink-1);
 }
 
@@ -598,8 +616,8 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   height: 44px;
   padding: 0 12px;
   border-radius: 12px;
-  border: 1px solid var(--line-strong, #d4d4d4);
-  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-surface);
   color: var(--ink-1);
   font-size: 15px;
   font-weight: 600;
@@ -610,7 +628,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 
 .acct-rename-input:focus {
   outline: none;
-  border-color: var(--ink-1, #111111);
+  border-color: var(--ink-1);
 }
 
 .acct-rename-actions {
@@ -624,7 +642,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 
 .acct-rename-error {
   font-size: 12px;
-  color: var(--danger, #be3030);
+  color: var(--danger);
   text-align: center;
 }
 
@@ -646,8 +664,8 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   height: 64px;
   padding: 10px 6px;
   border-radius: 14px;
-  border: 1px solid var(--line, #e5e5e5);
-  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--line);
+  background: var(--bg-surface);
   color: var(--ink-1);
   font-size: 12px;
   font-weight: 600;
@@ -658,12 +676,12 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 }
 
 .acct-quick-btn:hover {
-  border-color: var(--line-strong, #d4d4d4);
-  background: rgba(17, 17, 17, 0.03);
+  border-color: var(--line-strong);
+  background: rgba(var(--ink-rgb), 0.03);
 }
 
 .acct-quick-btn:active {
-  background: rgba(17, 17, 17, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
 }
 
 .acct-quick-btn__icon {
@@ -678,9 +696,9 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border: 1px solid var(--line, #e5e5e5);
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--bg-surface);
   padding: 14px;
 }
 
@@ -702,9 +720,9 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 
 /* Info card */
 .acct-details-info-card {
-  border: 1px solid var(--line, #e5e5e5);
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background: var(--bg-surface, #ffffff);
+  background: var(--bg-surface);
   overflow: hidden;
 }
 
@@ -718,7 +736,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 }
 
 .acct-details-info-row + .acct-details-info-row {
-  border-top: 1px solid var(--line, #e5e5e5);
+  border-top: 1px solid var(--line);
 }
 
 .acct-details-info-label {
@@ -752,7 +770,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   border-radius: 13px;
   border: 1px solid rgba(42, 111, 78, 0.3);
   background: rgba(42, 111, 78, 0.06);
-  color: var(--secure, #2a6f4e);
+  color: var(--secure);
   font-size: 15px;
   font-weight: 700;
 }
@@ -761,7 +779,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: var(--secure, #2a6f4e);
+  background: var(--secure);
 }
 
 .acct-details-actions {
@@ -781,8 +799,8 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 }
 
 .acct-details-copied {
-  border-color: var(--secure, #2a6f4e) !important;
-  color: var(--secure, #2a6f4e) !important;
+  border-color: var(--secure) !important;
+  color: var(--secure) !important;
 }
 
 /* ── Export private key (reveal screen) ── */
@@ -795,7 +813,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 .acct-export-key__label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--ink-2, #4a4a45);
+  color: var(--ink-2);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -811,9 +829,9 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   flex-shrink: 0;
   padding: 2px 8px;
   border-radius: 7px;
-  background: var(--bg-sunken, #f1f1ee);
-  border: 1px solid var(--line, #e5e5e5);
-  color: var(--ink-2, #4a4a45);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -829,20 +847,20 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
 .acct-export-badge--tron {
   background: rgba(235, 0, 41, 0.08);
   border-color: rgba(235, 0, 41, 0.22);
-  color: #c20023;
+  color: var(--danger);
 }
 
 .acct-export-badge--shared {
-  background: var(--bg-sunken, #f1f1ee);
-  border-color: var(--line, #e5e5e5);
-  color: var(--ink-2, #4a4a45);
+  background: var(--bg-sunken);
+  border-color: var(--line);
+  color: var(--ink-2);
 }
 
 .acct-export-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--warn, #9a6b1e);
+  color: var(--warn);
 }
 
 /* Imported removal block */
@@ -867,7 +885,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   border-radius: 13px;
   border: 1px solid rgba(190, 48, 48, 0.4);
   background: transparent;
-  color: var(--danger, #be3030);
+  color: var(--danger);
   font-size: 15px;
   font-weight: 700;
   font-family: inherit;
@@ -879,14 +897,36 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   background: rgba(190, 48, 48, 0.06);
 }
 
+/* Quiet destructive button (details view) — used for "Remove from simpl" and
+   the primary "Reset wallet data" pointer. Intentionally softer than the
+   red-outlined "Export private key" so removal reads as less alarming: tinted
+   fill, no hard border, lighter weight. */
+.acct-remove-subtle-btn {
+  width: 100%;
+  height: 48px;
+  border-radius: 13px;
+  border: 1px solid transparent;
+  background: rgba(190, 48, 48, 0.06);
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.acct-remove-subtle-btn:hover {
+  background: rgba(190, 48, 48, 0.1);
+}
+
 /* Solid destructive button (confirm step) */
 .acct-danger-btn {
   flex: 1;
   height: 52px;
   border-radius: 13px;
   border: 0;
-  background: var(--danger, #be3030);
-  color: #ffffff;
+  background: var(--danger);
+  color: var(--bg-surface);
   font-size: 15px;
   font-weight: 700;
   font-family: inherit;
@@ -907,7 +947,7 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   padding: 12px 14px;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--ink-2, #4a4a45);
+  color: var(--ink-2);
 }
 
 .acct-details-field {
@@ -947,8 +987,8 @@ html[data-simple-surface="fullscreen"] .acct-action-card {
   width: 56px;
   height: 56px;
   border-radius: 999px;
-  background: var(--secure, #2a6f4e);
-  color: #ffffff;
+  background: var(--secure);
+  color: var(--bg-surface);
   display: flex;
   align-items: center;
   justify-content: center;

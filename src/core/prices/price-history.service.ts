@@ -7,6 +7,9 @@ import {
   getPriceHistory,
   type SimplHistoryRange,
 } from "./simpl-market-api.service";
+import { isTonChainId } from "../networks/chain-registry";
+import { getRequiredTonConfigByChainId } from "../../chains/ton/ton.config";
+import { getTonNativeHistory } from "../../chains/ton/ton.prices";
 
 // Historical price points for the AssetDetailsPage chart. Uses the shared
 // price identity (chainId + native marker / contract address) so the chart
@@ -125,6 +128,13 @@ export class PriceHistoryService {
       return fresh;
     }
 
+    // Native TON history comes from tonapi — the Simpl gateway has no TON
+    // support. Jettons (address != null) are intentionally left to the gateway
+    // (no chart yet), so they fall through and resolve to a graceful empty chart.
+    if (isTonChainId(input.chainId) && input.address === null) {
+      return this.getTonNativeHistory(input);
+    }
+
     try {
       const history = await getPriceHistory({
         chainId: input.chainId,
@@ -166,6 +176,44 @@ export class PriceHistoryService {
       priceWarn("history error", {
         chainId: input.chainId,
         address: input.address,
+        range: input.range,
+        error: String(error),
+      });
+      return readStaleCache(input);
+    }
+  }
+
+  // Native TON history via tonapi, normalized + cached exactly like the gateway
+  // path so range switching, caching and stale-fallback all behave identically.
+  private async getTonNativeHistory(
+    input: HistoryInput,
+  ): Promise<PricePoint[] | null> {
+    try {
+      const config = getRequiredTonConfigByChainId(input.chainId);
+      // The TON chart supports the three UI ranges; map them directly (the
+      // gateway's wider SimplHistoryRange "max" is never produced here).
+      const tonRange =
+        input.range === "1D" ? "1d" : input.range === "7D" ? "7d" : "1m";
+      const raw = await getTonNativeHistory(
+        config,
+        tonRange,
+        Math.floor(Date.now() / 1000),
+      );
+
+      const points = normalizePoints(raw ?? undefined);
+      if (!points) {
+        priceDebug("history empty (ton)", { range: input.range });
+        return readStaleCache(input);
+      }
+
+      writeCache(input, points);
+      priceDebug("history ok (ton)", {
+        range: input.range,
+        points: points.length,
+      });
+      return points;
+    } catch (error) {
+      priceWarn("history error (ton)", {
         range: input.range,
         error: String(error),
       });

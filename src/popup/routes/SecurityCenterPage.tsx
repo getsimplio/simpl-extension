@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import type { WalletState } from "../../core/storage/storage.types";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
+import { suppressBiometricAutoPromptOnce } from "../biometric-autoprompt";
+import { BiometricUnlockRow } from "../components/BiometricUnlockRow";
 
 import SeedBackupVerificationPage from "./SeedBackupVerificationPage";
 import ConnectedSitesPage from "./ConnectedSitesPage";
@@ -11,10 +15,18 @@ type Snapshot = Record<string, unknown>;
 type SecurityCenterPageProps = {
   onBack?: () => void;
   initialSnapshot?: Snapshot;
+  // Live wallet state + change notifier, used by the biometric unlock control
+  // (capability detection + secure enroll/disable). Optional so the page still
+  // renders if a caller omits them; the biometric row simply won't show.
+  walletState?: WalletState;
+  onChanged?: () => void | Promise<void>;
   // Destructive wallet removal, owned by the caller (Settings) so the deletion
   // behaviour stays identical to before. The Danger Zone UI + confirmation live
   // here; this fires the actual clear after the user confirms.
   onClearWallet?: () => void | Promise<void>;
+  // When true (deep-linked from "Reset wallet data" on a primary account),
+  // scroll the Danger Zone into view on mount instead of starting at the top.
+  focusDanger?: boolean;
 };
 
 const AUTO_LOCK_OPTIONS = [1, 5, 15, 30, 60] as const;
@@ -401,14 +413,6 @@ function LinkIcon() {
   );
 }
 
-function CheckDotIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  );
-}
-
 function TrashIcon() {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -511,8 +515,13 @@ export default function SecurityCenterPage({
   onBack,
   initialSnapshot = {},
   onClearWallet,
+  focusDanger = false,
+  walletState,
+  onChanged,
 }: SecurityCenterPageProps) {
+  const { t } = useTranslation();
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const dangerRef = useRef<HTMLElement | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>({});
   const [showSeedBackupVerification, setShowSeedBackupVerification] = useState(false);
   const [isAutoLockSheetOpen, setIsAutoLockSheetOpen] = useState(false);
@@ -520,9 +529,15 @@ export default function SecurityCenterPage({
   const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
+    // Deep-linked from "Reset wallet data": reveal the Danger Zone. Otherwise
+    // start at the top like a normal page open.
+    if (focusDanger && dangerRef.current) {
+      dangerRef.current.scrollIntoView({ block: "center" });
+      return;
+    }
     pageRef.current?.scrollTo({ top: 0 });
     window.scrollTo({ top: 0 });
-  }, []);
+  }, [focusDanger]);
 
   useEffect(() => {
     let isMounted = true;
@@ -646,6 +661,9 @@ export default function SecurityCenterPage({
   };
 
   const lockWallet = async () => {
+    // User-initiated lock: suppress the one-shot biometric auto-prompt on the
+    // unlock screen we are about to show (explicit tap still works).
+    suppressBiometricAutoPromptOnce();
     walletService.lockWallet();
 
     window.dispatchEvent(
@@ -672,15 +690,13 @@ export default function SecurityCenterPage({
     );
   }
 
-  const vaultSecure = securityState.encryptedVaultExists;
   const verified = securityState.seedBackupVerified === true;
   const hideBalances = securityState.hideBalances === true;
   const connectedCount = securityState.connectedSitesCount;
   const autoLockLabel =
     typeof securityState.autoLockMinutes === "number"
-      ? `${securityState.autoLockMinutes} min`
-      : "Not set";
-  const isProtected = vaultSecure && verified;
+      ? t("common.minutesShort", { minutes: securityState.autoLockMinutes })
+      : t("common.notSet");
 
   return (
     <div
@@ -688,11 +704,11 @@ export default function SecurityCenterPage({
       data-screen-label="Security Center"
     >
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <BackIcon />
         </button>
         <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          Security Center
+          {t("security.centerTitle")}
         </div>
         <span style={{ flex: 1 }} />
         <span className="reveal-bar-icon" aria-hidden="true">
@@ -702,64 +718,27 @@ export default function SecurityCenterPage({
 
       <div className="screen-body settings-body" ref={pageRef}>
         <header className="set-hero">
-          <div className="set-hero__title">Wallet protection</div>
+          <div className="set-hero__title">{t("security.heroTitle")}</div>
           <div className="set-hero__sub">
-            Review recovery, privacy, and device security settings.
+            {t("security.heroSub")}
           </div>
         </header>
 
-        <div className="set-card sec-status">
-          <div className="set-row set-row--static">
-            <span
-              className={`set-row__icon set-row__icon--${
-                isProtected ? "secure" : "neutral"
-              }`}
-            >
-              <ShieldIcon />
-            </span>
-            <span className="set-row__body">
-              <span className="set-row__title">
-                {isProtected ? "Wallet is protected" : "Security overview"}
-              </span>
-              <span className="set-row__sub">
-                {isProtected
-                  ? "Your vault is encrypted and recovery backup is verified."
-                  : "Review the most important wallet protection settings."}
-              </span>
-            </span>
-            <span className="set-row__aside">
-              {isProtected ? (
-                <Pill tone="secure">Secure</Pill>
-              ) : (
-                <Pill tone="warn">Review</Pill>
-              )}
-            </span>
-          </div>
-        </div>
-
         <div className="set-grid">
-          <Section label="Device security">
-            <StatusRow
-              icon={<ShieldIcon />}
-              tone={vaultSecure ? "secure" : "danger"}
-              title="Encrypted vault"
-              subtitle={
-                vaultSecure
-                  ? "Wallet secrets are stored encrypted on this device."
-                  : "Encrypted vault was not detected on this device."
-              }
-              aside={
-                <Pill tone={vaultSecure ? "secure" : "danger"}>
-                  {vaultSecure ? "Secure" : "At risk"}
-                </Pill>
-              }
-            />
+          <Section label={t("security.section.device")}>
+            {/* Biometric unlock — self-hides on unsupported devices. */}
+            {walletState && onChanged ? (
+              <BiometricUnlockRow
+                walletState={walletState}
+                onChanged={onChanged}
+              />
+            ) : null}
 
             <ActionRow
               icon={<ClockIcon />}
               tone="neutral"
-              title="Auto-lock"
-              subtitle="Wallet locks after inactivity."
+              title={t("security.autoLock")}
+              subtitle={t("security.autoLockSub")}
               aside={
                 <>
                   <span className="set-row__value">{autoLockLabel}</span>
@@ -772,46 +751,46 @@ export default function SecurityCenterPage({
             <ActionRow
               icon={<LockIcon />}
               tone="neutral"
-              title="Lock wallet"
-              subtitle="Return to the unlock screen."
+              title={t("security.lockWallet")}
+              subtitle={t("security.lockWalletSub")}
               onClick={lockWallet}
             />
           </Section>
 
-          <Section label="Recovery">
+          <Section label={t("security.section.recovery")}>
             <ActionRow
               icon={<DocShieldIcon />}
               tone={verified ? "secure" : "warn"}
-              title="Recovery phrase backup"
+              title={t("security.recoveryBackup")}
               subtitle={
                 verified
-                  ? "Recovery phrase backup was verified."
-                  : "Verify your recovery phrase backup."
+                  ? t("security.recoveryVerified")
+                  : t("security.recoveryPending")
               }
               aside={
                 <Pill tone={verified ? "secure" : "warn"}>
-                  {verified ? "Verified" : "Action needed"}
+                  {verified ? t("security.verified") : t("security.actionNeeded")}
                 </Pill>
               }
               onClick={() => setShowSeedBackupVerification(true)}
             />
           </Section>
 
-          <Section label="Privacy">
+          <Section label={t("security.section.privacy")}>
             <StatusRow
               icon={<EyeOffIcon />}
               tone="neutral"
-              title="Hide balances"
+              title={t("security.hideBalances")}
               subtitle={
                 hideBalances
-                  ? "Balance privacy mode is enabled."
-                  : "Balance privacy mode is disabled."
+                  ? t("security.hideBalancesOn")
+                  : t("security.hideBalancesOff")
               }
               aside={
                 <Toggle
                   checked={hideBalances}
                   onClick={() => void toggleHideBalances()}
-                  label="Toggle hide balances"
+                  label={t("security.hideBalancesToggle")}
                 />
               }
             />
@@ -819,8 +798,8 @@ export default function SecurityCenterPage({
             <ActionRow
               icon={<LinkIcon />}
               tone="neutral"
-              title="Connected sites"
-              subtitle="Review connected dApps regularly."
+              title={t("security.connectedSites")}
+              subtitle={t("security.connectedSitesSub")}
               aside={
                 <>
                   <Pill tone="neutral">{connectedCount}</Pill>
@@ -830,29 +809,14 @@ export default function SecurityCenterPage({
               onClick={() => setShowConnectedSites(true)}
             />
           </Section>
-
-          <Section label="Security tips">
-            {[
-              "Never share your recovery phrase or private key.",
-              "Disconnect dApps you no longer use.",
-              "Lock your wallet when using a shared device.",
-            ].map((tip) => (
-              <div className="sec-tip" key={tip}>
-                <span className="sec-tip__icon">
-                  <CheckDotIcon />
-                </span>
-                <span className="sec-tip__text">{tip}</span>
-              </div>
-            ))}
-          </Section>
         </div>
 
         {onClearWallet ? (
-          <section className="set-danger">
+          <section className="set-danger" ref={dangerRef}>
             <div className="set-danger__head">
-              <div className="set-danger__title">Danger Zone</div>
+              <div className="set-danger__title">{t("security.dangerZone")}</div>
               <div className="set-danger__desc">
-                These actions can remove wallet data from this browser.
+                {t("security.dangerZoneDesc")}
               </div>
             </div>
 
@@ -866,9 +830,9 @@ export default function SecurityCenterPage({
               </span>
 
               <span className="set-row__body">
-                <span className="set-row__title">Clear wallet from browser</span>
+                <span className="set-row__title">{t("security.clearWallet")}</span>
                 <span className="set-row__sub">
-                  Remove local encrypted wallet data from this device.
+                  {t("security.clearWalletSub")}
                 </span>
               </span>
 
@@ -898,7 +862,7 @@ export default function SecurityCenterPage({
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Auto-lock options"
+            aria-label={t("security.autoLockOptions")}
             onClick={(event) => event.stopPropagation()}
             style={{
               width: "100%",
@@ -935,7 +899,7 @@ export default function SecurityCenterPage({
                       letterSpacing: "-0.02em",
                     }}
                   >
-                    Auto-lock
+                    {t("security.autoLock")}
                   </div>
 
                   <div
@@ -946,13 +910,13 @@ export default function SecurityCenterPage({
                       lineHeight: "19px",
                     }}
                   >
-                    Choose when SIMPLE locks after inactivity.
+                    {t("security.autoLockDesc")}
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  aria-label="Close auto-lock options"
+                  aria-label={t("security.closeAutoLock")}
                   onClick={() => setIsAutoLockSheetOpen(false)}
                   style={{
                     width: 36,
@@ -983,18 +947,20 @@ export default function SecurityCenterPage({
                       onClick={() => void applyAutoLock(minutes)}
                     >
                       <span className="set-row__body">
-                        <span className="set-row__title">{minutes} min</span>
+                        <span className="set-row__title">
+                          {t("common.minutesShort", { minutes })}
+                        </span>
                         <span className="set-row__sub">
                           {minutes <= 5
-                            ? "Best for maximum protection."
+                            ? t("security.autoLockTipHigh")
                             : minutes <= 15
-                              ? "Recommended for everyday use."
-                              : "More convenient, less strict."}
+                              ? t("security.autoLockTipMedium")
+                              : t("security.autoLockTipLow")}
                         </span>
                       </span>
                       <span className="set-row__aside">
                         {selected ? (
-                          <Pill tone="secure">Selected</Pill>
+                          <Pill tone="secure">{t("common.selected")}</Pill>
                         ) : (
                           <Chevron />
                         )}
@@ -1010,7 +976,7 @@ export default function SecurityCenterPage({
                 onClick={() => setIsAutoLockSheetOpen(false)}
                 style={{ marginTop: 12 }}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           </section>
@@ -1035,7 +1001,7 @@ export default function SecurityCenterPage({
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="Clear wallet confirmation"
+            aria-label={t("security.clearConfirmLabel")}
             onClick={(event) => event.stopPropagation()}
             style={{
               width: "100%",
@@ -1062,7 +1028,7 @@ export default function SecurityCenterPage({
                   letterSpacing: "-0.02em",
                 }}
               >
-                Clear wallet?
+                {t("security.clearConfirmTitle")}
               </div>
 
               <p
@@ -1073,9 +1039,7 @@ export default function SecurityCenterPage({
                   lineHeight: "19px",
                 }}
               >
-                Your wallet, accounts, imported tokens, local activity, and
-                wallet-specific settings will be removed from this browser. Make
-                sure your recovery phrase is safely backed up before continuing.
+                {t("security.clearConfirmBody")}
               </p>
 
               <div style={{ display: "grid", gap: 10, marginTop: 18 }}>
@@ -1087,11 +1051,11 @@ export default function SecurityCenterPage({
                     void onClearWallet?.();
                   }}
                   style={{
-                    background: "#a23b2d",
-                    borderColor: "#a23b2d",
+                    background: "var(--danger)",
+                    borderColor: "var(--danger)",
                   }}
                 >
-                  Clear wallet
+                  {t("security.clearWallet")}
                 </button>
 
                 <button
@@ -1099,7 +1063,7 @@ export default function SecurityCenterPage({
                   className="btn secondary lg full"
                   onClick={() => setConfirmClear(false)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </div>

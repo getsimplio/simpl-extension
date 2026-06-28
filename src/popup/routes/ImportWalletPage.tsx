@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
 
 type ImportWalletPageProps = {
   onImported: () => void | Promise<void>;
@@ -244,6 +245,7 @@ export function ImportWalletPage({
   onImported,
   onBack,
 }: ImportWalletPageProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<ImportStep>("seed");
   const [seedPhrase, setSeedPhrase] = useState("");
   const [password, setPassword] = useState("");
@@ -275,12 +277,12 @@ export function ImportWalletPage({
     setError(null);
 
     if (!seedPhrase.trim()) {
-      setError("Enter your seed phrase.");
+      setError(t("import.seedEmpty"));
       return;
     }
 
     if (!seedLooksValid) {
-      setError("Seed phrase must contain 12 or 24 words.");
+      setError(t("import.seedInvalidCount"));
       return;
     }
 
@@ -293,12 +295,12 @@ export function ImportWalletPage({
 
     if (!seedLooksValid) {
       setStep("seed");
-      setError("Seed phrase must contain 12 or 24 words.");
+      setError(t("import.seedInvalidCount"));
       return;
     }
 
     if (!passwordLooksValid) {
-      setError("Password must contain at least 8 characters, one letter and one number.");
+      setError(t("import.passwordError"));
       return;
     }
 
@@ -332,12 +334,12 @@ export function ImportWalletPage({
             color: "var(--ink-1)",
           }}
         >
-          Import wallet
+          {t("import.title")}
         </div>
 
         <span style={{ flex: 1 }} />
 
-        <span className="pill">{step === "seed" ? "Seed" : "Password"}</span>
+        <span className="pill">{step === "seed" ? t("import.stepSeed") : t("import.stepPassword")}</span>
       </div>
 
       <div
@@ -359,13 +361,13 @@ export function ImportWalletPage({
                   marginBottom: 14,
                 }}
               >
-                Restore wallet
+                {t("import.restoreLabel")}
               </div>
 
               <div className="t-h2">
-                Import
+                {t("import.headerImport")}
                 <br />
-                wallet
+                {t("import.headerWallet")}
               </div>
 
               <p
@@ -376,12 +378,12 @@ export function ImportWalletPage({
                   lineHeight: 1.45,
                 }}
               >
-                Enter your 12 or 24 word seed phrase. Password setup comes next.
+                {t("import.seedDesc")}
               </p>
             </section>
 
             {error ? (
-              <Notice title="Import error" tone="danger">
+              <Notice title={t("import.errorTitle")} tone="danger">
                 {error}
               </Notice>
             ) : null}
@@ -410,7 +412,7 @@ export function ImportWalletPage({
                       textTransform: "uppercase",
                     }}
                   >
-                    Seed phrase
+                    {t("import.seedLabel")}
                   </span>
 
                   <span
@@ -420,14 +422,14 @@ export function ImportWalletPage({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {wordCount} words
+                    {t("accounts.wordCount", { count: wordCount })}
                   </span>
                 </div>
 
                 <textarea
                   className="input lg"
                   value={seedPhrase}
-                  placeholder="word1 word2 word3 ..."
+                  placeholder={t("import.seedPlaceholder")}
                   autoComplete="off"
                   spellCheck={false}
                   onChange={(event) => {
@@ -452,12 +454,12 @@ export function ImportWalletPage({
                   gap: 8,
                 }}
               >
-                <RuleRow valid={wordCount > 0} label="Phrase entered" />
-                <RuleRow valid={seedLooksValid} label="12 or 24 words" />
+                <RuleRow valid={wordCount > 0} label={t("import.phraseEntered")} />
+                <RuleRow valid={seedLooksValid} label={t("import.wordCountRule")} />
               </section>
 
-              <Notice title="Password comes next" tone="warning">
-                First we validate the phrase, then encrypt it locally on this device.
+              <Notice title={t("import.passwordNext")} tone="warning">
+                {t("import.passwordNextBody")}
               </Notice>
 
               <button
@@ -465,7 +467,7 @@ export function ImportWalletPage({
                 type="submit"
                 disabled={!seedLooksValid}
               >
-                Continue
+                {t("common.continue")}
               </button>
             </form>
           </>
@@ -490,9 +492,9 @@ export function ImportWalletPage({
               </div>
 
               <div className="t-h2">
-                Set
+                {t("import.headerSet")}
                 <br />
-                password
+                {t("import.headerPassword")}
               </div>
 
               <p
@@ -503,13 +505,12 @@ export function ImportWalletPage({
                   lineHeight: 1.45,
                 }}
               >
-                This password encrypts your wallet on this device. SIMPLE cannot
-                recover it.
+                {t("import.passwordDesc")}
               </p>
             </section>
 
             {error ? (
-              <Notice title="Import error" tone="danger">
+              <Notice title={t("import.errorTitle")} tone="danger">
                 {error}
               </Notice>
             ) : null}
@@ -530,7 +531,7 @@ export function ImportWalletPage({
                     textTransform: "uppercase",
                   }}
                 >
-                  Wallet password
+                  {t("common.walletPassword")}
                 </span>
 
                 <div style={{ position: "relative" }}>
@@ -538,7 +539,7 @@ export function ImportWalletPage({
                     className="input lg"
                     type={passwordVisible ? "text" : "password"}
                     value={password}
-                    placeholder="strong-password-123"
+                    placeholder={t("import.passwordPlaceholder")}
                     autoComplete="new-password"
                     onChange={(event) => {
                       setPassword(event.target.value);
@@ -566,7 +567,7 @@ export function ImportWalletPage({
                       justifyContent: "center",
                       cursor: "pointer",
                     }}
-                    aria-label={passwordVisible ? "Hide password" : "Show password"}
+                    aria-label={passwordVisible ? t("common.hidePassword") : t("common.showPassword")}
                   >
                     {passwordVisible ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
@@ -582,14 +583,14 @@ export function ImportWalletPage({
                   gap: 8,
                 }}
               >
-                <RuleRow valid={passwordLongEnough} label="At least 8 characters" />
-                <RuleRow valid={passwordHasLetter} label="Contains a letter" />
-                <RuleRow valid={passwordHasNumber} label="Contains a number" />
-                <RuleRow valid={seedLooksValid} label="Seed phrase ready" />
+                <RuleRow valid={passwordLongEnough} label={t("create.rule8")} />
+                <RuleRow valid={passwordHasLetter} label={t("create.ruleLetter")} />
+                <RuleRow valid={passwordHasNumber} label={t("create.ruleNumber")} />
+                <RuleRow valid={seedLooksValid} label={t("import.seedReady")} />
               </section>
 
-              <Notice title="Local encryption" tone="success">
-                Your seed phrase is encrypted locally. Keep your password and seed phrase safe.
+              <Notice title={t("import.localEncryption")} tone="success">
+                {t("import.localEncryptionBody")}
               </Notice>
 
               <button
@@ -597,7 +598,7 @@ export function ImportWalletPage({
                 type="submit"
                 disabled={!passwordLooksValid || importing}
               >
-                {importing ? "Importing…" : "Import wallet"}
+                {importing ? t("common.importing") : t("import.importButton")}
               </button>
 
               <button
@@ -609,7 +610,7 @@ export function ImportWalletPage({
                 }}
                 disabled={importing}
               >
-                Edit seed phrase
+                {t("import.editSeed")}
               </button>
             </form>
           </>

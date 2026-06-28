@@ -18,6 +18,7 @@ import {
   SOLANA_MAINNET_CHAIN_ID,
   SOLANA_DEVNET_CHAIN_ID,
   TRON_MAINNET_CHAIN_ID,
+  TON_MAINNET_CHAIN_ID,
 } from "../networks/chain-registry";
 import { NATIVE_ADDRESS, priceDebug, priceWarn } from "./price-identity";
 
@@ -51,6 +52,8 @@ export function toBackendChainId(chainId: number): string {
       return "solana-devnet";
     case TRON_MAINNET_CHAIN_ID:
       return "tron";
+    case TON_MAINNET_CHAIN_ID:
+      return "ton";
     default:
       return String(chainId);
   }

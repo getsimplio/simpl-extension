@@ -24,6 +24,7 @@ import {
 } from "../../core/swap/pancakeV2SwapService";
 import { transactionHistoryService } from "../../core/transactions/transaction-history.service";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation, t } from "../../i18n";
 import {
   tokenRegistryService,
   getRegisteredTokensByChainId,
@@ -780,33 +781,33 @@ function formatRate(
 
 
 function getSubmittedSwapStatusTitle(status: SubmittedSwapStatus): string {
-  if (status === "confirmed") return "Swap confirmed";
-  if (status === "failed") return "Swap failed";
-  return "Swap submitted";
+  if (status === "confirmed") return t("swap.swapConfirmed");
+  if (status === "failed") return t("swap.swapFailedTitle");
+  return t("swap.swapSubmitted");
 }
 
 function getSubmittedSwapStatusSubtitle(status: SubmittedSwapStatus): string {
-  if (status === "confirmed") return "Confirmed on-chain";
-  if (status === "failed") return "Transaction failed on-chain";
-  return "Waiting for network confirmation";
+  if (status === "confirmed") return t("swap.confirmedOnChain");
+  if (status === "failed") return t("swap.failedOnChain");
+  return t("swap.waitingConfirmation");
 }
 
 function getSubmittedSwapStatusLabel(status: SubmittedSwapStatus): string {
-  if (status === "confirmed") return "Confirmed";
-  if (status === "failed") return "Failed";
-  return "Pending";
+  if (status === "confirmed") return t("activity.status.confirmed");
+  if (status === "failed") return t("activity.status.failed");
+  return t("activity.status.pending");
 }
 
 function getSubmittedSwapStatusCardTitle(status: SubmittedSwapStatus): string {
-  if (status === "confirmed") return "Transaction confirmed";
-  if (status === "failed") return "Transaction failed";
-  return "Transaction sent";
+  if (status === "confirmed") return t("swap.txConfirmed");
+  if (status === "failed") return t("swap.txFailed");
+  return t("swap.txSent");
 }
 
 function getSubmittedSwapStatusCardText(status: SubmittedSwapStatus): string {
-  if (status === "confirmed") return "Your swap has been confirmed by the network.";
-  if (status === "failed") return "The transaction was included on-chain but failed.";
-  return "Your swap has been submitted to the network.";
+  if (status === "confirmed") return t("swap.swapConfirmedCard");
+  if (status === "failed") return t("swap.swapFailedCard");
+  return t("swap.swapSubmittedCard");
 }
 
 function getSubmittedSwapStatusIcon(status: SubmittedSwapStatus): string {
@@ -833,7 +834,7 @@ function normalizeSwapError(error: unknown, context: SwapErrorContext): string {
     message.includes('"code":4001') ||
     message.includes("4001")
   ) {
-    return "Transaction rejected in wallet.";
+    return t("errors.transactionRejected");
   }
 
   if (
@@ -862,7 +863,7 @@ function normalizeSwapError(error: unknown, context: SwapErrorContext): string {
     message.includes("temporarily unavailable") ||
     message.includes("service unavailable")
   ) {
-    return "Network or RPC is temporarily unavailable. Please try again in a few seconds.";
+    return t("errors.networkUnavailable");
   }
 
   if (
@@ -870,7 +871,7 @@ function normalizeSwapError(error: unknown, context: SwapErrorContext): string {
     message.includes("approve") ||
     message.includes("approval")
   ) {
-    return "Token approval failed. Please try approving the token again.";
+    return t("swap.approvalFailed");
   }
 
   if (
@@ -888,7 +889,7 @@ function normalizeSwapError(error: unknown, context: SwapErrorContext): string {
   }
 
   if (context === "submit") {
-    return "Swap transaction failed. Please check your wallet and try again.";
+    return t("swap.swapFailed");
   }
 
   if (context === "receipt") {
@@ -896,7 +897,7 @@ function normalizeSwapError(error: unknown, context: SwapErrorContext): string {
   }
 
   // Unknown failure — never surface the raw provider/ethers string to the UI.
-  return "Something went wrong. Please try again.";
+  return t("errors.generic");
 }
 
 
@@ -1025,6 +1026,7 @@ export function SwapPage({
   onChanged,
   initialToAsset,
 }: SwapPageProps) {
+  const { t } = useTranslation();
   const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
   // Destination chain for the chain-aware Swap. Equal to the source chain → a
   // same-chain swap (existing 0x / Jupiter flow). Different → a cross-chain swap
@@ -1208,6 +1210,19 @@ export function SwapPage({
       // localStorage is optional.
     }
   }, [slippageBps]);
+
+  // Escape closes the Swap settings modal (matches the keyboard UX used by the
+  // other selectors/sheets in the app).
+  useEffect(() => {
+    if (!isSwapSettingsOpen) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsSwapSettingsOpen(false);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isSwapSettingsOpen]);
 
   // Seed the token pair from an asset opened via "Swap" in the details modal:
   // the asset becomes the TO token, FROM defaults to the chain's native token.
@@ -1483,13 +1498,13 @@ export function SwapPage({
 
           if (nextPrice.liquidityAvailable === false) {
             setPriceStatus("error");
-            setPriceError("No liquidity available for this pair.");
+            setPriceError(t("swap.noLiquidity"));
             return;
           }
 
           if (hasZeroXBalanceIssue(nextPrice)) {
             setPriceStatus("error");
-            setPriceError("Insufficient balance for this swap.");
+            setPriceError(t("swap.insufficientBalance"));
             return;
           }
 
@@ -1734,9 +1749,9 @@ export function SwapPage({
       : amount;
 
   const estimatedReceive = useMemo(() => {
-    if (!toToken) return "Select token";
-    if (priceStatus === "loading") return "Fetching quote...";
-    if (priceStatus === "error") return "Quote unavailable";
+    if (!toToken) return t("swap.selectToken");
+    if (priceStatus === "loading") return t("swap.fetchingQuote");
+    if (priceStatus === "error") return t("swap.quoteUnavailable");
 
     const value = formatEstimatedReceive(price, toToken);
 
@@ -2387,6 +2402,18 @@ if (selectedAccount && fromToken && toToken) {
     setCustomSlippagePercent(String(normalizedSlippageBps / 100));
   }
 
+  // Derived validation/state for the custom slippage input. `parsed` is the
+  // clamped bps for a valid entry, or null when the value can't be parsed. The
+  // field is only flagged as an error once the user has typed something invalid;
+  // Apply is disabled while the value is invalid or unchanged from the applied
+  // slippage (so it never re-applies the same number or an invalid one).
+  const parsedCustomSlippageBps = parseSlippagePercentInput(customSlippagePercent);
+  const isCustomSlippageInvalid =
+    customSlippagePercent.trim().length > 0 && parsedCustomSlippageBps === null;
+  const canApplyCustomSlippage =
+    parsedCustomSlippageBps !== null && parsedCustomSlippageBps !== slippageBps;
+  const SLIPPAGE_PRESETS_BPS = [10, 50, 100];
+
   function handleNewSwap() {
     hasAutoAddedRef.current = false;
     setAmount("");
@@ -2431,12 +2458,14 @@ if (selectedAccount && fromToken && toToken) {
   }
 
   const pickerTitle =
-    tokenPickerSide === "from" ? "Select token to sell" : "Select token to buy";
+    tokenPickerSide === "from"
+      ? t("swap.selectTokenToSell")
+      : t("swap.selectTokenToReceive");
 
   const ctaLabel = (() => {
-    if (!amount || Number(amount) <= 0) return "Enter amount";
-    if (priceStatus === "loading") return "Getting quote…";
-    return "Review swap";
+    if (!amount || Number(amount) <= 0) return t("swap.enterAmount");
+    if (priceStatus === "loading") return t("swap.gettingQuote");
+    return t("swap.reviewSwap");
   })();
 
   // Network selection — the shared full-screen selector (no modal/sheet).
@@ -2457,22 +2486,22 @@ if (selectedAccount && fromToken && toToken) {
     return (
       <div className="ext-popup swap-page" data-screen-label="Swap – Watch-only">
         <div className="bar-top">
-          <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+          <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-            Swap
+            {t("swap.title")}
           </div>
         </div>
         <div className="screen-body watch-only-guard">
-          <div className="watch-only-guard__title">Watch-only account</div>
+          <div className="watch-only-guard__title">{t("send.watchOnlyTitle")}</div>
           <div className="watch-only-guard__text">
-            This account cannot swap assets because it cannot sign transactions.
+            {t("swap.watchOnlyCannotSwap")}
           </div>
           <button className="btn secondary lg full" type="button" onClick={onBack}>
-            Back to wallet
+            {t("common.backToWallet")}
           </button>
         </div>
       </div>
@@ -2558,7 +2587,7 @@ if (selectedAccount && fromToken && toToken) {
     <div className="ext-popup swap-page" data-screen-label="Swap">
       {/* ── Top bar ── */}
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 19l-7-7 7-7" />
           </svg>
@@ -2568,9 +2597,9 @@ if (selectedAccount && fromToken && toToken) {
           type="button"
           className="swap-page-title swap-page-title--button"
           onClick={() => setNetworkSelectorOpen(true)}
-          aria-label={`Select network. Current: ${getNetworkLabel(selectedChainId)}`}
+          aria-label={t("receive.changeNetwork", { label: getNetworkLabel(selectedChainId) })}
         >
-          <div className="swap-page-title__name">Swap</div>
+          <div className="swap-page-title__name">{t("swap.title")}</div>
           <div className="swap-page-title__network">
             {getNetworkLabel(selectedChainId)}
             <span className="swap-page-title__chevron" aria-hidden="true">▾</span>
@@ -2580,7 +2609,7 @@ if (selectedAccount && fromToken && toToken) {
         <button
           className="icbtn"
           type="button"
-          aria-label={`Swap settings · slippage ${formatSlippageBps(slippageBps)}`}
+          aria-label={t("swap.settingsWithSlippage", { value: formatSlippageBps(slippageBps) })}
           onClick={() => {
             setCustomSlippagePercent(String(slippageBps / 100));
             setIsSwapSettingsOpen(true);
@@ -2599,7 +2628,7 @@ if (selectedAccount && fromToken && toToken) {
         style={{ display: "flex", flexDirection: "column", gap: 10 }}
       >
         {tokenError ? (
-          <div className="swap-error">Could not load tokens. {tokenError}</div>
+          <div className="swap-error">{t("swap.couldNotLoadTokens", { error: tokenError })}</div>
         ) : null}
 
         {/* Combined From / To card */}
@@ -2607,7 +2636,7 @@ if (selectedAccount && fromToken && toToken) {
           {/* FROM half */}
           <div className="swap-half swap-half--from">
             <div className="swap-half-top">
-              <span className="swap-half-label">From</span>
+              <span className="swap-half-label">{t("swap.from")}</span>
               <div className="swap-half-selectors">
                 <button
                   className="swap-token-pill"
@@ -2626,7 +2655,7 @@ if (selectedAccount && fromToken && toToken) {
                   ) : (
                     <span className="swap-token-pill__icon">?</span>
                   )}
-                  <span className="swap-token-pill__sym">{fromToken?.symbol ?? "Select"}</span>
+                  <span className="swap-token-pill__sym">{fromToken?.symbol ?? t("swap.select")}</span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
               </div>
@@ -2690,7 +2719,7 @@ if (selectedAccount && fromToken && toToken) {
                   <button
                     type="button"
                     className="swap-percent-chip__apply"
-                    aria-label="Apply custom percent"
+                    aria-label={t("swap.applyCustomPercent")}
                     // Keep input focus so the click applies before onBlur fires.
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={handleApplyCustomPercent}
@@ -2708,8 +2737,8 @@ if (selectedAccount && fromToken && toToken) {
                   }`}
                   onClick={handleStartCustomEdit}
                   disabled={!fromToken || fromBalanceIsZero}
-                  aria-label="Custom percent of balance"
-                  title="Custom percent of balance"
+                  aria-label={t("swap.customPercentOfBalance")}
+                  title={t("swap.customPercentOfBalance")}
                 >
                   {amountMode === "sell" && selectedPercent !== null
                     ? `${selectedPercent}%`
@@ -2723,7 +2752,7 @@ if (selectedAccount && fromToken && toToken) {
                 onClick={handleMaxClick}
                 disabled={!fromToken || fromBalanceIsZero}
               >
-                MAX
+                {t("common.max")}
               </button>
             </div>
           </div>
@@ -2735,7 +2764,7 @@ if (selectedAccount && fromToken && toToken) {
               type="button"
               onClick={handleSwitchTokens}
               disabled={!fromToken || !toToken}
-              aria-label="Switch tokens"
+              aria-label={t("swap.switchTokens")}
             >
               ↕
             </button>
@@ -2744,7 +2773,7 @@ if (selectedAccount && fromToken && toToken) {
           {/* TO half */}
           <div className="swap-half swap-half--to">
             <div className="swap-half-top">
-              <span className="swap-half-label">To</span>
+              <span className="swap-half-label">{t("swap.to")}</span>
               <div className="swap-half-selectors">
                 <button
                   className="swap-token-pill"
@@ -2763,7 +2792,7 @@ if (selectedAccount && fromToken && toToken) {
                   ) : (
                     <span className="swap-token-pill__icon">?</span>
                   )}
-                  <span className="swap-token-pill__sym">{toToken?.symbol ?? "Select"}</span>
+                  <span className="swap-token-pill__sym">{toToken?.symbol ?? t("swap.select")}</span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
               </div>
@@ -2789,7 +2818,7 @@ if (selectedAccount && fromToken && toToken) {
 
             <div className="swap-half-bottom">
               <span>
-                {amountMode === "buy" ? "You receive" : toToken?.name ?? "—"}
+                {amountMode === "buy" ? t("swap.youReceive") : toToken?.name ?? "—"}
               </span>
               {toToken ? (
                 <span className="swap-half-bottom__bal">
@@ -2805,21 +2834,21 @@ if (selectedAccount && fromToken && toToken) {
         {priceStatus !== "idle" ? (
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>Rate</span>
+              <span>{t("swap.rate")}</span>
               <strong>{formatRate(price, fromToken, toToken)}</strong>
             </div>
             <div className="swap-quote-row">
-              <span>Network fee</span>
+              <span>{t("swap.networkFee")}</span>
               <strong>{formatNetworkFee(price, selectedChainId)}</strong>
             </div>
             <div className="swap-quote-row swap-quote-row--route">
-              <span>Route</span>
+              <span>{t("swap.route")}</span>
               <strong title={priceStatus === "ready" ? getZeroXRouteLabel(price) : undefined}>
                 {priceStatus === "ready" ? getZeroXRouteLabel(price) : "—"}
               </strong>
             </div>
             <div className="swap-quote-row">
-              <span>Simple fee</span>
+              <span>{t("swap.simplFee")}</span>
               <strong>
                 {priceStatus === "ready"
                   ? formatSimpleFeeAmount(price, fromToken, toToken)
@@ -2829,7 +2858,7 @@ if (selectedAccount && fromToken && toToken) {
               </strong>
             </div>
             <div className="swap-quote-row">
-              <span>Minimum received</span>
+              <span>{t("swap.minimumReceived")}</span>
               <strong>{formatMinReceived(price, toToken)}</strong>
             </div>
           </div>
@@ -2858,7 +2887,7 @@ if (selectedAccount && fromToken && toToken) {
         {/* Auto-refresh countdown */}
         {priceStatus === "ready" && quoteCountdown !== null ? (
           <div className="swap-quote-refresh">
-            Quote refreshes in {quoteCountdown}s
+            {t("swap.quoteRefreshesIn", { seconds: quoteCountdown })}
           </div>
         ) : null}
 
@@ -2893,7 +2922,7 @@ if (selectedAccount && fromToken && toToken) {
               className="icbtn"
               type="button"
               onClick={handleBackToWalletAfterSubmit}
-              aria-label="Back to wallet"
+              aria-label={t("common.backToWallet")}
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 19l-7-7 7-7" />
@@ -2937,7 +2966,7 @@ if (selectedAccount && fromToken && toToken) {
             {/* Transaction details */}
             <div className="swap-status-details">
               <div className="swap-details-row">
-                <span>You paid</span>
+                <span>{t("swap.youPaid")}</span>
                 <strong>
                   {reviewPayAmount} {fromToken?.symbol ?? ""}
                 </strong>
@@ -2946,10 +2975,10 @@ if (selectedAccount && fromToken && toToken) {
               <div className="swap-details-row">
                 <span>
                   {submittedSwapStatus === "confirmed"
-                    ? "You received"
+                    ? t("swap.youReceived")
                     : submittedSwapStatus === "failed"
-                      ? "You expected"
-                      : "You receive"}
+                      ? t("swap.youExpected")
+                      : t("swap.youReceive")}
                 </span>
                 <strong>
                   {quote && toToken
@@ -2959,7 +2988,7 @@ if (selectedAccount && fromToken && toToken) {
               </div>
 
               <div className="swap-details-row">
-                <span>Status</span>
+                <span>{t("common.status")}</span>
                 <strong>
                   <span
                     className={`swap-status-badge swap-status-badge--${submittedSwapStatus}`}
@@ -2971,7 +3000,7 @@ if (selectedAccount && fromToken && toToken) {
 
               {submittedSwapStatus === "confirmed" ? (
                 <div className="swap-details-row">
-                  <span>Simple fee</span>
+                  <span>{t("swap.simplFee")}</span>
                   <strong>
                     {quote ? formatSimpleFeeAmount(quote, fromToken, toToken) : "—"}
                   </strong>
@@ -2979,13 +3008,13 @@ if (selectedAccount && fromToken && toToken) {
               ) : null}
 
               <div className="swap-details-row">
-                <span>Network fee</span>
+                <span>{t("swap.networkFee")}</span>
                 <strong>{quote ? formatNetworkFee(quote, selectedChainId) : "—"}</strong>
               </div>
 
               {submittedSwapStatus !== "confirmed" ? (
                 <div className="swap-details-row">
-                  <span>Route</span>
+                  <span>{t("swap.route")}</span>
                   <strong title={quote ? getZeroXRouteLabel(quote) : undefined}>
                     {quote ? getZeroXRouteLabel(quote) : "—"}
                   </strong>
@@ -2993,7 +3022,7 @@ if (selectedAccount && fromToken && toToken) {
               ) : null}
 
               <div className="swap-details-row">
-                <span>Tx hash</span>
+                <span>{t("swap.txHash")}</span>
                 <strong
                   className="swap-status-hash"
                   title={submittedTxHash ?? undefined}
@@ -3012,7 +3041,7 @@ if (selectedAccount && fromToken && toToken) {
                   type="button"
                   onClick={handleTryAgainAfterFailedSwap}
                 >
-                  Try again
+                  {t("common.retry")}
                 </button>
 
                 <button
@@ -3020,7 +3049,7 @@ if (selectedAccount && fromToken && toToken) {
                   type="button"
                   onClick={handleBackToWalletAfterSubmit}
                 >
-                  Back to wallet
+                  {t("common.backToWallet")}
                 </button>
 
                 {submittedExplorerUrl ? (
@@ -3030,7 +3059,7 @@ if (selectedAccount && fromToken && toToken) {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    View on explorer
+                    {t("common.viewOnExplorer")}
                   </a>
                 ) : null}
               </>
@@ -3043,7 +3072,7 @@ if (selectedAccount && fromToken && toToken) {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    View on explorer
+                    {t("common.viewOnExplorer")}
                   </a>
                 ) : null}
 
@@ -3052,7 +3081,7 @@ if (selectedAccount && fromToken && toToken) {
                   type="button"
                   onClick={handleBackToWalletAfterSubmit}
                 >
-                  Back to wallet
+                  {t("common.backToWallet")}
                 </button>
 
                 {submittedSwapStatus === "confirmed" ? (
@@ -3061,7 +3090,7 @@ if (selectedAccount && fromToken && toToken) {
                     type="button"
                     onClick={handleStartNewSwapAfterSubmit}
                   >
-                    New swap
+                    {t("swap.newSwap")}
                   </button>
                 ) : null}
               </>
@@ -3071,76 +3100,155 @@ if (selectedAccount && fromToken && toToken) {
       ) : null}
 
       {isSwapSettingsOpen ? (
-        <div className="swap-token-modal-backdrop">
-          <div className="swap-token-modal" role="dialog" aria-modal="true">
-            <div className="swap-token-modal-header">
-              <div>
-                <h2>Swap settings</h2>
-                <p>Control price protection for 0x quotes</p>
+        <div
+          className="swap-settings-backdrop"
+          onClick={() => setIsSwapSettingsOpen(false)}
+        >
+          <div
+            className="swap-settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("swap.settings.title")}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="swap-settings-modal__header">
+              <div className="swap-settings-modal__heading">
+                <h2 className="swap-settings-modal__title">
+                  {t("swap.settings.title")}
+                </h2>
+                <p className="swap-settings-modal__subtitle">
+                  {t("swap.settings.subtitle")}
+                </p>
               </div>
 
               <button
-                className="icbtn"
+                className="icbtn swap-settings-modal__close"
                 type="button"
+                aria-label={t("swap.settings.close")}
                 onClick={() => setIsSwapSettingsOpen(false)}
               >
-                ×
+                <svg
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
               </button>
             </div>
 
             <section className="swap-settings-section">
-              <div className="swap-settings-label">
-                <strong>Max slippage</strong>
-                <span>Current: {formatSlippageBps(slippageBps)}</span>
+              <div className="swap-settings-row">
+                <strong className="swap-settings-row__label">
+                  {t("swap.settings.maxSlippage")}
+                </strong>
+                <span className="swap-settings-row__current">
+                  {t("swap.settings.current", {
+                    value: formatSlippageBps(slippageBps),
+                  })}
+                </span>
               </div>
 
-              <div className="swap-slippage-grid">
-                <button
-                  type="button"
-                  className={slippageBps === 10 ? "active" : ""}
-                  onClick={() => handlePresetSlippage(10)}
-                >
-                  0.1%
-                </button>
-
-                <button
-                  type="button"
-                  className={slippageBps === 50 ? "active" : ""}
-                  onClick={() => handlePresetSlippage(50)}
-                >
-                  0.5%
-                </button>
-
-                <button
-                  type="button"
-                  className={slippageBps === 100 ? "active" : ""}
-                  onClick={() => handlePresetSlippage(100)}
-                >
-                  1.0%
-                </button>
+              <div className="swap-slippage-presets">
+                {SLIPPAGE_PRESETS_BPS.map((presetBps) => {
+                  const active = slippageBps === presetBps;
+                  return (
+                    <button
+                      key={presetBps}
+                      type="button"
+                      className={`swap-slippage-preset${
+                        active ? " swap-slippage-preset--active" : ""
+                      }`}
+                      aria-pressed={active}
+                      onClick={() => handlePresetSlippage(presetBps)}
+                    >
+                      {active ? (
+                        <svg
+                          className="swap-slippage-preset__check"
+                          viewBox="0 0 24 24"
+                          width="13"
+                          height="13"
+                          aria-hidden="true"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M5 12l5 5 9-10" />
+                        </svg>
+                      ) : null}
+                      {formatSlippageBps(presetBps)}
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="swap-custom-slippage">
-                <input
-                  inputMode="decimal"
-                  placeholder="Custom %"
-                  value={customSlippagePercent}
-                  onChange={(event) =>
-                    setCustomSlippagePercent(event.target.value)
-                  }
-                />
+              <div className="swap-settings-custom">
+                <label
+                  className="swap-settings-custom__label"
+                  htmlFor="swap-custom-slippage"
+                >
+                  {t("swap.settings.customSlippage")}
+                </label>
 
-                <button type="button" onClick={handleApplyCustomSlippage}>
-                  Apply
-                </button>
+                <div className="swap-settings-custom__row">
+                  <div
+                    className={`swap-settings-custom__field${
+                      isCustomSlippageInvalid
+                        ? " swap-settings-custom__field--error"
+                        : ""
+                    }`}
+                  >
+                    <input
+                      id="swap-custom-slippage"
+                      inputMode="decimal"
+                      placeholder="0.5"
+                      value={customSlippagePercent}
+                      aria-invalid={isCustomSlippageInvalid}
+                      onChange={(event) =>
+                        setCustomSlippagePercent(event.target.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && canApplyCustomSlippage) {
+                          handleApplyCustomSlippage();
+                        }
+                      }}
+                    />
+                    <span
+                      className="swap-settings-custom__suffix"
+                      aria-hidden="true"
+                    >
+                      %
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn secondary swap-settings-custom__apply"
+                    disabled={!canApplyCustomSlippage}
+                    onClick={handleApplyCustomSlippage}
+                  >
+                    {t("swap.settings.apply")}
+                  </button>
+                </div>
+
+                {isCustomSlippageInvalid ? (
+                  <div className="swap-settings-error">
+                    {t("swap.settings.invalidSlippage")}
+                  </div>
+                ) : (
+                  <div className="swap-settings-hint">
+                    {t("swap.settings.riskHint")}
+                  </div>
+                )}
               </div>
-
-              {slippageBps >= 300 ? (
-                <section className="swap-warning">
-                  High slippage increases the chance of receiving less than
-                  expected.
-                </section>
-              ) : null}
             </section>
           </div>
         </div>
@@ -3151,7 +3259,7 @@ if (selectedAccount && fromToken && toToken) {
           className="swap-review-page"
           role="dialog"
           aria-modal="true"
-          aria-label="Review swap"
+          aria-label={t("swap.reviewSwap")}
         >
           {/* Header — full wallet screen, not a modal */}
           <div className="swap-review-page__header">
@@ -3159,7 +3267,7 @@ if (selectedAccount && fromToken && toToken) {
               className="icbtn"
               type="button"
               onClick={handleCloseReview}
-              aria-label="Back to swap"
+              aria-label={t("swap.backToSwap")}
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 19l-7-7 7-7" />
@@ -3167,9 +3275,9 @@ if (selectedAccount && fromToken && toToken) {
             </button>
 
             <div className="swap-review-page__titles">
-              <div className="swap-review-page__title">Review swap</div>
+              <div className="swap-review-page__title">{t("swap.reviewSwap")}</div>
               <div className="swap-review-page__subtitle">
-                Slippage {formatSlippageBps(slippageBps)}
+                {t("swap.slippage")} {formatSlippageBps(slippageBps)}
               </div>
             </div>
 
@@ -3178,14 +3286,14 @@ if (selectedAccount && fromToken && toToken) {
 
           {reviewStatus === "loading" ? (
             <div className="swap-review-page__content">
-              <div className="swap-empty-state">Fetching final quote…</div>
+              <div className="swap-empty-state">{t("swap.fetchingQuote")}</div>
             </div>
           ) : null}
 
           {reviewStatus === "error" ? (
             <div className="swap-review-page__content">
               <section className="swap-error">
-                {quoteError ?? "Could not fetch final quote."}
+                {quoteError ?? t("swap.quoteFailed")}
               </section>
             </div>
           ) : null}
@@ -3196,7 +3304,7 @@ if (selectedAccount && fromToken && toToken) {
                 {/* Compact pay / receive summary */}
                 <div className="swap-review-summary">
                   <div className="swap-review-summary__row">
-                    <span className="swap-review-summary__label">You pay</span>
+                    <span className="swap-review-summary__label">{t("swap.youPay")}</span>
                     <strong className="swap-review-summary__amount">
                       {reviewPayAmount} {fromToken.symbol}
                     </strong>
@@ -3205,7 +3313,7 @@ if (selectedAccount && fromToken && toToken) {
                   <div className="swap-review-summary__divider" />
 
                   <div className="swap-review-summary__row">
-                    <span className="swap-review-summary__label">You receive</span>
+                    <span className="swap-review-summary__label">{t("swap.youReceive")}</span>
                     <strong className="swap-review-summary__amount">
                       {formatEstimatedReceive(quote, toToken)} {toToken.symbol}
                     </strong>
@@ -3215,47 +3323,47 @@ if (selectedAccount && fromToken && toToken) {
                 {/* Quote details */}
                 <div className="swap-review-details">
                   <div className="swap-details-row">
-                    <span>Rate</span>
+                    <span>{t("swap.rate")}</span>
                     <strong title={formatRate(quote, fromToken, toToken)}>
                       {formatRate(quote, fromToken, toToken)}
                     </strong>
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Minimum received</span>
+                    <span>{t("swap.minimumReceived")}</span>
                     <strong>{formatMinReceived(quote, toToken)}</strong>
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Network fee</span>
+                    <span>{t("swap.networkFee")}</span>
                     <strong>{formatNetworkFee(quote, selectedChainId)}</strong>
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Route</span>
+                    <span>{t("swap.route")}</span>
                     <strong title={getZeroXRouteLabel(quote)}>
                       {getZeroXRouteLabel(quote)}
                     </strong>
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Simple fee</span>
+                    <span>{t("swap.simplFee")}</span>
                     <strong>{formatSimpleFeeAmount(quote, fromToken, toToken)}</strong>
                   </div>
 
                   <div className="swap-details-row">
-                    <span>Approval</span>
-                    <strong>{needsApproval ? "Required" : "Not needed"}</strong>
+                    <span>{t("swap.approval")}</span>
+                    <strong>{needsApproval ? t("swap.approvalRequired") : t("swap.approvalNotNeeded")}</strong>
                   </div>
 
                   <p className="swap-review-fee-note">
-                    Network fee may change before confirmation.
+                    {t("swap.feeMayChange")}
                   </p>
                 </div>
 
                 {isApprovalApproved && approvalTxHash ? (
                   <section className="swap-success">
-                    <strong>Approval confirmed</strong>
+                    <strong>{t("swap.approvalConfirmed")}</strong>
                     <span>{approvalTxHash}</span>
                   </section>
                 ) : null}
@@ -3278,8 +3386,8 @@ if (selectedAccount && fromToken && toToken) {
                     disabled={approvalStatus === "approving" || isApprovalApproved}
                   >
                     {approvalStatus === "approving"
-                      ? `Approving ${fromToken.symbol}…`
-                      : `Approve ${fromToken.symbol}`}
+                      ? t("swap.approving")
+                      : t("swap.approve", { symbol: fromToken.symbol })}
                   </button>
                 ) : (
                   <button
@@ -3291,8 +3399,8 @@ if (selectedAccount && fromToken && toToken) {
                     }
                   >
                     {submitStatus === "submitting"
-                      ? "Submitting swap…"
-                      : "Confirm swap"}
+                      ? t("swap.submittingSwap")
+                      : t("swap.confirmSwap")}
                   </button>
                 )}
               </div>
@@ -3326,7 +3434,7 @@ if (selectedAccount && fromToken && toToken) {
             <div className="swap-picker-search">
               <input
                 type="text"
-                placeholder="Search name, symbol, or paste address"
+                placeholder={t("swap.searchTokenPlaceholder")}
                 value={tokenPickerSearch}
                 autoFocus
                 onChange={(e) => {
@@ -3344,7 +3452,7 @@ if (selectedAccount && fromToken && toToken) {
             {tokenImportStatus !== "idle" ? (
               <div className="swap-token-import-panel">
                 {tokenImportStatus === "fetching" ? (
-                  <div className="swap-empty-state">Looking up token on chain…</div>
+                  <div className="swap-empty-state">{t("swap.checkingToken")}</div>
                 ) : null}
 
                 {tokenImportStatus === "error" ? (() => {
@@ -3356,7 +3464,7 @@ if (selectedAccount && fromToken && toToken) {
                     <>
                       <div className="swap-error">{tokenImportError}</div>
                       <div className="swap-import-error-hint">
-                        Try searching by token symbol, for example BTCB or USDC.
+                        {t("swap.importErrorHint")}
                       </div>
                       {similarToken ? (
                         <button
@@ -3369,7 +3477,7 @@ if (selectedAccount && fromToken && toToken) {
                             setTokenImportPreview(null);
                           }}
                         >
-                          Did you mean <strong>{similarToken.symbol}</strong>?
+                          {t("swap.didYouMean", { symbol: similarToken.symbol })}
                         </button>
                       ) : null}
                       <button
@@ -3380,7 +3488,7 @@ if (selectedAccount && fromToken && toToken) {
                           setTokenImportError(null);
                         }}
                       >
-                        ← Back to search
+                        ← {t("swap.backToSearch")}
                       </button>
                     </>
                   );
@@ -3404,14 +3512,14 @@ if (selectedAccount && fromToken && toToken) {
                       </span>
                     </div>
                     <div className="swap-warning">
-                      ⚠ Anyone can create a token with any name or symbol. Only import if you trust this asset.
+                      ⚠ {t("swap.importWarning")}
                     </div>
                     <button
                       className="swap-review-button"
                       type="button"
                       onClick={handleConfirmImport}
                     >
-                      Import and select
+                      {t("swap.importAndSelect")}
                     </button>
                     <button
                       className="swap-picker-back-btn"
@@ -3421,7 +3529,7 @@ if (selectedAccount && fromToken && toToken) {
                         setTokenImportPreview(null);
                       }}
                     >
-                      ← Back to search
+                      ← {t("swap.backToSearch")}
                     </button>
                   </>
                 ) : null}
@@ -3432,7 +3540,7 @@ if (selectedAccount && fromToken && toToken) {
                 {pickerWallet.length > 0 ? (
                   <>
                     {(pickerPopular.length > 0 || pickerImported.length > 0) ? (
-                      <div className="swap-token-section-label">Your assets</div>
+                      <div className="swap-token-section-label">{t("swap.yourAssets")}</div>
                     ) : null}
                     {pickerWallet.map((token) => (
                       <button
@@ -3463,7 +3571,7 @@ if (selectedAccount && fromToken && toToken) {
                 {/* Popular */}
                 {pickerPopular.length > 0 ? (
                   <>
-                    <div className="swap-token-section-label">Popular</div>
+                    <div className="swap-token-section-label">{t("swap.popular")}</div>
                     {pickerPopular.map((token) => (
                       <button
                         key={token.id}
@@ -3491,7 +3599,7 @@ if (selectedAccount && fromToken && toToken) {
                 {/* Imported */}
                 {pickerImported.length > 0 ? (
                   <>
-                    <div className="swap-token-section-label">Imported</div>
+                    <div className="swap-token-section-label">{t("accounts.imported")}</div>
                     {pickerImported.map((token) => (
                       <button
                         key={token.id}
@@ -3520,12 +3628,12 @@ if (selectedAccount && fromToken && toToken) {
                 {pickerHasNoResults ? (
                   <div className="swap-empty-state">
                     {isLoadingTokens
-                      ? "Loading tokens…"
+                      ? t("swap.loadingTokens")
                       : isEvmAddress(tokenPickerSearch.trim()) && tokenImportStatus === "idle"
-                        ? "Checking token…"
+                        ? t("swap.checkingToken")
                         : tokenPickerSearch
-                          ? "No tokens found. Try pasting a contract address to import."
-                          : "No visible assets found. Add a custom token first."}
+                          ? t("swap.noTokensTryImport")
+                          : t("swap.noVisibleAssets")}
                   </div>
                 ) : null}
               </div>

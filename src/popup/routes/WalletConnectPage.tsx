@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { walletService } from "../../core/wallet/wallet.service";
+import { t, useTranslation } from "../../i18n";
 type WalletConnectPageProps = {
   onBack: () => void;
   onConnected?: () => void | Promise<void>;
@@ -1134,9 +1135,9 @@ function getWalletConnectApprovalView(
     case "personal_sign":
       return {
         title: "Sign message",
-        description: "A connected dApp is requesting a message signature from SIMPLE.",
-        status: "Signature confirmation required",
-        previewTitle: "Message preview",
+        description: t("wc.signMessageDesc"),
+        status: t("wc.signatureRequired"),
+        previewTitle: t("wc.messagePreview"),
         previewText: getWcPreviewTextV2(method, params),
         primaryLabel: "Sign",
         requiresPassword: true,
@@ -1145,9 +1146,9 @@ function getWalletConnectApprovalView(
     case "eth_signTypedData_v4":
       return {
         title: "Sign typed data",
-        description: "A connected dApp is requesting a typed data signature from SIMPLE.",
-        status: "Typed data signature required",
-        previewTitle: "Typed data preview",
+        description: t("wc.signTypedDataDesc"),
+        status: t("wc.typedDataRequired"),
+        previewTitle: t("wc.typedDataPreview"),
         previewText: getWcPreviewTextV2(method, params),
         primaryLabel: "Sign",
         requiresPassword: true,
@@ -1156,9 +1157,9 @@ function getWalletConnectApprovalView(
     case "eth_sendTransaction":
       return {
         title: "Confirm transaction",
-        description: "A connected dApp is requesting a transaction from SIMPLE.",
-        status: "Transaction confirmation required",
-        previewTitle: "Transaction preview",
+        description: t("wc.transactionDesc"),
+        status: t("wc.transactionConfirmationRequired"),
+        previewTitle: t("wc.transactionPreview"),
         previewText: getWcPreviewTextV2(method, params),
         primaryLabel: "Confirm transaction",
         requiresPassword: true,
@@ -1166,11 +1167,10 @@ function getWalletConnectApprovalView(
 
     case "tron_signTransaction":
       return {
-        title: "Sign TRON transaction",
-        description:
-          "A connected dApp is requesting a TRON transaction signature. This SIGNS the transaction but does NOT broadcast it.",
-        status: "TRON signature required",
-        previewTitle: "Transaction preview",
+        title: t("wc.signTronTx"),
+        description: t("wc.signTronTxDesc"),
+        status: t("wc.tronSignatureRequired"),
+        previewTitle: t("wc.transactionPreview"),
         previewText: formatRequestParams(params),
         primaryLabel: "Sign transaction",
         requiresPassword: true,
@@ -1178,11 +1178,10 @@ function getWalletConnectApprovalView(
 
     case "tron_signMessage":
       return {
-        title: "Sign TRON message",
-        description:
-          "A connected dApp is requesting a TRON message signature. This signs a MESSAGE — it is not a transaction and moves no funds.",
-        status: "Message signature required",
-        previewTitle: "Message preview",
+        title: t("wc.signTronMessage"),
+        description: t("wc.signTronMessageDesc"),
+        status: t("wc.messageSignatureRequired"),
+        previewTitle: t("wc.messagePreview"),
         previewText: getTronWcMessagePreview(params),
         primaryLabel: "Sign message",
         requiresPassword: true,
@@ -1190,11 +1189,10 @@ function getWalletConnectApprovalView(
 
     case "tron_sendTransaction":
       return {
-        title: "Send TRON transaction",
-        description:
-          "A connected dApp is requesting to sign and broadcast a TRON transaction. TRON uses Bandwidth/Energy; if resources are insufficient, TRX may be burned as the network fee.",
-        status: "Transaction confirmation required",
-        previewTitle: "Transaction preview",
+        title: t("wc.sendTronTx"),
+        description: t("wc.sendTronTxDesc"),
+        status: t("wc.transactionConfirmationRequired"),
+        previewTitle: t("wc.transactionPreview"),
         previewText: formatRequestParams(params),
         primaryLabel: "Send transaction",
         requiresPassword: true,
@@ -1202,10 +1200,10 @@ function getWalletConnectApprovalView(
 
     case "wallet_watchAsset":
       return {
-        title: "Add token",
-        description: "A connected dApp is requesting to add a token to SIMPLE.",
-        status: "Token add request",
-        previewTitle: "Token preview",
+        title: t("wc.addToken"),
+        description: t("wc.addTokenDesc"),
+        status: t("wc.tokenAddRequest"),
+        previewTitle: t("wc.tokenPreview"),
         previewText: getWalletWatchAssetPreviewForUi(params),
         primaryLabel: "Add token",
         requiresPassword: false,
@@ -1214,9 +1212,9 @@ function getWalletConnectApprovalView(
     case "wallet_switchEthereumChain":
       return {
         title: "Switch network",
-        description: "A connected dApp is requesting to switch the active network.",
-        status: "Network switch request",
-        previewTitle: "Network preview",
+        description: t("wc.switchNetworkDesc"),
+        status: t("wc.networkSwitchRequest"),
+        previewTitle: t("wc.networkPreview"),
         previewText: formatRequestParams(params),
         primaryLabel: "Switch network",
         requiresPassword: false,
@@ -1224,10 +1222,10 @@ function getWalletConnectApprovalView(
 
     case "wallet_addEthereumChain":
       return {
-        title: "Add network",
-        description: "A connected dApp is requesting to add a new network.",
-        status: "Network add request",
-        previewTitle: "Network preview",
+        title: t("wc.addNetwork"),
+        description: t("wc.addNetworkDesc"),
+        status: t("wc.networkAddRequest"),
+        previewTitle: t("wc.networkPreview"),
         previewText: formatRequestParams(params),
         primaryLabel: "Add network",
         requiresPassword: false,
@@ -1235,10 +1233,10 @@ function getWalletConnectApprovalView(
 
     case "wallet_getCapabilities":
       return {
-        title: "Wallet capabilities",
-        description: "A connected dApp is requesting wallet capability information.",
-        status: "Capability request",
-        previewTitle: "Request preview",
+        title: t("wc.walletCapabilities"),
+        description: t("wc.walletCapabilitiesDesc"),
+        status: t("wc.capabilityRequest"),
+        previewTitle: t("wc.requestPreview"),
         previewText: formatRequestParams(params),
         primaryLabel: "Approve",
         requiresPassword: false,
@@ -1246,10 +1244,10 @@ function getWalletConnectApprovalView(
 
     default:
       return {
-        title: "Confirm WalletConnect request",
-        description: "A connected dApp is requesting an action from SIMPLE.",
-        status: "Unsupported or unknown request",
-        previewTitle: "Request preview",
+        title: t("wc.confirmRequest"),
+        description: t("wc.genericRequestDesc"),
+        status: t("wc.unsupportedRequest"),
+        previewTitle: t("wc.requestPreview"),
         previewText: formatRequestParams(params),
         primaryLabel: "Approve",
         requiresPassword: false,
@@ -1542,27 +1540,27 @@ function makeWcError(
   switch (reason) {
     case "uri":
       return {
-        title: "Invalid WalletConnect link",
-        subtitle: "Check the QR code or connection link and try again.",
-        action: "Try again",
+        title: t("wc.invalidLink"),
+        subtitle: t("wc.invalidLinkSub"),
+        action: t("common.retry"),
       };
     case "timeout":
       return {
-        title: "Connection timed out",
-        subtitle: "The dApp did not respond in time. Try scanning the QR code again.",
-        action: "Try again",
+        title: t("wc.timedOut"),
+        subtitle: t("wc.timedOutSub"),
+        action: t("common.retry"),
       };
     case "relay":
       return {
-        title: "WalletConnect connection failed",
-        subtitle: "Check your internet connection and try again.",
-        action: "Retry",
+        title: t("wc.failed"),
+        subtitle: t("wc.failedSub"),
+        action: t("common.retry"),
       };
     case "proposal":
       return {
-        title: "Connection request expired",
-        subtitle: "The connection request is no longer valid. Scan the QR code again.",
-        action: "Try again",
+        title: t("wc.expired"),
+        subtitle: t("wc.expiredSub"),
+        action: t("common.retry"),
       };
     default: {
       const isRelayError =
@@ -1571,9 +1569,9 @@ function makeWcError(
 
       if (isRelayError) {
         return {
-          title: "WalletConnect connection failed",
-          subtitle: "Check your internet connection and try again.",
-          action: "Retry",
+          title: t("wc.failed"),
+          subtitle: t("wc.failedSub"),
+          action: t("common.retry"),
         };
       }
 
@@ -1583,16 +1581,16 @@ function makeWcError(
 
       if (isProposalError) {
         return {
-          title: "Connection request expired",
-          subtitle: "The connection request is no longer valid. Scan the QR code again.",
-          action: "Try again",
+          title: t("wc.expired"),
+          subtitle: t("wc.expiredSub"),
+          action: t("common.retry"),
         };
       }
 
       return {
-        title: "Connection failed",
-        subtitle: rawMessage ?? "An unexpected error occurred.",
-        action: "Try again",
+        title: t("wc.connectionFailed"),
+        subtitle: rawMessage ?? t("wc.unexpectedError"),
+        action: t("common.retry"),
       };
     }
   }
@@ -1620,7 +1618,8 @@ export default function WalletConnectPage({
   const [uri, setUri] = useState("");
   const [proposal, setProposal] = useState<WalletConnectProposal | null>(null);
   const [walletSnapshot, setWalletSnapshot] = useState<WalletSnapshot | null>(null);
-  const [status, setStatus] = useState("WalletConnect is ready.");
+  const { t } = useTranslation();
+  const [status, setStatus] = useState(t("wc.ready"));
   const [wcError, setWcError] = useState<WcError | null>(null);
   const [isPairing, setIsPairing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
@@ -1642,17 +1641,17 @@ export default function WalletConnectPage({
       return;
     }
 
-    setStatus("Restoring sessions...");
+    setStatus(t("wc.restoringSessions"));
 
     void readPendingWalletConnectRequest().then((request) => {
       if (!request) {
-        setStatus("WalletConnect is ready.");
+        setStatus(t("wc.ready"));
         return;
       }
 
       setPendingRequest(request);
       setWcError(null);
-      setStatus(`Waiting for approval...`);
+      setStatus(t("wc.waitingApproval"));
     });
   }, []);
 
@@ -1704,7 +1703,7 @@ export default function WalletConnectPage({
         new Date(err.createdAt).getTime() >= since
       ) {
         setWcError(makeWcError("generic", err.message));
-        setStatus("Connection failed.");
+        setStatus(t("wc.connectionFailedShort"));
         return;
       }
     }
@@ -1723,7 +1722,7 @@ export default function WalletConnectPage({
     const pairStartedAt = Date.now();
     setIsPairing(true);
     setWcError(null);
-    setStatus("Connecting to dApp...");
+    setStatus(t("wc.connecting"));
 
     try {
       const pairingPromise = sendWalletConnectEngineMessage<{
@@ -1745,7 +1744,7 @@ export default function WalletConnectPage({
       }
 
       setUri("");
-      setStatus("Waiting for dApp approval...");
+      setStatus(t("wc.waitingDappApproval"));
       await onConnected?.();
       await loadSessions();
       await surfaceRecentProposalError(pairStartedAt);
@@ -1754,10 +1753,10 @@ export default function WalletConnectPage({
 
       if (msg === "PAIR_TIMEOUT") {
         setWcError(makeWcError("timeout"));
-        setStatus("Connection timed out.");
+        setStatus(t("wc.connectionTimedOut"));
       } else {
         setWcError(makeWcError("generic", msg));
-        setStatus("Connection failed.");
+        setStatus(t("wc.connectionFailedShort"));
       }
     } finally {
       setIsPairing(false);
@@ -1771,7 +1770,7 @@ export default function WalletConnectPage({
 
     setIsApproving(true);
     setWcError(null);
-    setStatus("Approving WalletConnect session…");
+    setStatus(t("wc.approvingSession"));
 
     try {
       const snapshot = walletSnapshot ?? (await readWalletSnapshot());
@@ -1788,13 +1787,13 @@ export default function WalletConnectPage({
 
       setProposal(null);
       setUri("");
-      setStatus("WalletConnect session approved.");
+      setStatus(t("wc.sessionApproved"));
       await onConnected?.();
       await loadSessions();
     } catch (nextError) {
       const msg = nextError instanceof Error ? nextError.message : "";
       setWcError(makeWcError("generic", msg));
-      setStatus("WalletConnect approval failed.");
+      setStatus(t("wc.approvalFailed"));
     } finally {
       setIsApproving(false);
     }
@@ -1807,7 +1806,7 @@ export default function WalletConnectPage({
 
     setIsApproving(true);
     setWcError(null);
-    setStatus("Rejecting WalletConnect session…");
+    setStatus(t("wc.rejectingSession"));
 
     try {
       const client = await getClient();
@@ -1815,7 +1814,7 @@ export default function WalletConnectPage({
       await rejectWalletConnectSession(client, proposal.id);
 
       setProposal(null);
-      setStatus("WalletConnect session rejected.");
+      setStatus(t("wc.sessionRejected"));
     } catch (nextError) {
       const msg = nextError instanceof Error ? nextError.message : "";
       setWcError(makeWcError("proposal", msg));
@@ -1841,7 +1840,7 @@ export default function WalletConnectPage({
       const password = approvalPassword.trim();
 
       if (needsPassword && !password) {
-        throw new Error("Wallet password is required.");
+        throw new Error(t("wc.passwordRequired"));
       }
 
       const response = await sendWalletConnectEngineMessage<{
@@ -1855,7 +1854,7 @@ export default function WalletConnectPage({
       });
 
       if (!response?.ok) {
-        throw new Error(response?.error ?? "WalletConnect request approval failed.");
+        throw new Error(response?.error ?? t("wc.requestApprovalFailed"));
       }
 
       setPendingRequest(null);
@@ -1863,11 +1862,11 @@ export default function WalletConnectPage({
       await clearPendingWalletConnectRequest();
 
       if (pendingRequest.method === "eth_sendTransaction") {
-        setStatus("Transaction submitted.");
+        setStatus(t("wc.txSubmitted"));
       } else if (pendingRequest.method === "eth_signTypedData_v4") {
-        setStatus("Message signed.");
+        setStatus(t("wc.messageSigned"));
       } else {
-        setStatus("WalletConnect request approved.");
+        setStatus(t("wc.requestApproved"));
       }
 
       const searchParams = new URLSearchParams(window.location.search);
@@ -1879,7 +1878,7 @@ export default function WalletConnectPage({
 
       const msg = nextError instanceof Error ? nextError.message : "";
       setWcError(makeWcError("generic", msg));
-      setStatus("WalletConnect request approval failed.");
+      setStatus(t("wc.requestApprovalFailed"));
     } finally {
       setIsResponding(false);
     }
@@ -1892,7 +1891,7 @@ export default function WalletConnectPage({
 
     setIsResponding(true);
     setWcError(null);
-    setStatus("Rejecting WalletConnect request…");
+    setStatus(t("wc.rejectingRequest"));
 
     try {
       const response = await sendWalletConnectEngineMessage<{
@@ -1904,13 +1903,13 @@ export default function WalletConnectPage({
       });
 
       if (!response?.ok) {
-        throw new Error(response?.error ?? "WalletConnect request rejection failed.");
+        throw new Error(response?.error ?? t("wc.requestRejectionFailed"));
       }
 
       setPendingRequest(null);
       setApprovalPassword("");
       await clearPendingWalletConnectRequest();
-      setStatus("WalletConnect request rejected.");
+      setStatus(t("wc.requestRejected"));
 
       const searchParams = new URLSearchParams(window.location.search);
       if (searchParams.get("surface") === "approval") {
@@ -1919,7 +1918,7 @@ export default function WalletConnectPage({
     } catch (nextError) {
       const msg = nextError instanceof Error ? nextError.message : "";
       setWcError(makeWcError("generic", msg));
-      setStatus("WalletConnect request rejection failed.");
+      setStatus(t("wc.requestRejectionFailed"));
     } finally {
       setIsResponding(false);
     }
@@ -1961,37 +1960,37 @@ export default function WalletConnectPage({
 
     const requestTitle =
       method === "personal_sign" || method === "eth_signTypedData_v4"
-        ? "Sign message"
+        ? t("approval.signMessage")
         : method === "wallet_watchAsset"
-          ? "Add token"
+          ? t("wc.addToken")
           : method === "eth_sendTransaction"
-            ? "Confirm transaction"
-            : "Confirm request";
+            ? t("approval.confirmTransaction")
+            : t("wc.confirmRequest");
 
     const approveLabel =
       method === "personal_sign" || method === "eth_signTypedData_v4"
-        ? "Sign"
+        ? t("approval.sign")
         : method === "wallet_watchAsset"
-          ? "Add token"
+          ? t("wc.addToken")
           : method === "eth_sendTransaction"
-            ? "Confirm"
-            : "Approve";
+            ? t("approval.confirm")
+            : t("approval.approve");
 
     const statusLabel =
       method === "personal_sign" || method === "eth_signTypedData_v4"
-        ? "Signature confirmation required"
+        ? t("wc.signatureRequired")
         : method === "wallet_watchAsset"
-          ? "Token approval required"
+          ? t("wc.tokenApprovalRequired")
           : method === "eth_sendTransaction"
-            ? "Transaction confirmation required"
-            : "Approval required";
+            ? t("wc.transactionConfirmationRequired")
+            : t("wc.approvalRequired");
 
     const previewTitle =
       method === "personal_sign" || method === "eth_signTypedData_v4"
-        ? "Message preview"
+        ? t("approval.messagePreview")
         : method === "eth_sendTransaction"
-          ? "Transaction preview"
-          : "Request preview";
+          ? t("wc.transactionPreview")
+          : t("wc.requestPreview");
 
     const approvalView = getWalletConnectApprovalView(
       method,
@@ -2018,8 +2017,8 @@ export default function WalletConnectPage({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          background: "#f7f7f4",
-          color: "#111111",
+          background: "var(--bg-muted)",
+          color: "var(--ink-1)",
           boxSizing: "border-box",
         }}
       >
@@ -2031,15 +2030,15 @@ export default function WalletConnectPage({
             alignItems: "center",
             gap: 12,
             padding: "0 14px",
-            borderBottom: "1px solid #e7e5df",
-            background: "#f7f7f4",
+            borderBottom: "1px solid var(--line)",
+            background: "var(--bg-muted)",
             width: "100%",
             boxSizing: "border-box",
           }}
         >
           <button
             type="button"
-            aria-label="Back"
+            aria-label={t("common.back")}
             onClick={onBack}
             style={{
               width: 34,
@@ -2047,7 +2046,7 @@ export default function WalletConnectPage({
               border: "none",
               borderRadius: 12,
               background: "transparent",
-              color: "#111111",
+              color: "var(--ink-1)",
               cursor: "pointer",
               fontSize: 28,
               lineHeight: "30px",
@@ -2064,7 +2063,7 @@ export default function WalletConnectPage({
               letterSpacing: "-0.02em",
             }}
           >
-            Confirm request
+            {t("wc.confirmRequest")}
           </div>
         </header>
 
@@ -2087,8 +2086,8 @@ export default function WalletConnectPage({
                 width: 46,
                 height: 46,
                 borderRadius: 15,
-                background: "#111111",
-                color: "#ffffff",
+                background: "var(--ink-1)",
+                color: "var(--bg-surface)",
                 display: "grid",
                 placeItems: "center",
                 fontSize: 15,
@@ -2114,7 +2113,7 @@ export default function WalletConnectPage({
               <p
                 style={{
                   margin: 0,
-                  color: "#6f6f68",
+                  color: "var(--ink-3)",
                   fontSize: 13,
                   lineHeight: "19px",
                 }}
@@ -2126,9 +2125,9 @@ export default function WalletConnectPage({
 
           <div
             style={{
-              border: "1px solid #dfddd6",
+              border: "1px solid var(--line)",
               borderRadius: 16,
-              background: "#ffffff",
+              background: "var(--bg-surface)",
               padding: 12,
               width: "100%",
               display: "grid",
@@ -2146,18 +2145,18 @@ export default function WalletConnectPage({
               }}
             >
               <div>
-                <strong>Method:</strong> {method}
+                <strong>{t("wc.methodLabel")}</strong> {method}
               </div>
               <div>
-                <strong>Status:</strong> {approvalView.status}
+                <strong>{t("wc.statusLabel")}</strong> {approvalView.status}
               </div>
             </div>
 
             <div
               style={{
-                border: "1px solid #e5e3dc",
+                border: "1px solid var(--line)",
                 borderRadius: 15,
-                background: "#fbfbf8",
+                background: "var(--bg-muted)",
                 padding: 14,
                 display: "grid",
                 gap: 10,
@@ -2185,13 +2184,13 @@ export default function WalletConnectPage({
                   overflowWrap: "anywhere",
                   fontFamily:
                     'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-                  color: "#5e5e57",
+                  color: "var(--ink-3)",
                   fontSize: 12,
                   lineHeight: "18px",
                 }}
               >
                 {String(txPreviewText).trim() ||
-                  "No readable preview available. Expand Raw request data below."}
+                  t("wc.noReadablePreview")}
               </pre>
             </div>
 
@@ -2203,20 +2202,20 @@ export default function WalletConnectPage({
             >
               <div
                 style={{
-                  color: "#111111",
+                  color: "var(--ink-1)",
                   fontSize: 13,
                   fontWeight: 850,
                 }}
               >
-                Raw request data
+                {t("wc.rawRequestData")}
               </div>
 
               <div
                 style={{
                   overflow: "hidden",
-                  border: "1px solid #d9d5cd",
+                  border: "1px solid var(--line)",
                   borderRadius: 16,
-                  background: "#ffffff",
+                  background: "var(--bg-surface)",
                   boxSizing: "border-box",
                 }}
               >
@@ -2228,15 +2227,15 @@ export default function WalletConnectPage({
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 10,
-                    borderBottom: "1px solid #e7e3db",
-                    background: "#f6f5f1",
-                    color: "#5f5c55",
+                    borderBottom: "1px solid var(--line)",
+                    background: "var(--bg-muted)",
+                    color: "var(--ink-3)",
                     fontSize: 12,
                     fontWeight: 850,
                     boxSizing: "border-box",
                   }}
                 >
-                  <span>Request body</span>
+                  <span>{t("wc.requestBody")}</span>
 
                   <button
                     type="button"
@@ -2252,16 +2251,16 @@ export default function WalletConnectPage({
                       height: 26,
                       minWidth: 58,
                       padding: "0 10px",
-                      border: "1px solid #d6d2c9",
+                      border: "1px solid var(--line-strong)",
                       borderRadius: 999,
-                      background: "#ffffff",
-                      color: "#111111",
+                      background: "var(--bg-surface)",
+                      color: "var(--ink-1)",
                       fontSize: 12,
                       fontWeight: 850,
                       cursor: "pointer",
                     }}
                   >
-                    Copy
+                    {t("common.copy")}
                   </button>
                 </div>
 
@@ -2272,7 +2271,7 @@ export default function WalletConnectPage({
                     overflowY: "auto",
                     overflowX: "hidden",
                     padding: 12,
-                    background: "#fbfaf7",
+                    background: "var(--bg-muted)",
                     boxSizing: "border-box",
                     scrollbarWidth: "thin",
                   }}
@@ -2280,7 +2279,7 @@ export default function WalletConnectPage({
                   <pre
                     style={{
                       margin: 0,
-                      color: "#37342f",
+                      color: "var(--ink-2)",
                       fontFamily:
                         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
                       fontSize: 11,
@@ -2310,17 +2309,17 @@ export default function WalletConnectPage({
                   letterSpacing: "0.16em",
                   textTransform: "uppercase",
                   fontWeight: 850,
-                  color: "#3a3a36",
+                  color: "var(--ink-2)",
                 }}
               >
-                Wallet password
+                {t("common.walletPassword")}
               </span>
 
               <input
                 type="password"
                 value={approvalPassword}
                 onChange={(event) => setApprovalPassword(event.target.value)}
-                placeholder="Enter wallet password"
+                placeholder={t("common.enterWalletPassword")}
                 autoFocus
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && canApprove) {
@@ -2333,8 +2332,8 @@ export default function WalletConnectPage({
                   minWidth: 0,
                   height: 46,
                   borderRadius: 13,
-                  border: "1px solid #dad7cf",
-                  background: "#ffffff",
+                  border: "1px solid var(--line)",
+                  background: "var(--bg-surface)",
                   padding: "0 14px",
                   fontSize: 15,
                   outline: "none",
@@ -2344,12 +2343,12 @@ export default function WalletConnectPage({
 
               <span
                 style={{
-                  color: "#8a8982",
+                  color: "var(--ink-3)",
                   fontSize: 12,
                   lineHeight: "16px",
                 }}
               >
-                Sign becomes available after entering your wallet password.
+                {t("wc.signAvailableAfterPassword")}
               </span>
             </label>
           ) : null}
@@ -2358,31 +2357,30 @@ export default function WalletConnectPage({
             <div
               style={{
                 borderRadius: 14,
-                background: "#fff8df",
-                color: "#6c4b00",
+                background: "var(--warn-soft)",
+                color: "var(--warn)",
                 padding: "10px 12px",
                 fontSize: 12,
                 lineHeight: "17px",
                 fontWeight: 750,
-                border: "1px solid #f2df9b",
+                border: "1px solid var(--warn-soft)",
               }}
             >
-              SIMPLE will switch to {requestedWalletConnectChainName} before
-              sending this transaction.
+              {t("wc.willSwitchNetwork", { chain: requestedWalletConnectChainName ?? "" })}
             </div>
           ) : null}
 
           <div
             style={{
               borderRadius: 14,
-              background: "#efeee9",
-              color: "#77766f",
+              background: "var(--bg-muted)",
+              color: "var(--ink-3)",
               padding: "10px 12px",
               fontSize: 12,
               lineHeight: "17px",
             }}
           >
-            Request received: {method}
+            {t("wc.requestReceived", { method })}
           </div>
         </section>
 
@@ -2393,8 +2391,8 @@ export default function WalletConnectPage({
             right: 0,
             bottom: 0,
             zIndex: 50,
-            borderTop: "1px solid #e7e5df",
-            background: "#f7f7f4",
+            borderTop: "1px solid var(--line)",
+            background: "var(--bg-muted)",
             padding: "10px 14px 14px",
             width: "100%",
             display: "grid",
@@ -2413,14 +2411,14 @@ export default function WalletConnectPage({
               height: 46,
               borderRadius: 13,
               border: "none",
-              background: canApprove ? "#111111" : "#b9b9b2",
-              color: "#ffffff",
+              background: canApprove ? "var(--ink-1)" : "var(--line-strong)",
+              color: "var(--bg-surface)",
               fontSize: 16,
               fontWeight: 850,
               cursor: canApprove ? "pointer" : "default",
             }}
           >
-            {isResponding ? "Processing..." : approveLabel}
+            {isResponding ? t("common.processing") : approveLabel}
           </button>
 
           <button
@@ -2432,15 +2430,15 @@ export default function WalletConnectPage({
               width: "100%",
               height: 46,
               borderRadius: 13,
-              border: "1px solid #d6d3cb",
-              background: "#ffffff",
-              color: "#111111",
+              border: "1px solid var(--line-strong)",
+              background: "var(--bg-surface)",
+              color: "var(--ink-1)",
               fontSize: 16,
               fontWeight: 750,
               cursor: isResponding ? "default" : "pointer",
             }}
           >
-            Reject
+            {t("approval.reject")}
           </button>
         </footer>
       </main>
@@ -2455,8 +2453,8 @@ export default function WalletConnectPage({
         width: "100%",
         overflowY: "auto",
         overflowX: "hidden",
-        background: "var(--bg, #ffffff)",
-        color: "var(--text-primary, #111111)",
+        background: "var(--bg, var(--bg-surface))",
+        color: "var(--text-primary, var(--ink-1))",
       }}
     >
       <header
@@ -2465,8 +2463,8 @@ export default function WalletConnectPage({
           top: 0,
           zIndex: 20,
           height: 56,
-          borderBottom: "1px solid var(--border, #e8e8e8)",
-          background: "var(--bg, #ffffff)",
+          borderBottom: "1px solid var(--border, var(--bg-muted))",
+          background: "var(--bg, var(--bg-surface))",
         }}
       >
         <div
@@ -2485,13 +2483,13 @@ export default function WalletConnectPage({
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back"
+            aria-label={t("common.back")}
             style={{
               width: 36,
               height: 36,
               border: 0,
               background: "transparent",
-              color: "var(--text-primary, #111111)",
+              color: "var(--text-primary, var(--ink-1))",
               cursor: "pointer",
               padding: 0,
             }}
@@ -2539,26 +2537,26 @@ export default function WalletConnectPage({
           style={{
             margin: "14px 0 0",
             maxWidth: 560,
-            color: "var(--text-secondary, #777777)",
+            color: "var(--text-secondary, var(--ink-3))",
             fontSize: 14,
             lineHeight: "21px",
           }}
         >
-          Paste a WalletConnect URI from a dApp to connect it with SIMPLE.
+          {t("wc.pasteUriDesc")}
         </p>
 
         <form onSubmit={pair} style={{ marginTop: 34, display: "grid", gap: 12 }}>
           <label style={{ display: "grid", gap: 8 }}>
             <span
               style={{
-                color: "var(--text-primary, #111111)",
+                color: "var(--text-primary, var(--ink-1))",
                 fontSize: 12,
                 lineHeight: "16px",
                 letterSpacing: "0.2em",
                 textTransform: "uppercase",
               }}
             >
-              WalletConnect URI
+              {t("wc.uriLabel")}
             </span>
 
             <textarea
@@ -2568,10 +2566,10 @@ export default function WalletConnectPage({
               style={{
                 width: "100%",
                 minHeight: 96,
-                border: "1px solid var(--border, #dedede)",
+                border: "1px solid var(--border, var(--line))",
                 borderRadius: 14,
-                background: "var(--bg, #ffffff)",
-                color: "var(--text-primary, #111111)",
+                background: "var(--bg, var(--bg-surface))",
+                color: "var(--text-primary, var(--ink-1))",
                 padding: "12px 14px",
                 boxSizing: "border-box",
                 font: "inherit",
@@ -2587,7 +2585,7 @@ export default function WalletConnectPage({
             className="btn primary lg full"
             disabled={isPairing || isApproving}
           >
-            {isPairing ? "Connecting…" : "Connect"}
+            {isPairing ? t("wc.connectingShort") : t("approval.connect")}
           </button>
         </form>
 
@@ -2596,8 +2594,8 @@ export default function WalletConnectPage({
             marginTop: 18,
             padding: 16,
             borderRadius: 16,
-            background: "#f7f7f4",
-            color: "var(--text-secondary, #777777)",
+            background: "var(--bg-muted)",
+            color: "var(--text-secondary, var(--ink-3))",
             fontSize: 13,
             lineHeight: "19px",
           }}
@@ -2611,15 +2609,15 @@ export default function WalletConnectPage({
               marginTop: 14,
               padding: "14px 16px",
               borderRadius: 16,
-              background: "#fff3f1",
-              border: "1px solid #f5ccc7",
+              background: "var(--danger-soft)",
+              border: "1px solid var(--danger-soft)",
             }}
           >
             <div
               style={{
                 fontSize: 14,
                 fontWeight: 800,
-                color: "#a23b2d",
+                color: "var(--danger)",
                 letterSpacing: "-0.01em",
               }}
             >
@@ -2631,7 +2629,7 @@ export default function WalletConnectPage({
                 marginTop: 5,
                 fontSize: 13,
                 lineHeight: "18px",
-                color: "#7a3028",
+                color: "var(--danger)",
               }}
             >
               {wcError.subtitle}
@@ -2644,10 +2642,10 @@ export default function WalletConnectPage({
                 marginTop: 12,
                 height: 34,
                 padding: "0 14px",
-                border: "1px solid #f0b8b0",
+                border: "1px solid var(--danger-soft)",
                 borderRadius: 999,
-                background: "#ffffff",
-                color: "#a23b2d",
+                background: "var(--bg-surface)",
+                color: "var(--danger)",
                 fontSize: 13,
                 fontWeight: 750,
                 cursor: "pointer",
@@ -2665,11 +2663,11 @@ export default function WalletConnectPage({
               fontSize: 11,
               letterSpacing: "0.14em",
               textTransform: "uppercase",
-              color: "var(--text-secondary, #777777)",
+              color: "var(--text-secondary, var(--ink-3))",
               marginBottom: 10,
             }}
           >
-            Active sessions
+            {t("wc.activeSessions")}
           </div>
 
           {sessionsLoading ? (
@@ -2677,19 +2675,19 @@ export default function WalletConnectPage({
               style={{
                 padding: "14px 16px",
                 borderRadius: 14,
-                background: "var(--bg-sunken, #f7f7f4)",
+                background: "var(--bg-sunken, var(--bg-muted))",
                 fontSize: 13,
-                color: "var(--text-secondary, #777777)",
+                color: "var(--text-secondary, var(--ink-3))",
               }}
             >
-              Restoring sessions...
+              {t("wc.restoringSessions")}
             </div>
           ) : sessions.length === 0 ? (
             <div
               style={{
                 padding: "20px 16px",
                 borderRadius: 16,
-                background: "var(--bg-sunken, #f7f7f4)",
+                background: "var(--bg-sunken, var(--bg-muted))",
                 textAlign: "center",
               }}
             >
@@ -2697,11 +2695,11 @@ export default function WalletConnectPage({
                 style={{
                   fontSize: 14,
                   fontWeight: 750,
-                  color: "var(--text-primary, #111111)",
+                  color: "var(--text-primary, var(--ink-1))",
                   letterSpacing: "-0.01em",
                 }}
               >
-                No WalletConnect sessions
+                {t("wc.noSessions")}
               </div>
 
               <div
@@ -2709,16 +2707,16 @@ export default function WalletConnectPage({
                   marginTop: 6,
                   fontSize: 13,
                   lineHeight: "18px",
-                  color: "var(--text-secondary, #777777)",
+                  color: "var(--text-secondary, var(--ink-3))",
                 }}
               >
-                Connect to a dApp with WalletConnect to see active sessions here.
+                {t("wc.noSessionsSub")}
               </div>
             </div>
           ) : (
             <div
               style={{
-                border: "1px solid var(--border, #dedede)",
+                border: "1px solid var(--border, var(--line))",
                 borderRadius: 16,
                 overflow: "hidden",
               }}
@@ -2731,8 +2729,8 @@ export default function WalletConnectPage({
                     alignItems: "center",
                     gap: 12,
                     padding: "12px 14px",
-                    background: "var(--bg, #ffffff)",
-                    borderTop: index === 0 ? "none" : "1px solid var(--border, #f0f0f0)",
+                    background: "var(--bg, var(--bg-surface))",
+                    borderTop: index === 0 ? "none" : "1px solid var(--border, var(--bg-muted))",
                   }}
                 >
                   {session.iconUrl ? (
@@ -2749,13 +2747,13 @@ export default function WalletConnectPage({
                         width: 36,
                         height: 36,
                         borderRadius: 10,
-                        background: "var(--bg-sunken, #f0f0f0)",
+                        background: "var(--bg-sunken, var(--bg-muted))",
                         flexShrink: 0,
                         display: "grid",
                         placeItems: "center",
                         fontSize: 14,
                         fontWeight: 800,
-                        color: "var(--text-secondary, #777777)",
+                        color: "var(--text-secondary, var(--ink-3))",
                       }}
                     >
                       {(session.name ?? session.origin).slice(0, 1).toUpperCase()}
@@ -2767,7 +2765,7 @@ export default function WalletConnectPage({
                       style={{
                         fontSize: 14,
                         fontWeight: 700,
-                        color: "var(--text-primary, #111111)",
+                        color: "var(--text-primary, var(--ink-1))",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -2780,7 +2778,7 @@ export default function WalletConnectPage({
                       <div
                         style={{
                           fontSize: 12,
-                          color: "var(--text-secondary, #777777)",
+                          color: "var(--text-secondary, var(--ink-3))",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -2798,16 +2796,16 @@ export default function WalletConnectPage({
                       flexShrink: 0,
                       height: 30,
                       padding: "0 12px",
-                      border: "1px solid var(--border, #dedede)",
+                      border: "1px solid var(--border, var(--line))",
                       borderRadius: 999,
                       background: "transparent",
-                      color: "var(--text-primary, #111111)",
+                      color: "var(--text-primary, var(--ink-1))",
                       fontSize: 12,
                       fontWeight: 700,
                       cursor: "pointer",
                     }}
                   >
-                    Disconnect
+                    {t("wc.disconnect")}
                   </button>
                 </div>
               ))}
@@ -2819,7 +2817,7 @@ export default function WalletConnectPage({
           <section
             style={{
               marginTop: 28,
-              border: "1px solid var(--border, #dedede)",
+              border: "1px solid var(--border, var(--line))",
               borderRadius: 24,
               padding: 18,
             }}
@@ -2829,8 +2827,8 @@ export default function WalletConnectPage({
                 width: 38,
                 height: 38,
                 borderRadius: 999,
-                background: "var(--text-primary, #111111)",
-                color: "#ffffff",
+                background: "var(--text-primary, var(--ink-1))",
+                color: "var(--bg-surface)",
                 display: "grid",
                 placeItems: "center",
               }}
@@ -2847,19 +2845,18 @@ export default function WalletConnectPage({
                 letterSpacing: "-0.02em",
               }}
             >
-              Connect {site.name ?? site.origin}?
+              {t("wc.connectSiteQuestion", { site: site.name ?? site.origin })}
             </div>
 
             <p
               style={{
                 margin: "6px 0 0",
-                color: "var(--text-secondary, #777777)",
+                color: "var(--text-secondary, var(--ink-3))",
                 fontSize: 13,
                 lineHeight: "19px",
               }}
             >
-              This site will be able to request your wallet address and network.
-              Signing and transactions are not enabled in this MVP.
+              {t("wc.proposalPermissionNote")}
             </p>
 
             <div
@@ -2867,15 +2864,15 @@ export default function WalletConnectPage({
                 marginTop: 16,
                 display: "grid",
                 gap: 8,
-                color: "var(--text-secondary, #777777)",
+                color: "var(--text-secondary, var(--ink-3))",
                 fontSize: 12,
                 lineHeight: "17px",
               }}
             >
-              <div>Origin: {site.origin}</div>
+              <div>{t("wc.originLabel", { origin: site.origin })}</div>
               <div>
-                Required methods:{" "}
-                {getNamespace(proposal, "eip155").methods?.join(", ") || "None"}
+                {t("wc.requiredMethods")}{" "}
+                {getNamespace(proposal, "eip155").methods?.join(", ") || t("common.none")}
               </div>
             </div>
 
@@ -2886,7 +2883,7 @@ export default function WalletConnectPage({
                 disabled={isApproving}
                 onClick={() => void approveProposal()}
               >
-                {isApproving ? "Approving…" : "Approve connection"}
+                {isApproving ? t("wc.approving") : t("wc.approveConnection")}
               </button>
 
               <button
@@ -2895,7 +2892,7 @@ export default function WalletConnectPage({
                 disabled={isApproving}
                 onClick={() => void rejectProposal()}
               >
-                Reject
+                {t("approval.reject")}
               </button>
             </div>
           </section>

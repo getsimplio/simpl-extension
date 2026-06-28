@@ -123,7 +123,12 @@ export type ExportAccountKeysResult = {
 
 // A public address row for an account, shown on the Accounts screen
 // independently of the selected network. Never carries private key material.
-export type AccountAddressFamily = "evm" | "tron" | "bitcoin" | "solana";
+export type AccountAddressFamily =
+  | "evm"
+  | "tron"
+  | "bitcoin"
+  | "solana"
+  | "ton";
 
 export type AccountDisplayAddress = {
   family: AccountAddressFamily;

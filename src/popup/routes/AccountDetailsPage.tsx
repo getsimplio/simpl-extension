@@ -15,6 +15,7 @@ import {
 } from "../../core/networks/chain-registry";
 import { walletService } from "../../core/wallet/wallet.service";
 import type { ExportedPrivateKey } from "../../core/wallet/wallet.types";
+import { t, useTranslation } from "../../i18n";
 import { AccountBlockie } from "../components/AccountBlockie";
 
 type AccountDetailsPageProps = {
@@ -33,6 +34,9 @@ type AccountDetailsPageProps = {
   onRenamed: (account: WalletAccount) => void | Promise<void>;
   // Called after a successful removal; caller refreshes state and navigates.
   onRemoved: () => void | Promise<void>;
+  // Primary (seed-derived) accounts cannot be removed individually. This routes
+  // the user to Settings → Security Center → Danger Zone to reset wallet data.
+  onResetWallet: () => void;
 };
 
 type DetailsStep = "details" | "confirm" | "success";
@@ -115,13 +119,13 @@ function getExportBadge(family: ExportedPrivateKey["family"]): {
 function getSourceLabel(account: WalletAccount): string {
   switch (account.type) {
     case "mnemonic":
-      return "Primary wallet";
+      return t("accounts.primary");
     case "importedMnemonic":
-      return "Imported recovery phrase";
+      return t("accounts.importedPhrase");
     case "privateKey":
-      return "Imported private key";
+      return t("accounts.importedKey");
     case "watch":
-      return "Watch-only address";
+      return t("accounts.watchOnlyAddress");
   }
 }
 
@@ -152,7 +156,9 @@ export function AccountDetailsPage({
   onSwap,
   onRenamed,
   onRemoved,
+  onResetWallet,
 }: AccountDetailsPageProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<DetailsStep>("details");
   const [password, setPassword] = useState("");
   const [removing, setRemoving] = useState(false);
@@ -241,24 +247,35 @@ export function AccountDetailsPage({
   const imported = isImportedAccount(account);
   const isWatch = account.type === "watch";
   const isPrivateKey = account.type === "privateKey";
+  // Primary = seed-derived wallet. It can never be removed individually; the only
+  // way to remove it is a full wallet reset in the Security Center Danger Zone.
+  const isPrimary = account.type === "mnemonic";
+  // Accounts that can be removed individually through the normal guarded flow:
+  // imported signers (private key / recovery phrase) and watch-only addresses.
+  const isRemovable = imported || isWatch;
   const badge = isWatch
-    ? { label: "Watch-only", kind: "watch" as const }
+    ? { label: t("accounts.watchOnly"), kind: "watch" as const }
     : imported
-      ? { label: "Imported", kind: "imported" as const }
+      ? { label: t("accounts.imported"), kind: "imported" as const }
       : null;
 
   const explorerBase = getChainById(chainId)?.blockExplorerUrl ?? null;
   const networkLabel = getNetworkDisplayName(chainId);
 
-  const removeButtonLabel = isPrivateKey
-    ? "Remove imported account"
-    : "Remove imported wallet";
-  const confirmTitle = isPrivateKey
-    ? "Remove imported account?"
-    : "Remove imported wallet?";
-  const confirmBody = isPrivateKey
-    ? "This removes the imported private key from this extension. Funds on-chain will not be moved."
-    : "This removes the imported recovery phrase from this extension. Funds on-chain will not be moved.";
+  // Removal copy. Wording deliberately avoids "delete account" so it never reads
+  // as deleting anything on-chain — removal is local to this device only.
+  const removeButtonLabel = isWatch
+    ? t("accounts.removeWatchOnly")
+    : t("accounts.removeFromSimpl");
+  const removeHelp = isWatch
+    ? t("accounts.removeWatchOnlyHelp")
+    : t("accounts.removeAccountHelp");
+  const confirmTitle = isWatch
+    ? t("accounts.removeWatchOnlyConfirm")
+    : t("accounts.removeAccountConfirm");
+  const confirmBody = isWatch
+    ? t("accounts.removeWatchOnlyBody")
+    : t("accounts.removeAccountBody");
 
   async function handleCopy() {
     await copyText(account.address);
@@ -282,11 +299,11 @@ export function AccountDetailsPage({
     const next = nameDraft.trim();
 
     if (!next) {
-      setNameError("Account name cannot be empty.");
+      setNameError(t("accounts.nameEmpty"));
       return;
     }
     if (next.length > MAX_LABEL_LENGTH) {
-      setNameError(`Use ${MAX_LABEL_LENGTH} characters or fewer.`);
+      setNameError(t("accounts.nameTooLong", { max: MAX_LABEL_LENGTH }));
       return;
     }
     if (next === account.label) {
@@ -325,16 +342,26 @@ export function AccountDetailsPage({
     setError(null);
 
     if (!password) {
-      setError("Enter your wallet password to remove this account.");
+      setError(t("accounts.passwordToRemove"));
       return;
     }
 
     setRemoving(true);
     try {
-      await walletService.removeImportedAccount({
-        accountId: account.id,
-        password,
-      });
+      // Watch-only accounts hold no key material; imported signers drop their
+      // encrypted secret from the vault. Both verify the password first, and
+      // neither touches the primary seed or any other account.
+      if (isWatch) {
+        await walletService.removeWatchAccount({
+          accountId: account.id,
+          password,
+        });
+      } else {
+        await walletService.removeImportedAccount({
+          accountId: account.id,
+          password,
+        });
+      }
       setPassword("");
       setStep("success");
     } catch (removeError) {
@@ -352,17 +379,19 @@ export function AccountDetailsPage({
       <div className="ext-popup acct-details-page" data-screen-label="Account removed">
         <div className="bar-top">
           <span style={{ width: 32, flexShrink: 0 }} />
-          <span className="acct-details-title">Removed</span>
+          <span className="acct-details-title">{t("accounts.removed")}</span>
           <span style={{ width: 32, flexShrink: 0 }} />
         </div>
         <div className="screen-body acct-details-body">
           <div className="acct-details-success">
             <div className="acct-details-success__check" aria-hidden="true">✓</div>
             <div className="acct-details-success__title">
-              {isPrivateKey ? "Imported account removed" : "Imported wallet removed"}
+              {isWatch ? t("accounts.watchOnlyRemoved") : t("accounts.accountRemoved")}
             </div>
             <div className="acct-details-success__sub">
-              The encrypted key was deleted from this extension.
+              {isWatch
+                ? "The address was removed from simpl on this device. You can add it again later."
+                : "The account was removed from simpl on this device only. Funds on-chain are unaffected."}
             </div>
           </div>
           <button
@@ -370,7 +399,7 @@ export function AccountDetailsPage({
             type="button"
             onClick={() => void onRemoved()}
           >
-            Done
+            {t("common.done")}
           </button>
         </div>
       </div>
@@ -390,7 +419,7 @@ export function AccountDetailsPage({
               setPassword("");
               setStep("details");
             }}
-            aria-label="Back"
+            aria-label={t("common.back")}
           >
             <BackIcon />
           </button>
@@ -403,19 +432,19 @@ export function AccountDetailsPage({
 
           <div className="acct-details-field">
             <label className="acct-details-field-label" htmlFor="acct-remove-pwd">
-              Wallet password
+              {t("common.walletPassword")}
             </label>
             <input
               id="acct-remove-pwd"
               className="import-acct-input"
               type="password"
-              placeholder="Enter wallet password"
+              placeholder={t("common.enterWalletPassword")}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
             />
             <p className="acct-details-help">
-              Required to delete the imported key.
+              {t("accounts.passwordToRemoveHelp")}
             </p>
           </div>
 
@@ -432,7 +461,7 @@ export function AccountDetailsPage({
                 setStep("details");
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               className="acct-danger-btn"
@@ -440,7 +469,7 @@ export function AccountDetailsPage({
               disabled={removing || !password}
               onClick={() => void handleRemove()}
             >
-              {removing ? "Removing…" : "Remove"}
+              {removing ? t("common.removing") : removeButtonLabel}
             </button>
           </div>
         </div>
@@ -457,11 +486,11 @@ export function AccountDetailsPage({
             className="icbtn"
             type="button"
             onClick={closeExport}
-            aria-label="Back"
+            aria-label={t("common.back")}
           >
             <BackIcon />
           </button>
-          <span className="acct-details-title">Export private key</span>
+          <span className="acct-details-title">{t("accounts.exportPrivateKey")}</span>
           <span style={{ width: 32, flexShrink: 0 }} />
         </div>
 
@@ -478,13 +507,13 @@ export function AccountDetailsPage({
                   className="acct-details-field-label"
                   htmlFor="acct-export-pwd"
                 >
-                  Wallet password
+                  {t("common.walletPassword")}
                 </label>
                 <input
                   id="acct-export-pwd"
                   className="import-acct-input"
                   type="password"
-                  placeholder="Enter wallet password"
+                  placeholder={t("common.enterWalletPassword")}
                   value={exportPassword}
                   autoComplete="current-password"
                   onChange={(event) => {
@@ -496,7 +525,7 @@ export function AccountDetailsPage({
                   }}
                 />
                 <p className="acct-details-help">
-                  Required before any key is shown.
+                  {t("accounts.exportPasswordHelp")}
                 </p>
               </div>
 
@@ -510,7 +539,7 @@ export function AccountDetailsPage({
                 disabled={exportBusy || !exportPassword}
                 onClick={() => void submitExport()}
               >
-                {exportBusy ? "Verifying…" : "Reveal private key"}
+                {exportBusy ? t("common.verifying") : t("accounts.revealPrivateKey")}
               </button>
             </>
           ) : null}
@@ -537,8 +566,8 @@ export function AccountDetailsPage({
                         }`}
                         type="button"
                         onClick={() => void handleCopyKey(index, key.privateKey)}
-                        aria-label={`Copy ${key.label}`}
-                        title={isCopied ? "Copied" : "Copy key"}
+                        aria-label={t("accounts.copyKey", { label: key.label })}
+                        title={isCopied ? t("common.copied") : t("accounts.copyKeyShort")}
                       >
                         {isCopied ? <CheckIcon /> : <CopyIcon />}
                       </button>
@@ -565,7 +594,7 @@ export function AccountDetailsPage({
                 type="button"
                 onClick={closeExport}
               >
-                Done
+                {t("common.done")}
               </button>
             </>
           ) : null}
@@ -578,10 +607,10 @@ export function AccountDetailsPage({
   return (
     <div className="ext-popup acct-details-page" data-screen-label="Account">
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <BackIcon />
         </button>
-        <span className="acct-details-title">Account</span>
+        <span className="acct-details-title">{t("common.account")}</span>
         <span style={{ width: 32, flexShrink: 0 }} />
       </div>
 
@@ -597,7 +626,7 @@ export function AccountDetailsPage({
                 value={nameDraft}
                 maxLength={MAX_LABEL_LENGTH}
                 autoFocus
-                placeholder="Account name"
+                placeholder={t("common.accountName")}
                 onChange={(event) => setNameDraft(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void saveRename();
@@ -611,7 +640,7 @@ export function AccountDetailsPage({
                   disabled={savingName}
                   onClick={cancelRename}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   className="btn primary"
@@ -619,7 +648,7 @@ export function AccountDetailsPage({
                   disabled={savingName || !nameDraft.trim()}
                   onClick={() => void saveRename()}
                 >
-                  {savingName ? "Saving…" : "Save"}
+                  {savingName ? t("common.saving") : t("common.save")}
                 </button>
               </div>
               {nameError ? (
@@ -636,7 +665,7 @@ export function AccountDetailsPage({
                   className="acct-rename-btn"
                   type="button"
                   onClick={startRename}
-                  aria-label="Rename account"
+                  aria-label={t("accounts.renameAccount")}
                 >
                   <PencilIcon />
                 </button>
@@ -665,7 +694,7 @@ export function AccountDetailsPage({
         {isActive ? (
           <div className="acct-details-active-card">
             <span className="acct-details-active-dot" aria-hidden="true" />
-            Active account
+            {t("accounts.activeAccount")}
           </div>
         ) : (
           <button
@@ -674,7 +703,7 @@ export function AccountDetailsPage({
             disabled={usingAccount}
             onClick={() => void handleUseAccount()}
           >
-            {usingAccount ? "Switching…" : "Use account"}
+            {usingAccount ? t("common.switching") : t("accounts.useAccount")}
           </button>
         )}
 
@@ -686,7 +715,7 @@ export function AccountDetailsPage({
             onClick={() => void onReceive()}
           >
             <span className="acct-quick-btn__icon"><ReceiveIcon /></span>
-            Receive
+            {t("home.receive")}
           </button>
 
           {!isWatch ? (
@@ -697,7 +726,7 @@ export function AccountDetailsPage({
                 onClick={() => void onSend()}
               >
                 <span className="acct-quick-btn__icon"><SendIcon /></span>
-                Send
+                {t("home.send")}
               </button>
               <button
                 className="acct-quick-btn"
@@ -705,7 +734,7 @@ export function AccountDetailsPage({
                 onClick={() => void onSwap()}
               >
                 <span className="acct-quick-btn__icon"><SwapIcon /></span>
-                Swap
+                {t("home.swap")}
               </button>
             </>
           ) : null}
@@ -713,39 +742,39 @@ export function AccountDetailsPage({
 
         {isWatch ? (
           <p className="acct-details-help">
-            Watch-only accounts cannot send or sign.
+            {t("accounts.watchOnlyLimitation")}
           </p>
         ) : null}
 
         {/* Info card */}
         <div className="acct-details-info-card">
           <div className="acct-details-info-row">
-            <span className="acct-details-info-label">Type</span>
+            <span className="acct-details-info-label">{t("common.type")}</span>
             <span className="acct-details-info-value">
-              {isWatch ? "Watch-only" : "Signer"}
+              {isWatch ? t("accounts.watchOnly") : t("accounts.signer")}
             </span>
           </div>
           <div className="acct-details-info-row">
-            <span className="acct-details-info-label">Source</span>
+            <span className="acct-details-info-label">{t("common.source")}</span>
             <span className="acct-details-info-value">
               {getSourceLabel(account)}
             </span>
           </div>
           <div className="acct-details-info-row">
-            <span className="acct-details-info-label">Address</span>
+            <span className="acct-details-info-label">{t("common.address")}</span>
             <span className="acct-details-info-value acct-details-info-mono">
               {shortAddress(account.address)}
             </span>
           </div>
           <div className="acct-details-info-row">
-            <span className="acct-details-info-label">Network</span>
+            <span className="acct-details-info-label">{t("common.network")}</span>
             <span className="acct-details-info-value">{networkLabel}</span>
           </div>
         </div>
 
         {/* Full address */}
         <div className="acct-details-address-card">
-          <div className="acct-details-address-label">Full address</div>
+          <div className="acct-details-address-label">{t("common.fullAddress")}</div>
           <div className="acct-details-address-value">{account.address}</div>
 
           <div className="acct-details-actions">
@@ -755,7 +784,7 @@ export function AccountDetailsPage({
               onClick={() => void handleCopy()}
             >
               <CopyIcon />
-              {copied ? "Copied" : "Copy address"}
+              {copied ? t("common.copied") : t("common.copyAddress")}
             </button>
 
             {explorerBase ? (
@@ -765,13 +794,14 @@ export function AccountDetailsPage({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                View on explorer ↗
+                {t("common.viewOnExplorerArrow")}
               </a>
             ) : null}
           </div>
         </div>
 
-        {/* Export private key — signer accounts only (hidden for watch-only) */}
+        {/* Export private key — signer accounts only (hidden for watch-only).
+            Most sensitive action → strongest (outlined red) treatment. */}
         {!isWatch ? (
           <div className="acct-details-remove">
             <button
@@ -779,20 +809,22 @@ export function AccountDetailsPage({
               type="button"
               onClick={openExport}
             >
-              Export private key
+              {t("accounts.exportPrivateKey")}
             </button>
             <p className="acct-details-help">
               {isPrivateKey
-                ? "Reveals the imported key (controls both EVM and TRON) after password confirmation."
-                : "Reveals the EVM and TRON private keys for this account after password confirmation. Never share them."}
+                ? t("accounts.exportHelpImported")
+                : t("accounts.exportHelpMnemonic")}
             </p>
           </div>
         ) : null}
 
-        {imported ? (
+        {/* Remove from simpl — imported signers + watch-only. Destructive but a
+            quieter treatment than Export private key (it only removes locally). */}
+        {isRemovable ? (
           <div className="acct-details-remove">
             <button
-              className="acct-danger-outline-btn"
+              className="acct-remove-subtle-btn"
               type="button"
               onClick={() => {
                 setError(null);
@@ -801,10 +833,23 @@ export function AccountDetailsPage({
             >
               {removeButtonLabel}
             </button>
+            <p className="acct-details-help">{removeHelp}</p>
+          </div>
+        ) : null}
+
+        {/* Primary seed account — cannot be removed individually. Point the user
+            to the Danger Zone for a full wallet reset instead. */}
+        {isPrimary ? (
+          <div className="acct-details-remove">
+            <button
+              className="acct-remove-subtle-btn"
+              type="button"
+              onClick={onResetWallet}
+            >
+              {t("accounts.resetWalletData")}
+            </button>
             <p className="acct-details-help">
-              {isPrivateKey
-                ? "This removes the imported key from this extension. It does not move funds on-chain."
-                : "This removes the imported recovery phrase from this extension. It does not move funds on-chain."}
+              {t("accounts.primaryCannotRemove")}
             </p>
           </div>
         ) : null}

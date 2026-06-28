@@ -27,6 +27,7 @@ import {
   type BridgeToken,
 } from "../../core/bridge/lifi-bridge.service";
 import { TRON_TOKENS } from "../../chains/tron/tron.tokens";
+import { useTranslation } from "../../i18n";
 import { SwapHeader } from "./SwapHeader";
 import { TokenWithChainBadge } from "./TokenWithChainBadge";
 
@@ -134,6 +135,7 @@ export function CrossChainTokenPicker({
   onSelect,
   onClose,
 }: CrossChainTokenPickerProps) {
+  const { t } = useTranslation();
   const [catalog, setCatalog] = useState<PickerToken[]>([]);
   const [search, setSearch] = useState("");
   // "all" | "current" | a specific chain id. Filtering logic below is unchanged —
@@ -237,19 +239,21 @@ export function CrossChainTokenPicker({
   }, [catalog, yourAssets, filter, q, currentChainId]);
 
   const title =
-    side === "from" ? "Select token to sell" : "Select token to receive";
+    side === "from"
+      ? t("swap.selectTokenToSell")
+      : t("swap.selectTokenToReceive");
 
   const filterOptions: { key: "all" | "current" | number; label: string }[] = [
-    { key: "all", label: "All networks" },
-    { key: "current", label: "Current network" },
+    { key: "all", label: t("swap.networkAll") },
+    { key: "current", label: t("swap.networkCurrentFull") },
     ...PRODUCTION_CHAINS.map((c) => ({ key: c.id, label: c.name })),
   ];
   // The selector button's current value label.
   const filterLabel =
     filter === "all"
-      ? "All networks"
+      ? t("swap.networkAll")
       : filter === "current"
-        ? "Current"
+        ? t("swap.networkCurrent")
         : CHAIN_NAME.get(filter) ?? `Chain ${filter}`;
 
   function renderRow(t: PickerToken) {
@@ -293,12 +297,12 @@ export function CrossChainTokenPicker({
 
   return (
     <div className="swap-token-picker-page" role="dialog" aria-modal="true">
-      <SwapHeader title={title} subtitle="Search across networks" onBack={onClose} />
+      <SwapHeader title={title} subtitle={t("swap.searchAcrossNetworks")} onBack={onClose} />
 
       <div className="cc-picker-sticky">
         <input
           className="swap-picker-search"
-          placeholder="Search token, symbol, or address"
+          placeholder={t("swap.searchTokenPickerPlaceholder")}
           value={search}
           autoFocus
           onChange={(e) => setSearch(e.target.value)}
@@ -316,7 +320,7 @@ export function CrossChainTokenPicker({
             onClick={() => setFilterOpen((open) => !open)}
           >
             <span className="cc-filter-trigger__label">
-              Network: <strong>{filterLabel}</strong>
+              {t("swap.networkFilter", { label: filterLabel })}
             </span>
             <span className="cc-filter-trigger__chevron" aria-hidden="true">
               ▾
@@ -355,23 +359,23 @@ export function CrossChainTokenPicker({
       <div className="cc-picker-body">
         {yourFiltered.length > 0 ? (
           <>
-            <div className="cc-group-label">Your assets</div>
+            <div className="cc-group-label">{t("swap.yourAssets")}</div>
             {yourFiltered.map(renderRow)}
           </>
         ) : null}
         {popular.length > 0 ? (
           <>
-            <div className="cc-group-label">Popular</div>
+            <div className="cc-group-label">{t("swap.popular")}</div>
             {popular.map(renderRow)}
           </>
         ) : null}
         {!hasResults ? (
           <div className="swap-picker-empty">
             {isLoading
-              ? "Loading tokens…"
+              ? t("swap.loadingTokens")
               : selectedChainLabel
-                ? `No tokens found on ${selectedChainLabel}`
-                : "No tokens found"}
+                ? t("swap.noTokensOnChain", { chain: selectedChainLabel })
+                : t("swap.noTokensFound")}
           </div>
         ) : null}
       </div>

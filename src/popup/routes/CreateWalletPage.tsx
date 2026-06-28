@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
 
 type CreateWalletPageProps = {
   onCreated: () => void | Promise<void>;
@@ -271,6 +272,7 @@ export function CreateWalletPage({
   onCreated,
   onBack,
 }: CreateWalletPageProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<CreateStep>("password");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -301,7 +303,7 @@ export function CreateWalletPage({
     setError(null);
 
     if (!passwordLooksValid) {
-      setError("Password must contain at least 8 characters, one letter and one number.");
+      setError(t("create.passwordError"));
       return;
     }
 
@@ -352,12 +354,12 @@ export function CreateWalletPage({
             color: "var(--ink-1)",
           }}
         >
-          Create wallet
+          {t("create.title")}
         </div>
 
         <span style={{ flex: 1 }} />
 
-        <span className="pill">{step === "password" ? "Password" : "Backup"}</span>
+        <span className="pill">{step === "password" ? t("create.stepPassword") : t("create.stepBackup")}</span>
       </div>
 
       <div
@@ -386,9 +388,9 @@ export function CreateWalletPage({
               </div>
 
               <div className="t-h2">
-                Create
+                {t("create.headerCreate")}
                 <br />
-                wallet
+                {t("create.headerWallet")}
               </div>
 
               <p
@@ -399,12 +401,12 @@ export function CreateWalletPage({
                   lineHeight: 1.45,
                 }}
               >
-                Set a password to encrypt your wallet on this device.
+                {t("create.passwordDesc")}
               </p>
             </section>
 
             {error ? (
-              <Notice title="Create wallet error" tone="danger">
+              <Notice title={t("create.errorTitle")} tone="danger">
                 {error}
               </Notice>
             ) : null}
@@ -425,7 +427,7 @@ export function CreateWalletPage({
                     textTransform: "uppercase",
                   }}
                 >
-                  Wallet password
+                  {t("common.walletPassword")}
                 </span>
 
                 <div style={{ position: "relative" }}>
@@ -433,7 +435,7 @@ export function CreateWalletPage({
                     className="input lg"
                     type={passwordVisible ? "text" : "password"}
                     value={password}
-                    placeholder="strong-password-123"
+                    placeholder={t("create.passwordPlaceholder")}
                     autoComplete="new-password"
                     onChange={(event) => {
                       setPassword(event.target.value);
@@ -461,7 +463,7 @@ export function CreateWalletPage({
                       justifyContent: "center",
                       cursor: "pointer",
                     }}
-                    aria-label={passwordVisible ? "Hide password" : "Show password"}
+                    aria-label={passwordVisible ? t("common.hidePassword") : t("common.showPassword")}
                   >
                     {passwordVisible ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
@@ -477,13 +479,13 @@ export function CreateWalletPage({
                   gap: 8,
                 }}
               >
-                <RuleRow valid={passwordLongEnough} label="At least 8 characters" />
-                <RuleRow valid={passwordHasLetter} label="Contains a letter" />
-                <RuleRow valid={passwordHasNumber} label="Contains a number" />
+                <RuleRow valid={passwordLongEnough} label={t("create.rule8")} />
+                <RuleRow valid={passwordHasLetter} label={t("create.ruleLetter")} />
+                <RuleRow valid={passwordHasNumber} label={t("create.ruleNumber")} />
               </section>
 
-              <Notice title="Local encryption" tone="success">
-                Your password encrypts the wallet on this device. SIMPLE does not store it and cannot recover it.
+              <Notice title={t("create.localEncryption")} tone="success">
+                {t("create.localEncryptionBody")}
               </Notice>
 
               <button
@@ -491,7 +493,7 @@ export function CreateWalletPage({
                 type="submit"
                 disabled={!passwordLooksValid || creating}
               >
-                {creating ? "Creating…" : "Create wallet"}
+                {creating ? t("common.creating") : t("create.createButton")}
               </button>
             </form>
           </>
@@ -516,9 +518,9 @@ export function CreateWalletPage({
               </div>
 
               <div className="t-h2">
-                Backup
+                {t("create.headerBackup")}
                 <br />
-                seed phrase
+                {t("create.headerSeedPhrase")}
               </div>
 
               <p
@@ -529,12 +531,12 @@ export function CreateWalletPage({
                   lineHeight: 1.45,
                 }}
               >
-                Save these words offline. Anyone with this phrase can access your wallet.
+                {t("create.backupDesc")}
               </p>
             </section>
 
-            <Notice title="Important" tone="warning">
-              Never share your seed phrase. SIMPLE cannot recover it if you lose access.
+            <Notice title={t("create.importantTitle")} tone="warning">
+              {t("create.seedWarningBody")}
             </Notice>
 
             <section
@@ -588,7 +590,7 @@ export function CreateWalletPage({
               onClick={() => void copySeedPhrase()}
             >
               {copied ? <CheckIcon /> : <CopyIcon />}
-              {copied ? "Copied" : "Copy seed phrase"}
+              {copied ? t("common.copied") : t("create.copySeed")}
             </button>
 
             <button
@@ -596,7 +598,7 @@ export function CreateWalletPage({
               type="button"
               onClick={() => void finishBackup()}
             >
-              I saved it
+              {t("create.savedIt")}
             </button>
           </>
         ) : null}

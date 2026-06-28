@@ -2,7 +2,9 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  ArrowDownLeft,
   ArrowLeftRight,
+  ArrowUpRight,
   BookUser,
   ChartNoAxesCombined,
   Clock3,
@@ -14,8 +16,6 @@ import {
   LifeBuoy,
   Network,
   PlugZap,
-  QrCode,
-  Send,
   SendHorizontal,
   Settings,
   ShieldCheck,
@@ -49,8 +49,11 @@ export type SimpleInstrument =
 
 const iconMap: Record<SimpleInstrument, LucideIcon> = {
   wallet: WalletCards,
-  send: Send,
-  receive: QrCode,
+  // Send / Receive / Swap share one directional-arrow family (out / in /
+  // between) so the home quick actions read as a single, calm icon set rather
+  // than three unrelated glyphs (paper-plane + QR + arrows).
+  send: ArrowUpRight,
+  receive: ArrowDownLeft,
   swap: ArrowLeftRight,
   buy: CreditCard,
   bank: Landmark,

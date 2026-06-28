@@ -1,6 +1,7 @@
 // src/popup/routes/AccountPage.tsx
 
 import { useEffect, useState } from "react";
+import { t, useTranslation } from "../../i18n";
 import { AccountBlockie } from "../components/AccountBlockie";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
@@ -46,10 +47,10 @@ function getAccountBadge(
   account: WalletAccount,
 ): { label: string; kind: "watch" | "imported" } | null {
   if (account.type === "watch") {
-    return { label: "Watch-only", kind: "watch" };
+    return { label: t("accounts.watchOnly"), kind: "watch" };
   }
   if (account.type === "importedMnemonic" || account.type === "privateKey") {
-    return { label: "Imported", kind: "imported" };
+    return { label: t("accounts.imported"), kind: "imported" };
   }
   return null;
 }
@@ -58,12 +59,12 @@ function getAccountBadge(
 function getAccountSourceShort(account: WalletAccount): string {
   switch (account.type) {
     case "mnemonic":
-      return "Primary wallet";
+      return t("accounts.primary");
     case "importedMnemonic":
     case "privateKey":
-      return "Imported";
+      return t("accounts.imported");
     case "watch":
-      return "Watch-only";
+      return t("accounts.watchOnly");
   }
 }
 
@@ -172,6 +173,7 @@ function AddressRow({
   copied: boolean;
   onCopy: (row: AccountDisplayAddress) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="acct-addr-row">
       <span
@@ -193,8 +195,8 @@ function AddressRow({
             event.stopPropagation();
             onCopy(row);
           }}
-          aria-label={`Copy ${row.label} address`}
-          title={copied ? "Copied" : "Copy address"}
+          aria-label={t("accounts.copyAddressLabel", { label: row.label })}
+          title={copied ? t("common.copied") : t("common.copyAddress")}
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
@@ -206,8 +208,8 @@ function AddressRow({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(event) => event.stopPropagation()}
-            aria-label={`Open ${row.label} address in explorer`}
-            title="View in explorer"
+            aria-label={t("accounts.openAddressInExplorer", { label: row.label })}
+            title={t("common.viewInExplorer")}
           >
             <ExternalIcon />
           </a>
@@ -238,6 +240,7 @@ function AccountRow({
   onCopy: (accountId: string, row: AccountDisplayAddress) => void;
   onOpenDetails: () => void;
 }) {
+  const { t } = useTranslation();
   const badge = getAccountBadge(account);
 
   return (
@@ -249,7 +252,7 @@ function AccountRow({
         type="button"
         onClick={onOpenDetails}
         disabled={disabled}
-        aria-label={`Open account details for ${account.label}`}
+        aria-label={t("accounts.openDetails", { label: account.label })}
       >
         <AccountBlockie address={account.address} size={38} />
 
@@ -272,7 +275,7 @@ function AccountRow({
         </div>
 
         <div className="acct-row-aside">
-          {selected ? <span className="acct-active-badge">Active</span> : null}
+          {selected ? <span className="acct-active-badge">{t("accounts.active")}</span> : null}
           <span className="acct-row-chevron" aria-hidden="true">
             <ChevronIcon />
           </span>
@@ -301,6 +304,7 @@ export function AccountPage({
   onAddAccount,
   onOpenAccountDetails,
 }: AccountPageProps) {
+  const { t } = useTranslation();
   // Public per-account addresses (EVM + optional TRON), resolved by the wallet
   // service independently of the selected network. Never holds key material.
   const [displayAddresses, setDisplayAddresses] = useState<DisplayAddressMap>(
@@ -376,7 +380,7 @@ export function AccountPage({
     <div className="ext-popup acct-page" data-screen-label="06 Accounts">
       {/* ── Top bar ── */}
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <svg
             viewBox="0 0 24 24"
             width="18"
@@ -392,13 +396,13 @@ export function AccountPage({
           </svg>
         </button>
 
-        <span className="acct-title">Accounts</span>
+        <span className="acct-title">{t("accounts.title")}</span>
 
         <button
           className="icbtn"
           type="button"
           onClick={onAddAccount}
-          aria-label="Add account"
+          aria-label={t("accounts.addAccount")}
         >
           <PlusIcon />
         </button>
@@ -408,7 +412,7 @@ export function AccountPage({
       <div className="screen-body">
         {/* ── Signer accounts ── */}
         <section className="acct-section">
-          <div className="acct-section-label">Signer accounts</div>
+          <div className="acct-section-label">{t("accounts.signerAccounts")}</div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {signerAccounts.map((account) => (
@@ -425,7 +429,7 @@ export function AccountPage({
             ))}
 
             {signerAccounts.length === 0 ? (
-              <div className="acct-empty">No signer accounts yet.</div>
+              <div className="acct-empty">{t("accounts.noSignerAccounts")}</div>
             ) : null}
           </div>
         </section>
@@ -433,7 +437,7 @@ export function AccountPage({
         {/* ── Watch-only accounts ── */}
         {watchAccounts.length > 0 ? (
           <section className="acct-section">
-            <div className="acct-section-label">Watch-only</div>
+            <div className="acct-section-label">{t("accounts.watchOnly")}</div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {watchAccounts.map((account) => (
@@ -460,13 +464,13 @@ export function AccountPage({
             onClick={onAddAccount}
           >
             <div className="acct-add-discover__body">
-              <div className="acct-add-discover__title">Need another account?</div>
+              <div className="acct-add-discover__title">{t("accounts.needAnother")}</div>
               <div className="acct-add-discover__sub">
-                Add, import, or track a watch-only wallet.
+                {t("accounts.needAnotherSub")}
               </div>
             </div>
 
-            <span className="acct-add-discover__cta">Add account</span>
+            <span className="acct-add-discover__cta">{t("accounts.addAccount")}</span>
           </button>
         </section>
       </div>

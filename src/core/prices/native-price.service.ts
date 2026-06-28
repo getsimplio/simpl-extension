@@ -1,5 +1,8 @@
 import { getNativeCoinId, priceDebug, priceWarn } from "./price-identity";
 import { getSpotPrice } from "./simpl-market-api.service";
+import { isTonChainId } from "../networks/chain-registry";
+import { getRequiredTonConfigByChainId } from "../../chains/ton/ton.config";
+import { getTonNativeSpot } from "../../chains/ton/ton.prices";
 
 export type NativeAssetQuote = {
   chainId: number;
@@ -90,6 +93,13 @@ export class NativePriceService {
       return cached;
     }
 
+    // TON is not served by the Simpl price gateway ("Unsupported asset"), so its
+    // native price comes from tonapi (the same provider used for Jetton
+    // discovery) via getTonNativeSpot. Same cache, same NativeAssetQuote shape.
+    if (isTonChainId(input.chainId)) {
+      return this.getTonNativeQuote(input, cached);
+    }
+
     // Price comes from the Simpl API Gateway (never a provider directly). USD is
     // authoritative for value math; EUR (`vs=eur`) is fetched alongside it to
     // derive the global USD→EUR rate used by the EUR valuation toggle. Both go
@@ -134,6 +144,47 @@ export class NativePriceService {
       priceWarn("native error", {
         chainId: input.chainId,
         coinId,
+        error: String(error),
+      });
+      return cached;
+    }
+  }
+
+  // TON native quote via tonapi (USD authoritative, EUR alongside for the EUR
+  // toggle). Mirrors the gateway path's caching + degradation: a USD success
+  // with an EUR miss still yields a usable quote; total failure keeps cache.
+  private async getTonNativeQuote(
+    input: { chainId: number; symbol: string },
+    cached: NativeAssetQuote | null,
+  ): Promise<NativeAssetQuote | null> {
+    try {
+      const config = getRequiredTonConfigByChainId(input.chainId);
+      const [usd, eur] = await Promise.all([
+        getTonNativeSpot(config, "usd"),
+        getTonNativeSpot(config, "eur"),
+      ]);
+
+      const priceUsd = usd?.price;
+      if (typeof priceUsd !== "number" || !Number.isFinite(priceUsd)) {
+        return cached;
+      }
+
+      const quote: NativeAssetQuote = {
+        chainId: input.chainId,
+        symbol: input.symbol,
+        priceUsd,
+        updatedAt: Date.now(),
+      };
+      if (typeof eur?.price === "number" && Number.isFinite(eur.price)) {
+        quote.priceEur = eur.price;
+      }
+
+      writeCachedQuote(quote);
+      priceDebug("native ok (ton)", { chainId: input.chainId, priceUsd });
+      return quote;
+    } catch (error) {
+      priceWarn("native error (ton)", {
+        chainId: input.chainId,
         error: String(error),
       });
       return cached;

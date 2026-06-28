@@ -1,6 +1,10 @@
 // src/popup/routes/WelcomePage.tsx
 
+import { useState } from "react";
+
 import logoUrl from "../../assets/simpl-logo.png";
+import { useTranslation } from "../../i18n";
+import { PreferencesSheet } from "../components/PreferencesSheet";
 
 type WelcomePageProps = {
   onCreateWallet: () => void;
@@ -85,15 +89,38 @@ function ShieldIcon() {
   );
 }
 
+function GearIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
 export function WelcomePage({
   onCreateWallet,
   onImportWallet,
   onAddWatchWallet,
 }: WelcomePageProps) {
+  const { t } = useTranslation();
+  const [prefsOpen, setPrefsOpen] = useState(false);
+
   return (
     <div className="ext-popup" data-screen-label="01 Welcome">
       <div className="bar-top">
         <img
+          className="app-logo"
           src={logoUrl}
           alt="Simpl wallet"
           style={{ height: 28, width: "auto", objectFit: "contain" }}
@@ -101,15 +128,15 @@ export function WelcomePage({
 
         <span style={{ flex: 1 }} />
 
-        <span
-          className="pill"
-          style={{
-            background: "var(--bg-surface)",
-            color: "var(--ink-3)",
-          }}
+        <button
+          type="button"
+          className="onboarding-prefs-btn"
+          onClick={() => setPrefsOpen(true)}
+          aria-haspopup="dialog"
         >
-          EVM
-        </span>
+          <GearIcon />
+          <span>{t("welcome.preferences")}</span>
+        </button>
       </div>
 
       <div
@@ -117,48 +144,48 @@ export function WelcomePage({
         style={{
           display: "grid",
           gridTemplateRows: "auto 1fr auto",
-          gap: 18,
+          gap: 14,
+          minWidth: 0,
         }}
       >
-        <section style={{ paddingTop: 18 }}>
+        <section style={{ paddingTop: 8, minWidth: 0 }}>
           <div
             className="lbl"
             style={{
               fontSize: 11,
               letterSpacing: "0.12em",
               textTransform: "uppercase",
-              marginBottom: 14,
+              marginBottom: 10,
             }}
           >
-            Non-custodial wallet
+            {t("welcome.badge")}
           </div>
 
           <div
             className="t-h2"
             style={{
-              fontSize: 36,
-              lineHeight: 0.96,
-              letterSpacing: "-0.06em",
+              fontSize: 28,
+              lineHeight: 1.0,
+              letterSpacing: "-0.05em",
             }}
           >
-            Your keys.
+            {t("welcome.titleLine1")}
             <br />
-            Your assets.
+            {t("welcome.titleLine2")}
             <br />
-            Simple.
+            {t("welcome.titleLine3")}
           </div>
 
           <p
             style={{
-              margin: "14px 0 0",
+              margin: "12px 0 0",
               color: "var(--ink-3)",
               fontSize: 13,
               lineHeight: 1.45,
-              maxWidth: 290,
+              maxWidth: "100%",
             }}
           >
-            Create a new wallet, import an existing one, or track any EVM
-            address in watch-only mode.
+            {t("welcome.subtitle")}
           </p>
         </section>
 
@@ -174,7 +201,7 @@ export function WelcomePage({
             className="btn primary lg full"
             onClick={onCreateWallet}
           >
-            Create new wallet
+            {t("welcome.createWallet")}
             <ArrowIcon />
           </button>
 
@@ -194,8 +221,8 @@ export function WelcomePage({
               </div>
 
               <div className="body">
-                <div className="nm">Import wallet</div>
-                <div className="sub">Use your seed phrase.</div>
+                <div className="nm">{t("welcome.importWallet")}</div>
+                <div className="sub">{t("welcome.importWalletSub")}</div>
               </div>
 
               <div className="num">
@@ -218,8 +245,8 @@ export function WelcomePage({
               </div>
 
               <div className="body">
-                <div className="nm">Watch address</div>
-                <div className="sub">Track balances without keys.</div>
+                <div className="nm">{t("welcome.watchAddress")}</div>
+                <div className="sub">{t("welcome.watchAddressSub")}</div>
               </div>
 
               <div className="num">
@@ -263,7 +290,7 @@ export function WelcomePage({
                 color: "var(--ink-1)",
               }}
             >
-              Local-first by design
+              {t("welcome.localFirstTitle")}
             </div>
 
             <div
@@ -274,11 +301,15 @@ export function WelcomePage({
                 lineHeight: 1.45,
               }}
             >
-              SIMPLE encrypts your seed phrase on this device only.
+              {t("welcome.localFirstBody")}
             </div>
           </div>
         </section>
       </div>
+
+      {prefsOpen ? (
+        <PreferencesSheet onClose={() => setPrefsOpen(false)} />
+      ) : null}
     </div>
   );
 }

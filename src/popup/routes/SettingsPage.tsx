@@ -1,18 +1,19 @@
 // src/popup/routes/SettingsPage.tsx
 
 import { useState, type ReactNode } from "react";
-import type { WalletState } from "../../core/storage/storage.types";
+import type {
+  DefaultOpenMode,
+  LocalePreference,
+  SupportedLocale,
+  ThemePreference,
+  WalletState,
+} from "../../core/storage/storage.types";
 import { walletService } from "../../core/wallet/wallet.service";
 import { storageRepository } from "../../core/storage/storage.repository";
-import { nativeMessagingClient } from "../../core/native/native-messaging.client";
-import {
-  encodeSecretToBase64,
-  getBiometricWalletId,
-} from "../../core/security/biometric-unlock.helpers";
+import { applyThemePreference } from "../../core/theme/theme";
+import { SUPPORTED_LOCALES, useTranslation } from "../../i18n";
 import { openFullscreenApp, openSidePanel } from "../surface-actions";
-import { getNetworkDisplayName } from "../../core/networks/chain-registry";
-import { NetworkIcon } from "../components/NetworkIcon";
-import { SelectNetworkPage } from "../components/SelectNetworkPage";
+import { suppressBiometricAutoPromptOnce } from "../biometric-autoprompt";
 
 import SecurityCenterPage from "./SecurityCenterPage";
 
@@ -22,70 +23,52 @@ type SettingsPageProps = {
   onChanged: () => void | Promise<void>;
   onRevealSeed: () => void;
   onRevealPrivateKey: () => void;
+  // When true, open straight into Security Center with the Danger Zone focused
+  // (used by the "Reset wallet data" action on a primary account).
+  initialShowSecurityCenter?: boolean;
 };
 
-type ChainOption = {
-  chainId: number;
-  name: string;
-  nativeSymbol: string;
-  subtitle: string;
-};
+// Translation-key maps for the enum settings (matches the unions in
+// storage.types). Labels are resolved through `t()` at render time.
+const OPEN_MODE_LABEL_KEYS = {
+  popup: "settings.openMode.popup",
+  sidePanel: "settings.openMode.sidePanel",
+  fullscreen: "settings.openMode.fullscreen",
+} as const;
 
-const CHAIN_OPTIONS: ChainOption[] = [
-  {
-    chainId: 1,
-    name: "Ethereum Mainnet",
-    nativeSymbol: "ETH",
-    subtitle: "ETH · Chain 1",
-  },
-  {
-    chainId: 56,
-    name: "BNB Smart Chain",
-    nativeSymbol: "BNB",
-    subtitle: "BNB · Chain 56",
-  },
-  {
-    chainId: 8453,
-    name: "Base",
-    nativeSymbol: "ETH",
-    subtitle: "ETH · Chain 8453",
-  },
-  {
-    chainId: 11155111,
-    name: "Sepolia",
-    nativeSymbol: "ETH",
-    subtitle: "ETH · Chain 11155111",
-  },
-];
+const OPEN_MODE_OPTIONS: DefaultOpenMode[] = ["popup", "sidePanel", "fullscreen"];
 
-// Detect the current surface so the Display section can mark "Open full screen"
-// as the active surface (a small "Current" pill instead of a chevron).
-function getSurface(): "popup" | "sidepanel" | "fullscreen" {
-  const attr = document.documentElement.getAttribute("data-simple-surface");
-  if (attr === "fullscreen") return "fullscreen";
-  if (attr === "sidepanel") return "sidepanel";
-  return "popup";
-}
+// Appearance / theme options shown in the Settings "Appearance" segmented
+// control (matches the ThemePreference union in storage.types).
+const THEME_OPTIONS: ThemePreference[] = ["system", "light", "dark"];
+
+const THEME_LABEL_KEYS = {
+  system: "settings.theme.system",
+  light: "settings.theme.light",
+  dark: "settings.theme.dark",
+} as const;
+
+// Native language names live under `language.<locale>` keys (identical across
+// every dictionary so users always recognize their own language).
+const LANGUAGE_LABEL_KEYS: Record<SupportedLocale, `language.${SupportedLocale}`> =
+  {
+    en: "language.en",
+    ru: "language.ru",
+    "es-419": "language.es-419",
+    "pt-BR": "language.pt-BR",
+    tr: "language.tr",
+    uk: "language.uk",
+    vi: "language.vi",
+    id: "language.id",
+  };
+
+// Kept in sync with DEFAULT_OPEN_MODE_CHANGED_MESSAGE in the service worker.
+// The popup notifies the background so it re-applies the toolbar open behavior
+// immediately, without waiting for a browser restart.
+const DEFAULT_OPEN_MODE_CHANGED_MESSAGE = "SIMPL_DEFAULT_OPEN_MODE_CHANGED";
 
 function BackIcon() {
   return <span style={{ fontSize: 22, lineHeight: 1 }}>‹</span>;
-}
-
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"
-        fill="none"
-        stroke="currentColor"
-      />
-      <path
-        d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8.6 8.6 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A8.6 8.6 0 0 0 7 6.5l-2.4-1-2 3.5 2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8.6 8.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a8.6 8.6 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5z"
-        fill="none"
-        stroke="currentColor"
-      />
-    </svg>
-  );
 }
 
 function PanelIcon() {
@@ -93,6 +76,36 @@ function PanelIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <rect x="5" y="5" width="14" height="14" rx="3" fill="none" stroke="currentColor" />
       <path d="M14 5v14" fill="none" stroke="currentColor" />
+    </svg>
+  );
+}
+
+// Small check used to mark the selected "Open by default" chip.
+function CheckIcon() {
+  return (
+    <svg
+      className="disp-chip__check"
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 12l5 5 9-10" />
+    </svg>
+  );
+}
+
+// Compact popup window glyph for the "Default open mode" chips.
+function PopupIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="5" width="14" height="14" rx="3" fill="none" stroke="currentColor" />
+      <path d="M5 9h14" fill="none" stroke="currentColor" />
     </svg>
   );
 }
@@ -109,23 +122,48 @@ function ExpandIcon() {
   );
 }
 
+// Glyphs for the Appearance chips: monitor (System), sun (Light), moon (Dark).
+function MonitorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="13" rx="2" fill="none" stroke="currentColor" />
+      <path d="M9 21h6M12 17v4" fill="none" stroke="currentColor" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" />
+      <path
+        d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"
+        fill="none"
+        stroke="currentColor"
+      />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="none" stroke="currentColor" />
+    </svg>
+  );
+}
+
+function ThemeIcon({ theme }: { theme: ThemePreference }) {
+  if (theme === "light") return <SunIcon />;
+  if (theme === "dark") return <MoonIcon />;
+  return <MonitorIcon />;
+}
+
 function ShieldIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3l7 3v5c0 4.5-2.8 8.5-7 10-4.2-1.5-7-5.5-7-10V6l7-3z" fill="none" stroke="currentColor" />
       <path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" />
-    </svg>
-  );
-}
-
-function FingerprintIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M5.5 11a6.5 6.5 0 0 1 13 0M8 11a4 4 0 0 1 8 0v1.5M12 11v3.5M9.2 13.5c0 2.5.6 4 1.3 5.4M14.8 13v2c0 1.6.3 2.8.8 4M6.5 14.5c0 2 .4 3.5 1 4.7"
-        fill="none"
-        stroke="currentColor"
-      />
     </svg>
   );
 }
@@ -214,61 +252,6 @@ function ActionRow({
   );
 }
 
-// Toggle switch (role=switch) used for the single-row Touch ID control.
-function Toggle({
-  checked,
-  disabled,
-  onClick,
-  label,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      className={`set-toggle${checked ? " set-toggle--on" : ""}`}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="set-toggle__knob" />
-    </button>
-  );
-}
-
-// Non-clickable row wrapper (the right-side control owns the interaction).
-function ControlRow({
-  icon,
-  tone = "neutral",
-  title,
-  subtitle,
-  control,
-}: {
-  icon: ReactNode;
-  tone?: RowTone;
-  title: string;
-  subtitle: string;
-  control: ReactNode;
-}) {
-  return (
-    <div className="set-row set-row--static">
-      <span className={`set-row__icon set-row__icon--${tone}`}>{icon}</span>
-
-      <span className="set-row__body">
-        <span className="set-row__title">{title}</span>
-        <span className="set-row__sub">{subtitle}</span>
-      </span>
-
-      <span className="set-row__aside">{control}</span>
-    </div>
-  );
-}
-
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section className="set-section">
@@ -278,189 +261,340 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function getActiveChain(chainId: number): ChainOption {
-  return (
-    CHAIN_OPTIONS.find((chain) => chain.chainId === chainId) ?? {
-      chainId,
-      name: `Chain ${chainId}`,
-      nativeSymbol: "EVM",
-      subtitle: `Chain ${chainId}`,
-    }
-  );
-}
-
 export function SettingsPage({
   walletState,
   onBack,
   onChanged,
   onRevealSeed,
   onRevealPrivateKey,
+  initialShowSecurityCenter = false,
 }: SettingsPageProps) {
-  const [showSecurityCenter, setShowSecurityCenter] = useState(false);
+  const { t, locale, setLocale } = useTranslation();
+  const [showSecurityCenter, setShowSecurityCenter] = useState(
+    initialShowSecurityCenter,
+  );
 
-  const [nativeStatus, setNativeStatus] = useState<string | null>(null);
-  const [touchIdPassword, setTouchIdPassword] = useState("");
-  // Inline enable form (password) shown when turning Touch ID ON — enabling
-  // biometrics requires the wallet password, disabling does not.
-  const [touchIdFormOpen, setTouchIdFormOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
+  const [openingBehaviorOpen, setOpeningBehaviorOpen] = useState(false);
+  const [languageSelectorOpen, setLanguageSelectorOpen] = useState(false);
+  const [appearanceSelectorOpen, setAppearanceSelectorOpen] = useState(false);
 
-  const biometricEnabled = walletState.settings.biometricUnlock.enabled;
-  const walletId = getBiometricWalletId(walletState);
-  const activeChain = getActiveChain(walletState.selectedChainId);
-  const surface = getSurface();
+  const defaultOpenMode = walletState.settings.defaultOpenMode;
+  const currentTheme = walletState.settings.theme;
 
   async function handleChanged() {
     await onChanged();
   }
 
-  async function selectChain(chainId: number) {
-    setNetworkSelectorOpen(false);
-    await walletService.setSelectedChainId(chainId);
-    await handleChanged();
-  }
-
-  // The Touch ID toggle: enabled → disable directly; disabled → reveal the
-  // inline password form so the user can confirm and enable.
-  function onToggleTouchId() {
-    if (saving) return;
-    if (biometricEnabled) {
-      void disableTouchIdUnlock();
-    } else {
-      setNativeStatus(null);
-      setTouchIdFormOpen((open) => !open);
+  // Persist the chosen default open mode, then ping the service worker so it
+  // re-applies the toolbar-icon behavior right away. "fullscreen" keeps the
+  // action pointed at the popup (Chrome can't target a tab); the popup itself
+  // hands off to a full-page tab on open (see popup/main.tsx).
+  async function selectOpenMode(mode: DefaultOpenMode) {
+    if (mode !== defaultOpenMode) {
+      await storageRepository.updateSettings({ defaultOpenMode: mode });
+      try {
+        chrome.runtime?.sendMessage?.({
+          type: DEFAULT_OPEN_MODE_CHANGED_MESSAGE,
+        });
+      } catch {
+        // Best-effort: the background also re-reads the setting on next startup.
+      }
+      await handleChanged();
     }
   }
 
-  async function enableTouchIdUnlock() {
-    setNativeStatus(null);
-
-    if (!touchIdPassword) {
-      setNativeStatus("Enter wallet password first.");
-      return;
-    }
-
-    setSaving(true);
-    setNativeStatus("Checking wallet password...");
-
-    try {
-      await walletService.unlockWallet({
-        password: touchIdPassword,
-      });
-    } catch {
-      setNativeStatus("Wrong wallet password.");
-      setSaving(false);
-      return;
-    }
-
-    setNativeStatus("Saving unlock secret to macOS Keychain...");
-
-    const passwordBase64 = encodeSecretToBase64(touchIdPassword);
-
-    const response = await nativeMessagingClient.storeVaultKey(
-      walletId,
-      passwordBase64,
-    );
-
-    if (!response.ok) {
-      setNativeStatus(`Touch ID setup error: ${response.error}`);
-      setSaving(false);
-      return;
-    }
-
-    const verifyResponse = await nativeMessagingClient.getVaultKey(walletId);
-
-    if (!verifyResponse.ok) {
-      setNativeStatus(`Touch ID verification error: ${verifyResponse.error}`);
-      setSaving(false);
-      return;
-    }
-
-    await storageRepository.updateSettings({
-      biometricUnlock: {
-        enabled: true,
-        credentialId: walletId,
-        createdAt: new Date().toISOString(),
-      },
-    });
-
-    setTouchIdPassword("");
-    setTouchIdFormOpen(false);
-    setNativeStatus("Touch ID unlock enabled.");
-    setSaving(false);
-
+  // Persist the chosen appearance and apply it to the document immediately so the
+  // change is visible without waiting for the next open.
+  async function selectTheme(theme: ThemePreference) {
+    if (theme === currentTheme) return;
+    applyThemePreference(theme);
+    await storageRepository.updateSettings({ theme });
     await handleChanged();
   }
 
-  async function disableTouchIdUnlock() {
-    setSaving(true);
-    setNativeStatus("Disabling Touch ID unlock...");
+  // From the appearance selector subpage: apply the theme, then return to
+  // Settings so the compact row reflects the new choice.
+  async function handleSelectTheme(theme: ThemePreference) {
+    await selectTheme(theme);
+    setAppearanceSelectorOpen(false);
+  }
 
-    const credentialId =
-      walletState.settings.biometricUnlock.credentialId ?? walletId;
-
-    const response = await nativeMessagingClient.deleteVaultKey(credentialId);
-
-    if (!response.ok) {
-      setNativeStatus(`Touch ID disable error: ${response.error}`);
-      setSaving(false);
-      return;
-    }
-
-    await storageRepository.updateSettings({
-      biometricUnlock: {
-        enabled: false,
-        credentialId: null,
-        createdAt: null,
-      },
-    });
-
-    setNativeStatus("Touch ID unlock disabled.");
-    setSaving(false);
-
+  // Persist the chosen interface language and apply it live. setLocale() updates
+  // the in-memory store + mirror so every subscribed component re-renders
+  // immediately; updateSettings() makes it the authoritative preference. We
+  // store the concrete locale (not "auto") since this is an explicit choice.
+  async function selectLocale(next: SupportedLocale) {
+    if (next === locale) return;
+    const preference: LocalePreference = next;
+    setLocale(preference);
+    await storageRepository.updateSettings({ locale: preference });
     await handleChanged();
+  }
+
+  // From the language selector subpage: apply the choice, then return to
+  // Settings so the updated language is reflected in the compact row.
+  async function handleSelectLocale(next: SupportedLocale) {
+    await selectLocale(next);
+    setLanguageSelectorOpen(false);
   }
 
   async function lockWallet() {
+    // User-initiated lock: don't auto-prompt biometrics on the unlock screen we
+    // are about to show. The button stays available for an explicit tap.
+    suppressBiometricAutoPromptOnce();
     walletService.lockWallet();
     await handleChanged();
   }
 
   // Destructive wallet removal. The Danger Zone UI + confirmation now live in
-  // Security Center; this owns the actual deletion (vault key + wallet clear +
-  // state refresh) because walletState / walletId live here. Behavior is
-  // unchanged from when the action was in Settings.
+  // Security Center; this owns the actual deletion (wallet clear + state
+  // refresh) because walletState lives here.
   async function clearWalletNow() {
-    const credentialId =
-      walletState.settings.biometricUnlock.credentialId ?? walletId;
-
-    await nativeMessagingClient.deleteVaultKey(credentialId);
     await walletService.clearWallet();
 
     await handleChanged();
   }
 
-  // Network selection — the shared full-screen selector (no modal/sheet).
-  if (networkSelectorOpen) {
+  // Opening behavior — a local subpage (same pattern as the network selector):
+  // pick the default launch mode and quick-open the side panel / full screen.
+  if (openingBehaviorOpen) {
     return (
-      <SelectNetworkPage
-        purpose="active"
-        selectedChainId={walletState.selectedChainId}
-        onSelect={(chainId) => void selectChain(chainId)}
-        onBack={() => setNetworkSelectorOpen(false)}
-      />
+      <div className="ext-popup settings-page" data-screen-label="Opening behavior">
+        <div className="bar-top">
+          <button
+            className="icbtn"
+            type="button"
+            onClick={() => setOpeningBehaviorOpen(false)}
+            aria-label={t("common.back")}
+          >
+            <BackIcon />
+          </button>
+
+          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
+            {t("settings.openingBehaviorTitle")}
+          </div>
+
+          <span style={{ flex: 1 }} />
+        </div>
+
+        <div className="screen-body settings-body">
+          <header className="set-hero">
+            <div className="set-hero__title">
+              {t("settings.openingBehaviorTitle")}
+            </div>
+            <div className="set-hero__sub">
+              {t("settings.openingBehaviorDesc")}
+            </div>
+          </header>
+
+          <div className="set-grid">
+            <Section label={t("settings.openByDefault")}>
+              <div className="set-display__pad">
+                <div className="set-display__hint">
+                  {t("settings.openByDefaultHint")}
+                </div>
+                <div className="set-display__chips">
+                  {OPEN_MODE_OPTIONS.map((mode) => {
+                    const on = defaultOpenMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`disp-chip${on ? " disp-chip--on" : ""}`}
+                        aria-pressed={on}
+                        onClick={() => void selectOpenMode(mode)}
+                      >
+                        {mode === "sidePanel" ? (
+                          <PanelIcon />
+                        ) : mode === "fullscreen" ? (
+                          <ExpandIcon />
+                        ) : (
+                          <PopupIcon />
+                        )}
+                        <span className="disp-chip__label">
+                          {t(OPEN_MODE_LABEL_KEYS[mode])}
+                        </span>
+                        {on ? <CheckIcon /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Section>
+
+            <Section label={t("settings.openNow")}>
+              <div className="set-display__pad">
+                <div className="set-display__chips">
+                  <button
+                    type="button"
+                    className="disp-chip disp-chip--action"
+                    onClick={() => void openSidePanel()}
+                  >
+                    <PanelIcon />
+                    <span className="disp-chip__label">
+                      {t("settings.openMode.sidePanel")}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="disp-chip disp-chip--action"
+                    onClick={openFullscreenApp}
+                  >
+                    <ExpandIcon />
+                    <span className="disp-chip__label">
+                      {t("settings.openMode.fullscreen")}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </Section>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Language selector — a local subpage (same full-screen pattern as the network
+  // selector and Opening behavior). Picking a language applies it live and
+  // returns to Settings, where the compact row reflects the new choice.
+  if (languageSelectorOpen) {
+    return (
+      <div className="ext-popup settings-page" data-screen-label="Language">
+        <div className="bar-top">
+          <button
+            className="icbtn"
+            type="button"
+            onClick={() => setLanguageSelectorOpen(false)}
+            aria-label={t("common.back")}
+          >
+            <BackIcon />
+          </button>
+
+          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
+            {t("settings.language.selectorTitle")}
+          </div>
+
+          <span style={{ flex: 1 }} />
+        </div>
+
+        <div className="screen-body settings-body">
+          <header className="set-hero">
+            <div className="set-hero__title">
+              {t("settings.language.selectorTitle")}
+            </div>
+            <div className="set-hero__sub">
+              {t("settings.language.selectorSubtitle")}
+            </div>
+          </header>
+
+          <div className="set-grid">
+            <Section label={t("settings.section.language")}>
+              <div className="set-display__pad">
+                <div className="set-lang-list">
+                  {SUPPORTED_LOCALES.map((option) => {
+                    const on = locale === option;
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        className={`set-lang-row${on ? " set-lang-row--on" : ""}`}
+                        aria-pressed={on}
+                        lang={option}
+                        onClick={() => void handleSelectLocale(option)}
+                      >
+                        <span className="set-lang-row__name">
+                          {t(LANGUAGE_LABEL_KEYS[option])}
+                        </span>
+                        {on ? <CheckIcon /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Section>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Appearance selector — same full-screen subpage pattern as Language. Picking a
+  // theme applies it live and returns to Settings, where the compact row shows
+  // the new value. The selected option uses the simpl black/white active state.
+  if (appearanceSelectorOpen) {
+    return (
+      <div className="ext-popup settings-page" data-screen-label="Appearance">
+        <div className="bar-top">
+          <button
+            className="icbtn"
+            type="button"
+            onClick={() => setAppearanceSelectorOpen(false)}
+            aria-label={t("common.back")}
+          >
+            <BackIcon />
+          </button>
+
+          <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
+            {t("settings.appearance.selectorTitle")}
+          </div>
+
+          <span style={{ flex: 1 }} />
+        </div>
+
+        <div className="screen-body settings-body">
+          <header className="set-hero">
+            <div className="set-hero__title">
+              {t("settings.appearance.selectorTitle")}
+            </div>
+            <div className="set-hero__sub">
+              {t("settings.appearance.selectorSubtitle")}
+            </div>
+          </header>
+
+          <div className="set-grid">
+            <Section label={t("settings.section.appearance")}>
+              <div className="set-display__pad">
+                <div className="set-lang-list">
+                  {THEME_OPTIONS.map((theme) => {
+                    const on = currentTheme === theme;
+                    return (
+                      <button
+                        key={theme}
+                        type="button"
+                        className={`set-lang-row${on ? " set-lang-row--on" : ""}`}
+                        aria-pressed={on}
+                        onClick={() => void handleSelectTheme(theme)}
+                      >
+                        <span className="set-lang-row__lead">
+                          <ThemeIcon theme={theme} />
+                          <span className="set-lang-row__name">
+                            {t(THEME_LABEL_KEYS[theme])}
+                          </span>
+                        </span>
+                        {on ? <CheckIcon /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Section>
+          </div>
+        </div>
+      </div>
     );
   }
 
   if (showSecurityCenter) {
     return (
       <SecurityCenterPage
+        focusDanger={initialShowSecurityCenter}
         onBack={() => {
           setShowSecurityCenter(false);
           void handleChanged();
         }}
         onClearWallet={clearWalletNow}
+        walletState={walletState}
+        onChanged={handleChanged}
         initialSnapshot={{
           settings: walletState.settings,
           biometricUnlock: walletState.settings.biometricUnlock,
@@ -473,7 +607,12 @@ export function SettingsPage({
   return (
     <div className="ext-popup settings-page" data-screen-label="08 Settings">
         <div className="bar-top">
-          <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+          <button
+            className="icbtn"
+            type="button"
+            onClick={onBack}
+            aria-label={t("common.back")}
+          >
             <BackIcon />
           </button>
 
@@ -484,157 +623,112 @@ export function SettingsPage({
               color: "var(--ink-1)",
             }}
           >
-            Settings
+            {t("settings.title")}
           </div>
 
           <span style={{ flex: 1 }} />
 
-          <button className="icbtn" type="button" onClick={onBack} aria-label="Settings">
-            <SettingsIcon />
-          </button>
+          {/* Compact language + theme selectors — same chip styling, opening the
+              existing Language / Appearance selector subpages. */}
+          <div className="set-head-chips">
+            <button
+              className="net-chip"
+              type="button"
+              onClick={() => setLanguageSelectorOpen(true)}
+              title={t(LANGUAGE_LABEL_KEYS[locale])}
+              aria-label={t("settings.changeLanguage")}
+            >
+              <span className="net-chip-label" lang={locale}>
+                {locale.split("-")[0].toUpperCase()}
+              </span>
+            </button>
+
+            <button
+              className="net-chip net-chip--icon"
+              type="button"
+              onClick={() => setAppearanceSelectorOpen(true)}
+              title={t(THEME_LABEL_KEYS[currentTheme])}
+              aria-label={t("settings.changeAppearance")}
+            >
+              <span className="net-chip-glyph">
+                <ThemeIcon theme={currentTheme} />
+              </span>
+            </button>
+          </div>
         </div>
 
         <div className="screen-body settings-body">
           <header className="set-hero">
-            <div className="set-hero__title">Wallet settings</div>
-            <div className="set-hero__sub">
-              Manage security, recovery, display, and wallet session.
-            </div>
+            <div className="set-hero__title">{t("settings.heroTitle")}</div>
+            <div className="set-hero__sub">{t("settings.heroSub")}</div>
           </header>
 
-          {nativeStatus ? <div className="set-status">{nativeStatus}</div> : null}
-
           <div className="set-grid">
-            <Section label="Wallet">
+            {/* APP — launch mode and display preferences. */}
+            <Section label={t("settings.section.app")}>
               <ActionRow
                 icon={
-                  <NetworkIcon
-                    chainId={walletState.selectedChainId}
-                    size={36}
-                  />
+                  defaultOpenMode === "sidePanel" ? (
+                    <PanelIcon />
+                  ) : defaultOpenMode === "fullscreen" ? (
+                    <ExpandIcon />
+                  ) : (
+                    <PopupIcon />
+                  )
                 }
-                tone="brand"
-                title={getNetworkDisplayName(walletState.selectedChainId)}
-                subtitle={activeChain.subtitle}
-                aside={<span className="set-row__change">Change</span>}
-                onClick={() => setNetworkSelectorOpen(true)}
+                tone="neutral"
+                title={t("settings.appBehavior")}
+                subtitle={t("settings.appBehaviorSub")}
+                aside={
+                  <>
+                    <span className="set-row__value">
+                      {t(OPEN_MODE_LABEL_KEYS[defaultOpenMode])}
+                    </span>
+                    <Chevron />
+                  </>
+                }
+                onClick={() => setOpeningBehaviorOpen(true)}
               />
             </Section>
 
-            <Section label="Display">
-              <ActionRow
-                icon={<PanelIcon />}
-                tone="neutral"
-                title="Open side panel"
-                subtitle="Use SIMPLE in a slide-out browser panel."
-                aside={
-                  surface === "sidepanel" ? (
-                    <span className="set-row__pill">Current</span>
-                  ) : undefined
-                }
-                onClick={() => void openSidePanel()}
-              />
-
-              <ActionRow
-                icon={<ExpandIcon />}
-                tone="neutral"
-                title="Open full screen"
-                subtitle="Open SIMPLE in a dedicated browser tab."
-                aside={
-                  surface === "fullscreen" ? (
-                    <span className="set-row__pill">Current</span>
-                  ) : undefined
-                }
-                onClick={surface === "fullscreen" ? undefined : openFullscreenApp}
-              />
-            </Section>
-
-            <Section label="Security">
+            {/* SECURITY */}
+            <Section label={t("settings.section.security")}>
               <ActionRow
                 icon={<ShieldIcon />}
                 tone="secure"
-                title="Security Center"
-                subtitle="Backup, biometrics, auto-lock, and privacy controls."
+                title={t("settings.securityCenter")}
+                subtitle={t("settings.securityCenterSub")}
                 onClick={() => setShowSecurityCenter(true)}
               />
-
-              <ControlRow
-                icon={<FingerprintIcon />}
-                tone="secure"
-                title="Touch ID"
-                subtitle="Unlock this wallet with biometrics on this device."
-                control={
-                  <Toggle
-                    checked={biometricEnabled}
-                    disabled={saving}
-                    onClick={onToggleTouchId}
-                    label="Toggle Touch ID unlock"
-                  />
-                }
-              />
-
-              {!biometricEnabled && touchIdFormOpen ? (
-                <div className="set-touchid-form">
-                  <input
-                    className="input lg"
-                    type="password"
-                    value={touchIdPassword}
-                    placeholder="Wallet password"
-                    autoComplete="current-password"
-                    onChange={(event) => setTouchIdPassword(event.target.value)}
-                  />
-
-                  <div className="set-touchid-form__actions">
-                    <button
-                      type="button"
-                      className="btn secondary lg"
-                      onClick={() => {
-                        setTouchIdFormOpen(false);
-                        setTouchIdPassword("");
-                        setNativeStatus(null);
-                      }}
-                      disabled={saving}
-                    >
-                      Cancel
-                    </button>
-
-                    <button
-                      type="button"
-                      className="btn primary lg"
-                      onClick={() => void enableTouchIdUnlock()}
-                      disabled={saving || !touchIdPassword}
-                    >
-                      {saving ? "Enabling…" : "Enable"}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </Section>
 
-            <Section label="Recovery">
+            {/* BACKUP & KEYS — sensitive reveal actions, kept calm (muted amber)
+                and lower on the screen than everyday preferences. */}
+            <Section label={t("settings.section.backupKeys")}>
               <ActionRow
                 icon={<PhraseIcon />}
                 tone="warn"
-                title="Reveal seed phrase"
-                subtitle="View your wallet recovery phrase."
+                title={t("settings.revealSeed")}
+                subtitle={t("settings.revealSeedSub")}
                 onClick={onRevealSeed}
               />
 
               <ActionRow
                 icon={<KeyIcon />}
                 tone="warn"
-                title="Reveal private key"
-                subtitle="View the private key for the selected account."
+                title={t("settings.revealPrivateKey")}
+                subtitle={t("settings.revealPrivateKeySub")}
                 onClick={onRevealPrivateKey}
               />
             </Section>
 
-            <Section label="Session">
+            {/* SESSION */}
+            <Section label={t("settings.section.session")}>
               <ActionRow
                 icon={<LockIcon />}
                 tone="neutral"
-                title="Lock wallet"
-                subtitle="Return to the unlock screen."
+                title={t("settings.lockWallet")}
+                subtitle={t("settings.lockWalletSub")}
                 onClick={() => void lockWallet()}
               />
             </Section>

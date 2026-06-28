@@ -5,6 +5,8 @@ import { SimpleInstrumentIcon } from "../components/SimpleInstrumentIcon";
 import { AssetIcon } from "../components/AssetIcon";
 import { NetworkIcon } from "../components/NetworkIcon";
 import { AccountBlockie } from "../components/AccountBlockie";
+import ManageAssetsPage from "./ManageAssetsPage";
+import ValueCurrencyPage from "./ValueCurrencyPage";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import { isWatchOnly } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
@@ -48,6 +50,7 @@ import {
   isTronChainId,
   isBitcoinChainId,
   isSolanaChainId,
+  isTonChainId,
   SOLANA_DEVNET_CHAIN_ID,
 } from "../../core/networks/chain-registry";
 import { SelectNetworkPage } from "../components/SelectNetworkPage";
@@ -58,6 +61,7 @@ import {
   transactionHistoryService,
   type TransactionHistoryItem,
 } from "../../core/transactions/transaction-history.service";
+import { useTranslation, t } from "../../i18n";
 
 type CachedPortfolio = {
   assets: WalletAssetBalance[];
@@ -73,12 +77,6 @@ type PortfolioStatus =
   | "error";
 
 type ValuationCurrency = "USD" | "USDT" | "EUR";
-
-const CURRENCY_LABELS: Record<ValuationCurrency, string> = {
-  USD: "US Dollar",
-  USDT: "Tether USD",
-  EUR: "Euro",
-};
 
 type HomePageProps = {
   selectedAccount: WalletAccount | null;
@@ -98,7 +96,33 @@ type HomePageProps = {
 const DEFAULT_BALANCE_REFRESH_SECONDS = 30;
 const PORTFOLIO_RETRY_DELAYS_MS = [3000, 5000, 10000, 20000, 30000];
 
-const VALUATION_CURRENCIES: ValuationCurrency[] = ["USD", "USDT", "EUR"];
+// Toggle structured balance-refresh diagnostics in the popup console. Logs only
+// public data (account label, chainId, public address, asset counts, timings,
+// error name/message/code/stack) — never seed phrase / private key / password.
+const BALANCE_DEBUG = true;
+
+function balanceLog(...args: unknown[]): void {
+  if (BALANCE_DEBUG) console.log("[balances]", ...args);
+}
+
+// Normalize an unknown thrown value into a safe, structured shape for logging.
+// Includes a `code` field because RPC/HTTP errors often carry one.
+function describeError(error: unknown): {
+  name: string;
+  message: string;
+  code: unknown;
+  stack?: string;
+} {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      code: (error as { code?: unknown }).code,
+      stack: error.stack,
+    };
+  }
+  return { name: "NonError", message: String(error), code: undefined };
+}
 
 const VALUATION_STORAGE_KEY = "simple:nativeValuationCurrency";
 
@@ -218,6 +242,11 @@ function getExplorerAddressUrl(chainId: number, address: string): string | null 
     return `https://solscan.io/account/${address}${cluster}`;
   }
 
+  // Tonviewer accepts the user-friendly address verbatim at the root path.
+  if (isTonChainId(chainId)) {
+    return `https://tonviewer.com/${address}`;
+  }
+
   const base = getExplorerBaseUrl(chainId);
   return base ? `${base}/address/${address}` : null;
 }
@@ -235,6 +264,11 @@ function getExplorerTokenUrl(
     const cluster =
       chainId === SOLANA_DEVNET_CHAIN_ID ? "?cluster=devnet" : "";
     return `https://solscan.io/token/${contractAddress}${cluster}`;
+  }
+
+  // TON Jetton master pages live at the Tonviewer root path.
+  if (isTonChainId(chainId)) {
+    return `https://tonviewer.com/${contractAddress}`;
   }
 
   const base = getExplorerBaseUrl(chainId);
@@ -257,9 +291,9 @@ function formatAssetPrice(
   tokenPrices: Record<string, number>,
 ): string {
   const priceUsd = getAssetUsdPrice(asset, nativeAsset, nativeQuote, tokenPrices);
-  if (priceUsd === null) return "No price";
+  if (priceUsd === null) return t("common.noPrice");
   const formatted = formatValue(priceUsd, usdToEurRate, currency);
-  if (formatted === "—") return "No price";
+  if (formatted === "—") return t("common.noPrice");
   return `${formatted} / ${asset.symbol}`;
 }
 
@@ -522,37 +556,8 @@ function Icon({
   );
 }
 
-function CurrencyIcon({ currency }: { currency: ValuationCurrency }) {
-  const configs: Record<ValuationCurrency, { bg: string; color: string; symbol: string }> = {
-    USD:  { bg: "#FEF9C3", color: "#CA8A04", symbol: "$" },
-    USDT: { bg: "#DCFCE7", color: "#16A34A", symbol: "₮" },
-    EUR:  { bg: "#EEF2FF", color: "#4F46E5", symbol: "€" },
-  };
-  const { bg, color, symbol } = configs[currency];
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 36,
-        height: 36,
-        borderRadius: 10,
-        background: bg,
-        color,
-        fontSize: 15,
-        fontWeight: 700,
-        lineHeight: 1,
-        flexShrink: 0,
-        userSelect: "none",
-      }}
-    >
-      {symbol}
-    </span>
-  );
-}
-
 export function HomePage(props: HomePageProps) {
+  const { t } = useTranslation();
   const [assets, setAssets] = useState<WalletAssetBalance[]>([]);
   const [nativeQuote, setNativeQuote] = useState<NativeAssetQuote | null>(null);
   // Resolved ERC-20 spot prices (USD), keyed `${chainId}:${lowercaseAddress}`.
@@ -616,6 +621,9 @@ export function HomePage(props: HomePageProps) {
   const refreshTimerRef = useRef<number | null>(null);
   const retryAttemptRef = useRef(0);
   const assetsRef = useRef<WalletAssetBalance[]>([]);
+  // Guards against overlapping refreshes (Try again pressed while a scheduled
+  // retry/auto-refresh is already running, focus/visibility re-entry, etc.).
+  const syncInFlightRef = useRef(false);
 
   const selectedAddress = props.selectedAccount?.address ?? null;
   const selectedChainId = props.walletState.selectedChainId;
@@ -704,16 +712,38 @@ export function HomePage(props: HomePageProps) {
   async function syncPortfolio() {
     if (!props.selectedAccount || !cacheKey) return;
 
+    // Never run two refreshes at once — a second caller is a no-op while one is
+    // in flight (the running one will repaint the UI when it settles).
+    if (syncInFlightRef.current) {
+      balanceLog("refresh skipped — already in flight");
+      return;
+    }
+    syncInFlightRef.current = true;
+
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
 
     setPortfolioStatus(assetsRef.current.length > 0 ? "syncing" : "loading");
     setPortfolioError(null);
 
+    const startedAt = Date.now();
+    const hadCache = assetsRef.current.length > 0;
+    if (BALANCE_DEBUG) {
+      console.groupCollapsed("[balances] refresh start");
+      console.log("account", props.selectedAccount?.label ?? null);
+      console.log("chainId", selectedChainId);
+      console.log("address", selectedAddress);
+      console.log("cachedAssets", assetsRef.current.length);
+      console.groupEnd();
+    }
+
     try {
       const result = await walletService.getSelectedPortfolio();
 
-      if (!mountedRef.current || requestIdRef.current !== requestId) return;
+      if (!mountedRef.current || requestIdRef.current !== requestId) {
+        balanceLog("refresh result ignored (stale/unmounted)", { requestId });
+        return;
+      }
 
       const nextUpdatedAt = Date.now();
 
@@ -721,6 +751,12 @@ export function HomePage(props: HomePageProps) {
       setUpdatedAt(nextUpdatedAt);
       setPortfolioStatus("fresh");
       setPortfolioError(null);
+
+      balanceLog("refresh success", {
+        chainId: selectedChainId,
+        assets: result.assets.length,
+        durationMs: Date.now() - startedAt,
+      });
 
       // Keep an open Asset Detail in sync with the fresh portfolio balance so it
       // never shows a stale 0 after a successful refresh (the detail holds its
@@ -766,10 +802,29 @@ export function HomePage(props: HomePageProps) {
     } catch (error) {
       if (!mountedRef.current || requestIdRef.current !== requestId) return;
 
+      // Critical only when nothing usable is on screen (no cache → "error").
+      // With cached/partial data present we degrade to "stale" so the UI keeps
+      // showing balances and surfaces a soft note, not the scary red banner.
+      const status = hadCache ? "stale" : "error";
+
       setPortfolioError(error instanceof Error ? error.message : String(error));
-      setPortfolioStatus(assetsRef.current.length > 0 ? "stale" : "error");
+      setPortfolioStatus(status);
+
+      if (BALANCE_DEBUG) {
+        console.groupCollapsed("[balances] refresh failed");
+        console.log("stage", "getSelectedPortfolio");
+        console.log("chainId", selectedChainId);
+        console.log("address", selectedAddress);
+        console.log("hadCache", hadCache);
+        console.log("status", status);
+        console.log("durationMs", Date.now() - startedAt);
+        console.log("error", describeError(error));
+        console.groupEnd();
+      }
 
       scheduleRetry();
+    } finally {
+      syncInFlightRef.current = false;
     }
   }
 
@@ -1318,10 +1373,10 @@ export function HomePage(props: HomePageProps) {
     return (
       <div className="ext-popup" data-screen-label="03 Home">
         <div className="screen-body" style={{ padding: 24 }}>
-          <div className="t-h2">No selected account</div>
+          <div className="t-h2">{t("home.noSelectedAccount")}</div>
 
           <p style={{ color: "var(--ink-3)", fontSize: 13 }}>
-            Choose an account to continue using SIMPLE.
+            {t("home.noSelectedAccountSub")}
           </p>
 
           <button
@@ -1330,7 +1385,7 @@ export function HomePage(props: HomePageProps) {
             onClick={props.onAccounts}
             style={{ marginTop: 20 }}
           >
-            Choose account
+            {t("home.chooseAccount")}
           </button>
         </div>
       </div>
@@ -1392,6 +1447,40 @@ export function HomePage(props: HomePageProps) {
         selectedChainId={props.walletState.selectedChainId}
         onSelect={(chainId) => void handleSelectNetwork(chainId)}
         onBack={() => setIsNetworkSelectorOpen(false)}
+      />
+    );
+  }
+
+  // Value currency — full wallet screen (replaces the old floating modal).
+  // Rendered in place of Home while open; selecting saves the currency and
+  // returns to Home. Persistence + formatting stay here via onSelect.
+  if (isValuationSelectorOpen) {
+    return (
+      <ValueCurrencyPage
+        selected={valuationCurrency}
+        onSelect={(currency) => {
+          setValuationCurrency(currency);
+          setIsValuationSelectorOpen(false);
+        }}
+        onBack={() => setIsValuationSelectorOpen(false)}
+      />
+    );
+  }
+
+  // Manage assets — full wallet screen (replaces the old bottom sheet). Rendered
+  // in place of Home while open; back returns to Home unchanged. Add-token and
+  // hidden-asset restore logic stay here and are passed down as callbacks.
+  if (isAssetsManagerOpen) {
+    return (
+      <ManageAssetsPage
+        chainId={selectedChainId}
+        hiddenAssets={hiddenAssetObjects}
+        onAddCustomToken={() => {
+          setIsAssetsManagerOpen(false);
+          props.onAddCustomToken();
+        }}
+        onRestore={handleRestoreAsset}
+        onBack={() => setIsAssetsManagerOpen(false)}
       />
     );
   }
@@ -1496,15 +1585,26 @@ export function HomePage(props: HomePageProps) {
     // App routes a TRON Swap to the cross-chain bridge, never the 0x same-chain
     // flow (which would 400 for TRON).
     const isBridgeSource = isTronChainId(asset.chainId);
+    // TON is receive-only in this MVP: no same-chain swap and no bridge route.
+    const isTon = isTonChainId(asset.chainId);
     const swapAvailable =
-      !isTestnetAsset && (isNative || swapSupportedFamily || isBridgeSource);
+      !isTestnetAsset &&
+      !isTon &&
+      (isNative || swapSupportedFamily || isBridgeSource);
     const showSwapUnavailableNote =
-      !isNative && !isTestnetAsset && !swapAvailable && !isWatchOnlyAccount;
+      !isNative &&
+      !isTestnetAsset &&
+      !isTon &&
+      !swapAvailable &&
+      !isWatchOnlyAccount;
+    // Sending TON is not wired yet — hide the Send action for TON so there is no
+    // dead-end button (receive-only MVP). Every other chain keeps Send.
+    const sendAvailable = !isTon;
 
     // Address label is chain-aware: Solana mints vs EVM/TRON contracts.
     const tokenAddressLabel = isSolanaChainId(asset.chainId)
-      ? "Mint address"
-      : "Contract address";
+      ? t("home.mintAddress")
+      : t("home.contractAddress");
 
     return (
       <div className="ext-popup asset-details-page" data-screen-label="Asset">
@@ -1513,12 +1613,12 @@ export function HomePage(props: HomePageProps) {
             className="icbtn"
             type="button"
             onClick={handleCloseAssetDetails}
-            aria-label="Back"
+            aria-label={t("common.back")}
           >
             <span style={{ fontSize: 22, lineHeight: 1 }}>‹</span>
           </button>
 
-          <div className="asset-details-header-title">Asset</div>
+          <div className="asset-details-header-title">{t("home.assetHeader")}</div>
 
           <span style={{ flex: 1 }} />
 
@@ -1530,11 +1630,9 @@ export function HomePage(props: HomePageProps) {
         {confirmHide ? (
           <div className="asset-details-content">
             <div className="asset-remove-confirm">
-              <div className="asset-remove-confirm-title">Hide asset?</div>
+              <div className="asset-remove-confirm-title">{t("home.hideAssetTitle")}</div>
               <div className="asset-remove-confirm-text">
-                This hides the token from your wallet view. You can show it again
-                later from Manage assets. Your on-chain tokens are not moved or
-                deleted.
+                {t("home.hideAssetBody")}
               </div>
               <div className="asset-remove-confirm-buttons">
                 <button
@@ -1542,14 +1640,14 @@ export function HomePage(props: HomePageProps) {
                   className="asset-remove-btn asset-remove-btn--cancel"
                   onClick={() => setConfirmHide(false)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
                   className="asset-remove-btn asset-remove-btn--confirm"
                   onClick={() => handleHideAsset(asset)}
                 >
-                  Hide asset
+                  {t("home.hideAsset")}
                 </button>
               </div>
             </div>
@@ -1558,12 +1656,10 @@ export function HomePage(props: HomePageProps) {
           <div className="asset-details-content">
             <div className="asset-remove-confirm">
               <div className="asset-remove-confirm-title">
-                Remove imported token?
+                {t("home.removeTokenTitle")}
               </div>
               <div className="asset-remove-confirm-text">
-                This removes the imported token record from this wallet. Your
-                on-chain tokens are not moved or deleted. You can add the token
-                again later by contract address.
+                {t("home.removeTokenBody")}
               </div>
               <div className="asset-remove-confirm-buttons">
                 <button
@@ -1571,14 +1667,14 @@ export function HomePage(props: HomePageProps) {
                   className="asset-remove-btn asset-remove-btn--cancel"
                   onClick={() => setConfirmRemove(false)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
                   className="asset-remove-btn asset-remove-btn--confirm"
                   onClick={() => handleConfirmRemoveAsset(asset)}
                 >
-                  Remove token
+                  {t("home.removeToken")}
                 </button>
               </div>
             </div>
@@ -1605,7 +1701,7 @@ export function HomePage(props: HomePageProps) {
             {/* Stats: Balance / Price / Value */}
             <section className="asset-details-stats">
               <div className="asset-details-stat">
-                <span className="asset-details-stat__label">Balance</span>
+                <span className="asset-details-stat__label">{t("common.balance")}</span>
                 <span className="asset-details-stat__value">
                   {hideBalances
                     ? "••••"
@@ -1614,11 +1710,11 @@ export function HomePage(props: HomePageProps) {
               </div>
               <div className="asset-details-stat">
                 <span className="asset-details-stat__label">
-                  {isReference ? "Reference price" : "Price"}
+                  {isReference ? t("home.referencePrice") : t("common.price")}
                 </span>
                 <span className="asset-details-stat__value">
                   {detailsPriceLoading
-                    ? "Loading…"
+                    ? t("common.loading")
                     : formatAssetPrice(
                         asset,
                         nativeAsset,
@@ -1630,14 +1726,14 @@ export function HomePage(props: HomePageProps) {
                 </span>
               </div>
               <div className="asset-details-stat">
-                <span className="asset-details-stat__label">Value</span>
+                <span className="asset-details-stat__label">{t("common.value")}</span>
                 <span className="asset-details-stat__value">
                   {hideBalances ? (
                     "••••••"
                   ) : isReference ? (
                     // Never imply real funds for testnet/devnet balances.
                     <span className="asset-details-stat__value--muted">
-                      Not real funds
+                      {t("home.notRealFunds")}
                     </span>
                   ) : (
                     formatValue(
@@ -1657,8 +1753,7 @@ export function HomePage(props: HomePageProps) {
 
             {isTestnetAsset ? (
               <div className="asset-reference-note">
-                This is a test network asset. Market price and chart are not
-                available.
+                {t("home.testnetAssetNote")}
               </div>
             ) : null}
 
@@ -1670,9 +1765,9 @@ export function HomePage(props: HomePageProps) {
                 <div className="asset-chart-head">
                   <div className="asset-chart-head__col">
                     <span className="asset-chart-title">
-                      Price
+                      {t("common.price")}
                       {isReference ? (
-                        <span className="asset-chart-ref-pill">Reference</span>
+                        <span className="asset-chart-ref-pill">{t("home.reference")}</span>
                       ) : null}
                     </span>
                     {chartStatus === "ready" && chartChangePct !== null ? (
@@ -1692,7 +1787,7 @@ export function HomePage(props: HomePageProps) {
                   </div>
 
                   <div className="asset-chart-head__col asset-chart-head__col--right">
-                    <span className="asset-chart-vol-label">Market volume 24h</span>
+                    <span className="asset-chart-vol-label">{t("home.marketVolume24h")}</span>
                     <span className="asset-chart-vol-value">{volume24hText}</span>
                   </div>
                 </div>
@@ -1708,7 +1803,7 @@ export function HomePage(props: HomePageProps) {
                       height={210}
                     />
                   ) : (
-                    <div className="asset-chart-loading">Loading chart…</div>
+                    <div className="asset-chart-loading">{t("home.loadingChart")}</div>
                   )}
                 </div>
 
@@ -1737,7 +1832,7 @@ export function HomePage(props: HomePageProps) {
                   <div
                     className="asset-chart-type"
                     role="group"
-                    aria-label="Chart type"
+                    aria-label={t("home.chartTypeLabel")}
                   >
                     <button
                       type="button"
@@ -1746,7 +1841,7 @@ export function HomePage(props: HomePageProps) {
                       }`}
                       onClick={() => selectChartMode("line")}
                     >
-                      Line
+                      {t("home.chartLine")}
                     </button>
                     <button
                       type="button"
@@ -1755,7 +1850,7 @@ export function HomePage(props: HomePageProps) {
                       }`}
                       onClick={() => selectChartMode("candles")}
                     >
-                      Candles
+                      {t("home.chartCandles")}
                     </button>
                   </div>
                 ) : null}
@@ -1765,12 +1860,12 @@ export function HomePage(props: HomePageProps) {
               // market identity — show a compact market card, not an empty chart.
               <section className="asset-market-card">
                 <div className="asset-market-card__row">
-                  <span className="asset-market-card__label">Market volume 24h</span>
+                  <span className="asset-market-card__label">{t("home.marketVolume24h")}</span>
                   <span className="asset-market-card__value">{volume24hText}</span>
                 </div>
                 {change24hPct !== null ? (
                   <div className="asset-market-card__row">
-                    <span className="asset-market-card__label">24h change</span>
+                    <span className="asset-market-card__label">{t("home.change24h")}</span>
                     <span
                       className={`asset-chart-change asset-chart-change--${
                         change24hPct >= 0 ? "up" : "down"
@@ -1781,20 +1876,20 @@ export function HomePage(props: HomePageProps) {
                     </span>
                   </div>
                 ) : null}
-                <div className="asset-market-card__note">Chart unavailable</div>
+                <div className="asset-market-card__note">{t("home.chartUnavailable")}</div>
               </section>
             ) : showNoMarketData ? (
               // Unknown imported token with no market data at all — keep it small
               // and calm, never a big blank chart card.
               <section className="asset-no-market">
                 <div className="asset-no-market__title">
-                  Market data unavailable
+                  {t("home.marketDataUnavailable")}
                 </div>
                 <p className="asset-no-market__text">
-                  No price data found for this token yet.
+                  {t("home.noPriceData")}
                 </p>
                 <p className="asset-no-market__sub">
-                  This does not affect your token balance.
+                  {t("home.noPriceDataReassure")}
                 </p>
               </section>
             ) : null}
@@ -1803,13 +1898,13 @@ export function HomePage(props: HomePageProps) {
             {isNative ? (
               <section className="asset-details-info-card">
                 <div className="asset-details-info-row">
-                  <span className="asset-details-info-label">Asset type</span>
+                  <span className="asset-details-info-label">{t("home.assetTypeLabel")}</span>
                   <span className="asset-details-info-value">
-                    Native network asset
+                    {t("home.nativeNetworkAsset")}
                   </span>
                 </div>
                 <p className="asset-details-info-note">
-                  Used to pay network fees on {getNetworkLabel(asset.chainId)}.
+                  {t("home.nativeAssetNote", { chain: getNetworkLabel(asset.chainId) })}
                 </p>
                 {(() => {
                   const nativeAddress = isTronChainId(asset.chainId)
@@ -1828,7 +1923,12 @@ export function HomePage(props: HomePageProps) {
                           "solanaAddress" in props.selectedAccount
                           ? props.selectedAccount.solanaAddress ?? null
                           : null
-                        : selectedAddress;
+                        : isTonChainId(asset.chainId)
+                          ? props.selectedAccount &&
+                            "tonAddress" in props.selectedAccount
+                            ? props.selectedAccount.tonAddress ?? null
+                            : null
+                          : selectedAddress;
                   const url = nativeAddress
                     ? getExplorerAddressUrl(asset.chainId, nativeAddress)
                     : null;
@@ -1839,7 +1939,7 @@ export function HomePage(props: HomePageProps) {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      View address ↗
+                      {t("home.viewAddressArrow")}
                     </a>
                   ) : null;
                 })()}
@@ -1861,7 +1961,7 @@ export function HomePage(props: HomePageProps) {
                     }
                     aria-label={`Copy ${tokenAddressLabel.toLowerCase()}`}
                   >
-                    {copied ? "Copied" : "Copy"}
+                    {copied ? t("common.copied") : t("common.copy")}
                   </button>
                 </div>
                 {getExplorerTokenUrl(asset.chainId, asset.contractAddress) ? (
@@ -1874,7 +1974,7 @@ export function HomePage(props: HomePageProps) {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    View contract ↗
+                    {t("home.viewContractArrow")}
                   </a>
                 ) : null}
               </section>
@@ -1889,28 +1989,34 @@ export function HomePage(props: HomePageProps) {
                     className="asset-action-btn asset-action-btn--primary"
                     onClick={() => handleReceiveFromDetails(asset)}
                   >
-                    Receive
+                    {t("home.receive")}
                   </button>
                 </div>
                 <p className="asset-details-watch-note">
-                  Watch-only account. Sending and swaps are disabled.
+                  {t("home.watchOnlyDisabled")}
                 </p>
               </>
             ) : (
               <div className="asset-details-actions">
+                {sendAvailable ? (
+                  <button
+                    type="button"
+                    className="asset-action-btn asset-action-btn--primary"
+                    onClick={() => handleSendFromDetails(asset)}
+                  >
+                    {t("home.send")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  className="asset-action-btn asset-action-btn--primary"
-                  onClick={() => handleSendFromDetails(asset)}
-                >
-                  Send
-                </button>
-                <button
-                  type="button"
-                  className="asset-action-btn asset-action-btn--outline"
+                  className={`asset-action-btn ${
+                    sendAvailable
+                      ? "asset-action-btn--outline"
+                      : "asset-action-btn--primary"
+                  }`}
                   onClick={() => handleReceiveFromDetails(asset)}
                 >
-                  Receive
+                  {t("home.receive")}
                 </button>
                 {swapAvailable ? (
                   <button
@@ -1918,7 +2024,7 @@ export function HomePage(props: HomePageProps) {
                     className="asset-action-btn asset-action-btn--outline"
                     onClick={handleSwapFromDetails}
                   >
-                    Swap
+                    {t("home.swap")}
                   </button>
                 ) : null}
               </div>
@@ -1926,26 +2032,25 @@ export function HomePage(props: HomePageProps) {
 
             {showSwapUnavailableNote ? (
               <p className="asset-details-swap-note">
-                Swap isn’t available on {getNetworkLabel(asset.chainId)} yet. You
-                can still send and receive {asset.symbol}.
+                {t("home.swapUnavailable", { chain: getNetworkLabel(asset.chainId) })}
               </p>
             ) : null}
 
             {/* Activity */}
             <section className="asset-details-activity">
-              <div className="asset-details-activity-title">Activity</div>
+              <div className="asset-details-activity-title">{t("home.activity")}</div>
               {assetHistory.length === 0 ? (
-                <div className="asset-activity-empty">No activity yet.</div>
+                <div className="asset-activity-empty">{t("activity.empty")}</div>
               ) : (
                 <div className="asset-activity-list">
                   {assetHistory.map((item) => (
                     <div key={item.id} className="asset-activity-row">
                       <span className="asset-activity-type">
                         {item.direction === "swap"
-                          ? "Swap"
+                          ? t("home.swap")
                           : item.direction === "send"
-                            ? "Send"
-                            : "Receive"}
+                            ? t("home.send")
+                            : t("home.receive")}
                       </span>
                       <span className="asset-activity-amount">
                         {getActivityDisplayAmount(item, asset)}
@@ -1954,10 +2059,10 @@ export function HomePage(props: HomePageProps) {
                         className={`asset-activity-status asset-activity-status--${item.status}`}
                       >
                         {item.status === "submitted"
-                          ? "Pending"
+                          ? t("activity.status.pending")
                           : item.status === "confirmed"
-                            ? "Confirmed"
-                            : "Failed"}
+                            ? t("activity.status.confirmed")
+                            : t("activity.status.failed")}
                       </span>
                       {item.explorerUrl ? (
                         <a
@@ -1965,7 +2070,7 @@ export function HomePage(props: HomePageProps) {
                           href={item.explorerUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          aria-label="View transaction"
+                          aria-label={t("home.viewTransaction")}
                         >
                           ↗
                         </a>
@@ -1982,7 +2087,7 @@ export function HomePage(props: HomePageProps) {
                   props.onHistory();
                 }}
               >
-                View all activity ›
+                {t("home.viewAllActivity")} ›
               </button>
             </section>
 
@@ -1990,14 +2095,14 @@ export function HomePage(props: HomePageProps) {
                 the destructive actions never dominate the screen. */}
             {!isNative ? (
               <section className="asset-details-manage">
-                <div className="asset-details-manage-title">Manage token</div>
+                <div className="asset-details-manage-title">{t("home.manageToken")}</div>
                 <div className="asset-details-secondary-actions">
                   <button
                     type="button"
                     className="asset-details-ghost-btn"
                     onClick={() => setConfirmHide(true)}
                   >
-                    Hide asset
+                    {t("home.hideAsset")}
                   </button>
                   {canRemoveAsset(asset) && (
                     <button
@@ -2005,13 +2110,12 @@ export function HomePage(props: HomePageProps) {
                       className="asset-details-danger-btn"
                       onClick={() => setConfirmRemove(true)}
                     >
-                      Remove imported token
+                      {t("home.removeImportedToken")}
                     </button>
                   )}
                 </div>
                 <div className="asset-details-view-note">
-                  This only changes your wallet view. Your on-chain tokens are
-                  not moved or deleted.
+                  {t("home.manageTokenNote")}
                 </div>
               </section>
             ) : null}
@@ -2028,7 +2132,7 @@ export function HomePage(props: HomePageProps) {
           <AccountBlockie address={props.selectedAccount.address} size={24} />
           <span className="acct-chip-label">{props.selectedAccount.label}</span>
           {isWatchOnlyAccount && (
-            <span className="watch-only-badge">Watch-only</span>
+            <span className="watch-only-badge">{t("accounts.watchOnly")}</span>
           )}
         </button>
 
@@ -2039,9 +2143,9 @@ export function HomePage(props: HomePageProps) {
           type="button"
           onClick={() => setIsNetworkSelectorOpen(true)}
           title={getNetworkLabel(props.walletState.selectedChainId)}
-          aria-label={`Network: ${getNetworkLabel(
-            props.walletState.selectedChainId,
-          )}. Change network.`}
+          aria-label={t("home.networkChipAria", {
+            label: getNetworkLabel(props.walletState.selectedChainId),
+          })}
         >
           <NetworkIcon chainId={props.walletState.selectedChainId} size={18} />
           <span className="net-chip-label">
@@ -2056,13 +2160,13 @@ export function HomePage(props: HomePageProps) {
 
       <div className="screen-body">
         <div className="balance-block">
-          <div className="lbl">Total balance</div>
+          <div className="lbl">{t("home.totalBalance")}</div>
 
           <button
             type="button"
             className="val val-clickable home-total-balance-trigger"
             onClick={() => setIsValuationSelectorOpen(true)}
-            aria-label="Change valuation currency"
+            aria-label={t("home.changeValuationCurrency")}
             aria-haspopup="dialog"
           >
             <span className={`home-total-balance-value${isSyncing ? " home-total-balance-value--loading" : ""}`}>
@@ -2088,17 +2192,21 @@ export function HomePage(props: HomePageProps) {
 
         {!isWatchOnlyAccount && (
           <div className="actions">
-            <button
-              className="action"
-              type="button"
-              onClick={() => {
-                if (defaultSendAsset) props.onSendAsset(defaultSendAsset);
-              }}
-              disabled={!defaultSendAsset}
-            >
-              <SimpleInstrumentIcon instrument="send" iconSize={16} />
-              <span className="a-lbl">Send</span>
-            </button>
+            {/* TON is receive-only in this MVP: hide Send & Swap so there are no
+                dead-end actions; Receive stays available. */}
+            {!isTonChainId(selectedChainId) ? (
+              <button
+                className="action"
+                type="button"
+                onClick={() => {
+                  if (defaultSendAsset) props.onSendAsset(defaultSendAsset);
+                }}
+                disabled={!defaultSendAsset}
+              >
+                <SimpleInstrumentIcon instrument="send" iconSize={16} />
+                <span className="a-lbl">{t("home.send")}</span>
+              </button>
+            ) : null}
 
             <button
               className="action"
@@ -2106,17 +2214,19 @@ export function HomePage(props: HomePageProps) {
               onClick={() => props.onReceive()}
             >
               <SimpleInstrumentIcon instrument="receive" iconSize={16} />
-              <span className="a-lbl">Receive</span>
+              <span className="a-lbl">{t("home.receive")}</span>
             </button>
 
-            <button
-              className="action"
-              type="button"
-              onClick={() => props.onSwap()}
-            >
-              <SimpleInstrumentIcon instrument="swap" iconSize={16} />
-              <span className="a-lbl">Swap</span>
-            </button>
+            {!isTonChainId(selectedChainId) ? (
+              <button
+                className="action"
+                type="button"
+                onClick={() => props.onSwap()}
+              >
+                <SimpleInstrumentIcon instrument="swap" iconSize={16} />
+                <span className="a-lbl">{t("home.swap")}</span>
+              </button>
+            ) : null}
           </div>
         )}
 
@@ -2126,16 +2236,14 @@ export function HomePage(props: HomePageProps) {
           const staleError =
             portfolioStatus === "stale" && portfolioError !== null;
 
-          // Solana shows the prominent red banner ONLY when nothing usable
-          // loaded (no cache → "error"). When cached/partial data is on screen
-          // ("stale"), a single failed/slow RPC is non-critical, so it degrades
-          // to a soft, non-alarming note with silent background retry instead of
-          // the scary red banner. EVM/TRON keep their existing behavior for both
-          // error and stale-with-error (unchanged).
-          const showCriticalBanner = solana
-            ? hardError
-            : hardError || staleError;
-          const showDegradedNote = solana && staleError;
+          // Every chain now follows the same rule: the prominent red banner is
+          // shown ONLY when nothing usable loaded (no cache → "error"). When
+          // cached/partial balances are already on screen ("stale"), a transient
+          // RPC/price/token failure is non-critical — keep the balances and show
+          // a soft, non-alarming note with a silent background retry instead of
+          // the scary "Couldn't refresh balances." banner.
+          const showCriticalBanner = hardError;
+          const showDegradedNote = staleError;
 
           if (showCriticalBanner) {
             return (
@@ -2156,8 +2264,8 @@ export function HomePage(props: HomePageProps) {
               >
                 <span>
                   {solana
-                    ? "Solana network is temporarily unavailable."
-                    : "Couldn't refresh balances."}
+                    ? t("home.solanaUnavailable")
+                    : t("home.couldntRefreshBalances")}
                 </span>
                 <button
                   type="button"
@@ -2176,19 +2284,21 @@ export function HomePage(props: HomePageProps) {
                     opacity: isSyncing ? 0.5 : 1,
                   }}
                 >
-                  Try again
+                  {t("common.retry")}
                 </button>
               </div>
             );
           }
 
           if (showDegradedNote) {
-            // Soft amber note: small, neutral copy, no scary red, no prominent
-            // button. A background retry is already scheduled and will clear the
-            // note on success.
+            // Soft note: small, neutral copy, no scary red, no prominent button.
+            // A background retry is already scheduled and clears the note on
+            // success. Cached balances stay on screen the whole time.
             return (
               <div className="home-degraded-note">
-                Some Solana balances may be delayed. Showing available data.
+                {solana
+                  ? t("home.solanaDegraded")
+                  : t("home.balancesDegraded")}
               </div>
             );
           }
@@ -2197,21 +2307,25 @@ export function HomePage(props: HomePageProps) {
         })()}
 
         <div className="sect-head">
-          <div className="lbl">Assets</div>
+          <div className="lbl">{t("home.assets")}</div>
 
           <div className="assets-header-actions">
             <button type="button" className="assets-header-action" onClick={props.onHistory}>
               <Icon name="history" />
-              <span>History</span>
+              <span>{t("home.history")}</span>
             </button>
 
-            <button
-              className="link"
-              type="button"
-              onClick={() => setIsAssetsManagerOpen(true)}
-            >
-              + Token
-            </button>
+            {/* Arbitrary Jetton import isn't supported on TON (trusted-allowlist
+                only), so don't expose an "+ Add token" action there. */}
+            {!isTonChainId(selectedChainId) ? (
+              <button
+                className="link"
+                type="button"
+                onClick={() => setIsAssetsManagerOpen(true)}
+              >
+                + {t("home.addTokenShort")}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -2270,7 +2384,7 @@ export function HomePage(props: HomePageProps) {
                     // price (when loaded) under a clear "Reference" tag.
                     assetUsdPrice !== null ? (
                       <>
-                        <div className="v v--muted">Reference</div>
+                        <div className="v v--muted">{t("home.reference")}</div>
                         <div className="q">
                           {`${formatValue(
                             assetUsdPrice,
@@ -2280,7 +2394,7 @@ export function HomePage(props: HomePageProps) {
                         </div>
                       </>
                     ) : (
-                      <div className="q q--muted">Reference price</div>
+                      <div className="q q--muted">{t("home.referencePrice")}</div>
                     )
                   ) : assetUsdPrice !== null ? (
                     <>
@@ -2298,7 +2412,7 @@ export function HomePage(props: HomePageProps) {
                   ) : (
                     // No fiat price (e.g. TRX): show a single intentional
                     // "No price" instead of a lonely dash + label.
-                    <div className="q q--muted">No price</div>
+                    <div className="q q--muted">{t("common.noPrice")}</div>
                   )}
                 </div>
               </button>
@@ -2308,7 +2422,8 @@ export function HomePage(props: HomePageProps) {
           {tokenAssets.length === 0 &&
           !isTronChainId(selectedChainId) &&
           !isBitcoinChainId(selectedChainId) &&
-          !isSolanaChainId(selectedChainId) ? (
+          !isSolanaChainId(selectedChainId) &&
+          !isTonChainId(selectedChainId) ? (
             <div
               style={{
                 margin: "8px",
@@ -2321,168 +2436,11 @@ export function HomePage(props: HomePageProps) {
                 lineHeight: 1.45,
               }}
             >
-              No ERC-20 balance yet. USDT and USDC are tracked on supported
-              networks. Custom tokens can be added manually.
+              {t("home.noErc20Balance")}
             </div>
           ) : null}
         </div>
       </div>
-
-      {isValuationSelectorOpen && (
-        <div
-          className="valuation-modal-backdrop"
-          onClick={() => setIsValuationSelectorOpen(false)}
-        >
-          <div
-            className="valuation-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Select value currency"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="valuation-modal-header">
-              <div>
-                <div className="valuation-modal-title">Select value currency</div>
-                <div className="valuation-modal-subtitle">Choose how to display portfolio values.</div>
-              </div>
-              <button
-                type="button"
-                className="valuation-modal-close"
-                onClick={() => setIsValuationSelectorOpen(false)}
-                aria-label="Close"
-              >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="valuation-option-list">
-              {VALUATION_CURRENCIES.map((currency) => (
-                <button
-                  key={currency}
-                  type="button"
-                  className={`valuation-option${currency === valuationCurrency ? " valuation-option--active" : ""}`}
-                  onClick={() => {
-                    setValuationCurrency(currency);
-                    setIsValuationSelectorOpen(false);
-                  }}
-                >
-                  <span className="valuation-option-icon">
-                    <CurrencyIcon currency={currency} />
-                  </span>
-                  <span className="valuation-option-body">
-                    <span className="valuation-option-code">{currency}</span>
-                    <span className="valuation-option-name">{CURRENCY_LABELS[currency]}</span>
-                  </span>
-                  <span className="valuation-option-check">
-                    {currency === valuationCurrency && (
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M5 12l5 5L19 7" />
-                      </svg>
-                    )}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isAssetsManagerOpen && (
-        <div className="network-sheet-backdrop">
-          <button
-            type="button"
-            className="network-sheet-scrim"
-            aria-label="Close"
-            onClick={() => setIsAssetsManagerOpen(false)}
-          />
-          <section className="network-sheet assets-mgr-sheet">
-            <div className="network-sheet-head">
-              <div>
-                <div className="network-sheet-title">Manage assets</div>
-                <div className="network-sheet-subtitle">Add tokens or restore hidden ones.</div>
-              </div>
-              <button
-                type="button"
-                className="icbtn"
-                onClick={() => setIsAssetsManagerOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="row-list">
-              <button
-                type="button"
-                className="row assets-mgr-add-row"
-                onClick={() => {
-                  setIsAssetsManagerOpen(false);
-                  props.onAddCustomToken();
-                }}
-                style={{ width: "100%", background: "transparent", border: 0, textAlign: "left" }}
-              >
-                <span className="assets-mgr-add-icon">+</span>
-                <div className="body">
-                  <div className="nm">Add custom token</div>
-                  <div className="sub">Import by contract address</div>
-                </div>
-                <div className="num">
-                  <div className="v">›</div>
-                </div>
-              </button>
-
-              {hiddenAssetObjects.length > 0 && (
-                <>
-                  <div className="assets-mgr-section-sep">Hidden assets</div>
-                  {hiddenAssetObjects.map((asset) => (
-                    <div
-                      key={asset.id}
-                      className="row"
-                      style={{ cursor: "default" }}
-                    >
-                      <AssetIcon
-                        ticker={asset.symbol}
-                        logoURI={asset.logoUrl}
-                        address={asset.contractAddress}
-                        chainId={asset.chainId}
-                        size={36}
-                      />
-                      <div className="body" style={{ opacity: 0.55 }}>
-                        <div className="nm">{asset.name}</div>
-                        <div className="sub">
-                          {asset.symbol}
-                          {asset.contractAddress
-                            ? ` · ${truncateAddress(asset.contractAddress)}`
-                            : ""}
-                        </div>
-                      </div>
-                      <div className="num">
-                        <button
-                          type="button"
-                          className="assets-mgr-restore-btn"
-                          onClick={() => {
-                            if (asset.contractAddress)
-                              handleRestoreAsset(asset.contractAddress);
-                          }}
-                        >
-                          Show
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {hiddenAssetObjects.length === 0 && (
-                <div className="assets-mgr-empty">
-                  No hidden assets on this network.
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
 
     </div>
   );

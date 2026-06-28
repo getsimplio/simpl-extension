@@ -11,6 +11,7 @@ import {
   DEFAULT_CHAINS,
   getNetworkDisplayName,
 } from "../../core/networks/chain-registry";
+import { t, useTranslation } from "../../i18n";
 import { NetworkIcon } from "./NetworkIcon";
 
 export type NetworkPurpose = "active" | "receive" | "send" | "swap";
@@ -33,12 +34,20 @@ type SelectNetworkPageProps = {
 };
 
 // Context copy per purpose — layout stays identical, only the hint changes.
-const PURPOSE_HINT: Record<NetworkPurpose, string> = {
-  active: "Choose active network.",
-  receive: "Choose where to receive funds.",
-  send: "Choose network to send from.",
-  swap: "Choose network to swap on.",
-};
+// Resolved via t() at render time so it stays reactive to language switches.
+function purposeHint(purpose: NetworkPurpose): string {
+  switch (purpose) {
+    case "receive":
+      return t("selectNetwork.hint.receive");
+    case "send":
+      return t("selectNetwork.hint.send");
+    case "swap":
+      return t("selectNetwork.hint.swap");
+    case "active":
+    default:
+      return t("selectNetwork.hint.active");
+  }
+}
 
 function BackIcon() {
   return <span style={{ fontSize: 22, lineHeight: 1 }}>‹</span>;
@@ -82,7 +91,7 @@ function NetworkRow({
 
   // Short, never-truncated subtitle: "ERC-20 · Gas: ETH".
   const subtitle = disabled
-    ? (reason ?? "Not available")
+    ? (reason ?? t("common.notAvailable"))
     : `${chain.standardLabel} · Gas: ${chain.nativeCurrency.symbol}`;
 
   return (
@@ -113,12 +122,12 @@ function NetworkRow({
 
       <div className="num select-network-row__end">
         {chain.isTestnet ? (
-          <span className="select-network-testnet-pill">Testnet</span>
+          <span className="select-network-testnet-pill">{t("common.testnet")}</span>
         ) : null}
         {pending ? (
           <span className="select-network-pending">···</span>
         ) : selected ? (
-          <span className="select-network-check" aria-label="Selected">
+          <span className="select-network-check" aria-label={t("common.selected")}>
             <CheckIcon />
           </span>
         ) : null}
@@ -136,6 +145,7 @@ export function SelectNetworkPage({
   onSelect,
   onBack,
 }: SelectNetworkPageProps) {
+  const { t } = useTranslation();
   const busy = busyChainId != null;
 
   const mainnets = DEFAULT_CHAINS.filter((chain) => !chain.isTestnet);
@@ -173,22 +183,22 @@ export function SelectNetworkPage({
       data-screen-label="Select Network"
     >
       <div className="bar-top">
-        <button className="icbtn" type="button" onClick={onBack} aria-label="Back">
+        <button className="icbtn" type="button" onClick={onBack} aria-label={t("common.back")}>
           <BackIcon />
         </button>
 
         <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          Select network
+          {t("selectNetwork.title")}
         </div>
       </div>
 
       <div className="screen-body select-network-body">
-        <p className="select-network-hint">{PURPOSE_HINT[purpose]}</p>
+        <p className="select-network-hint">{purposeHint(purpose)}</p>
 
         {error ? <div className="receive-network-error">{error}</div> : null}
 
-        {renderGroup("Mainnets", mainnets)}
-        {renderGroup("Testnets", testnets)}
+        {renderGroup(t("selectNetwork.mainnets"), mainnets)}
+        {renderGroup(t("selectNetwork.testnets"), testnets)}
       </div>
     </div>
   );

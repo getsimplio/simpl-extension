@@ -16,6 +16,7 @@
 // shared Swap design-system classes so it feels native to the wallet.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { t, useTranslation } from "../../i18n";
 import type { WalletAccount } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import { walletService } from "../../core/wallet/wallet.service";
@@ -224,7 +225,7 @@ const TRON_NATIVE_MAX_RESERVE_SUN = 5_000_000n;
 function decimalToBaseUnits(amount: string, decimals: number): bigint {
   const trimmed = amount.trim();
   if (!/^\d*(?:\.\d*)?$/u.test(trimmed) || trimmed === "" || trimmed === ".") {
-    throw new Error("Enter a valid amount.");
+    throw new Error(t("errors.invalidAmount"));
   }
   const [intPart, fracPart = ""] = trimmed.split(".");
   if (fracPart.length > decimals) {
@@ -274,7 +275,7 @@ function formatDuration(seconds: number | null): string | null {
 // JSON / calldata / revert dump / stack text can ever reach the UI.
 function friendlyError(error: unknown): string {
   if (error instanceof NoBridgeRouteError) {
-    return "No route found for this pair. Try another token, chain, or amount.";
+    return t("bridge.noRoute");
   }
   // Classified, non-retryable quote failures carry a curated, display-safe
   // message ("This TRON route is not available yet.", "Amount is too small…").
@@ -338,7 +339,7 @@ function friendlyError(error: unknown): string {
       case "SOLANA_NETWORK_ERROR":
         return "Solana RPC is temporarily unavailable. Please try again.";
       case "WATCH_ONLY":
-        return "Watch-only accounts cannot swap.";
+        return t("swap.watchOnlyCannotSwap");
       default:
         return error.message;
     }
@@ -348,7 +349,7 @@ function friendlyError(error: unknown): string {
   if (error instanceof EvmBridgeError) {
     switch (error.code) {
       case "EVM_ALLOWANCE_REQUIRED":
-        return error.message || "Token approval required.";
+        return error.message || t("bridge.approvalRequired");
       case "EVM_INSUFFICIENT_TOKEN_BALANCE":
         return error.message || "Not enough token balance.";
       case "EVM_INSUFFICIENT_NATIVE_GAS":
@@ -400,7 +401,7 @@ function friendlyError(error: unknown): string {
     lower.includes("4001") ||
     lower.includes("rejected")
   ) {
-    return "Transaction rejected in wallet.";
+    return t("errors.transactionRejected");
   }
   // Approval too low for the requested amount (checked before generic allowance).
   if (
@@ -422,14 +423,14 @@ function friendlyError(error: unknown): string {
     lower.includes("not enough") ||
     lower.includes("exceeds balance")
   ) {
-    return "Insufficient balance.";
+    return t("bridge.insufficientBalance");
   }
   if (
     lower.includes("expired") ||
     lower.includes("quote is no longer") ||
     lower.includes("stale")
   ) {
-    return "This route expired. Get a fresh quote and try again.";
+    return t("bridge.routeExpired");
   }
   if (
     lower.includes("simulation failed") ||
@@ -446,10 +447,10 @@ function friendlyError(error: unknown): string {
     lower.includes("aborted") ||
     lower.includes("rpc")
   ) {
-    return "Network or RPC is temporarily unavailable. Please try again.";
+    return t("errors.networkUnavailable");
   }
   if (lower.includes("no route") || lower.includes("not found")) {
-    return "No route found for this pair. Try another token, chain, or amount.";
+    return t("bridge.noRoute");
   }
   if (lower.includes("different chain") || lower.includes("wrong chain")) {
     return "This route is for a different network. Get a fresh quote and try again.";
@@ -487,14 +488,14 @@ function balanceLabel(
   balance: ResolvedBalance,
   symbol: string | undefined,
 ): string {
-  if (balance.status === "loading") return "Loading balance…";
+  if (balance.status === "loading") return t("bridge.loadingBalance");
   if (balance.status === "loaded") {
-    return `Balance: ${balance.formatted}${symbol ? ` ${symbol}` : ""}`;
+    return `${t("common.balance")}: ${balance.formatted}${symbol ? ` ${symbol}` : ""}`;
   }
   // "error" = the read failed across every RPC endpoint (retryable);
   // "unavailable" = no address/token to read yet.
-  if (balance.status === "error") return "Balance unavailable";
-  return "Balance: —";
+  if (balance.status === "error") return t("bridge.balanceUnavailable");
+  return `${t("common.balance")}: —`;
 }
 
 // Safe [bridge:balance] retry diagnostics, behind simpl.debug.bridge. Logs the
@@ -710,6 +711,7 @@ export function BridgePage({
   initialToToken,
   onSameChainSelected,
 }: BridgePageProps) {
+  const { t } = useTranslation();
   const isWatchOnly = selectedAccount?.type === "watch";
   // Prefer the source chain the parent Swap screen entered with; otherwise the
   // wallet's active network when it's a signable EVM chain, otherwise Base.
@@ -1150,8 +1152,8 @@ export function BridgePage({
     fromBalance.baseUnits !== "0";
 
   const validation = useMemo<string | null>(() => {
-    if (isWatchOnly) return "Watch-only accounts cannot swap.";
-    if (!fromToken || !toToken) return "Select tokens to swap.";
+    if (isWatchOnly) return t("swap.watchOnlyCannotSwap");
+    if (!fromToken || !toToken) return t("bridge.selectTokensToSwap");
     if (!addressForChain(fromChain)) {
       return "This account has no address for the source chain.";
     }
@@ -1161,20 +1163,20 @@ export function BridgePage({
     ) {
       return "Choose a different destination token or chain.";
     }
-    if (!amount.trim() || Number(amount) <= 0) return "Enter amount";
+    if (!amount.trim() || Number(amount) <= 0) return t("bridge.enterAmount");
     let amountBase: bigint;
     try {
       amountBase = decimalToBaseUnits(amount, fromToken.decimals);
     } catch (e) {
-      return e instanceof Error ? e.message : "Enter a valid amount.";
+      return e instanceof Error ? e.message : t("errors.invalidAmount");
     }
-    if (amountBase <= 0n) return "Enter amount";
+    if (amountBase <= 0n) return t("bridge.enterAmount");
 
     // Balance-aware gating — never blocks on a fake / unknown balance.
     //  • loading  → wait ("Loading balance")
     //  • loaded   → block only on a real shortfall ("Insufficient {symbol}")
     //  • else     → allow the quote (no fake balance, no block)
-    if (fromBalance.status === "loading") return "Loading balance";
+    if (fromBalance.status === "loading") return t("bridge.loadingBalance");
     if (fromBalance.status === "loaded" && fromBalance.baseUnits != null) {
       try {
         const balanceBase = BigInt(fromBalance.baseUnits);
@@ -1182,7 +1184,7 @@ export function BridgePage({
           const sym = isSolanaNativeSource(fromChainId, fromToken)
             ? "SOL"
             : fromToken.symbol;
-          return `Insufficient ${sym}`;
+          return t("bridge.insufficientSymbol", { symbol: sym });
         }
         // Native SOL source: keep a lamport reserve for the network fee (derived
         // from the quote's gas when available) — bridging the entire balance would
@@ -1436,7 +1438,7 @@ export function BridgePage({
       // the user the likely minimum. Probe + result are cached so neither the
       // failed request nor the probe re-fires on an unchanged re-submit.
       if (e instanceof NoBridgeRouteError) {
-        let message = "No route found for this pair. Try another token, chain, or amount.";
+        let message = t("bridge.noRoute");
         // Default block is a hard no-route; upgraded to "amountTooLow" when the
         // probe finds the pair DOES route at a higher standard amount.
         let block: QuoteBlock = "noRoute";
@@ -2560,13 +2562,13 @@ export function BridgePage({
     });
     const statusTitle =
       bridgeProgress === "confirmed"
-        ? "Cross-chain swap completed"
+        ? t("bridge.statusCompleted")
         : bridgeProgress === "failed"
-          ? "Cross-chain swap failed"
-          : "Cross-chain swap submitted";
+          ? t("bridge.statusFailed")
+          : t("bridge.statusSubmitted");
     return (
       <div className="ext-popup swap-page" data-screen-label="Swap – Cross-chain">
-        <SwapHeader title="Swap" subtitle={routeModeLabel} onBack={onBack} />
+        <SwapHeader title={t("swap.title")} subtitle={routeModeLabel} onBack={onBack} />
         <div className="screen-body">
           <div className="swap-quote-card" style={{ textAlign: "center", gap: 6 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ink-1)" }}>
@@ -2579,25 +2581,25 @@ export function BridgePage({
           </div>
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>You sent</span>
+              <span>{t("bridge.youSent")}</span>
               <strong>
                 {amount} {fromDisplaySymbol}
               </strong>
             </div>
             <div className="swap-quote-row">
-              <span>You receive (est.)</span>
+              <span>{t("swap.youReceiveEst")}</span>
               <strong>
                 {estReceive} {toToken?.symbol}
               </strong>
             </div>
             <div className="swap-quote-row swap-quote-row--route">
-              <span>Status</span>
+              <span>{t("bridge.status")}</span>
               <strong>
                 {bridgeProgress === "confirmed"
-                  ? "Completed"
+                  ? t("activity.status.completed")
                   : bridgeProgress === "failed"
-                    ? "Failed"
-                    : "In progress"}
+                    ? t("activity.status.failed")
+                    : t("activity.status.inProgress")}
               </strong>
             </div>
             {/* Source tx hash — always shown when broadcast succeeded, even if
@@ -2605,7 +2607,7 @@ export function BridgePage({
                 bridge never leaves the user without a reference to their tx. */}
             {txHash ? (
               <div className="swap-quote-row swap-quote-row--route">
-                <span>Source tx</span>
+                <span>{t("activity.sourceTx")}</span>
                 <button
                   type="button"
                   className="swap-percent-chip"
@@ -2614,15 +2616,14 @@ export function BridgePage({
                   style={{ fontWeight: 600 }}
                 >
                   {hashCopied
-                    ? "Copied"
+                    ? t("common.copied")
                     : `${txHash.slice(0, 6)}…${txHash.slice(-6)}`}
                 </button>
               </div>
             ) : null}
           </div>
           <SwapRouteNotice>
-            Cross-chain route powered by LI.FI. This may take longer than a
-            same-chain swap.
+            {t("bridge.poweredByLifi")}
           </SwapRouteNotice>
           <div className="swap-review-cta" style={{ display: "grid", gap: 8 }}>
             {explorerUrl ? (
@@ -2632,7 +2633,7 @@ export function BridgePage({
                 target="_blank"
                 rel="noreferrer"
               >
-                View source transaction
+                {t("bridge.viewSourceTransaction")}
               </a>
             ) : null}
             <button
@@ -2640,14 +2641,14 @@ export function BridgePage({
               type="button"
               onClick={onNavigateHome ?? onBack}
             >
-              Back to wallet
+              {t("common.backToWallet")}
             </button>
             <button
               className="btn secondary lg full"
               type="button"
               onClick={handleNewBridge}
             >
-              New swap
+              {t("swap.newSwap")}
             </button>
           </div>
         </div>
@@ -2674,7 +2675,7 @@ export function BridgePage({
   return (
     <div className="ext-popup swap-page" data-screen-label="Swap – Cross-chain">
       <SwapHeader
-        title={step === "review" ? "Review swap" : "Swap"}
+        title={step === "review" ? t("swap.reviewSwap") : t("swap.title")}
         subtitle={routeModeLabel}
         onBack={step === "review" ? () => setStep("form") : onBack}
       />
@@ -2687,7 +2688,7 @@ export function BridgePage({
         <div className="swap-pair-card">
           <div className="swap-half swap-half--from">
             <div className="swap-half-top">
-              <span className="swap-half-label">From</span>
+              <span className="swap-half-label">{t("swap.from")}</span>
               <div className="swap-half-selectors">
                 <button
                   className="swap-token-pill"
@@ -2714,7 +2715,7 @@ export function BridgePage({
                     <span className="swap-token-pill__icon">?</span>
                   )}
                   <span className="swap-token-pill__sym">
-                    {fromDisplaySymbol ?? "Token"}
+                    {fromDisplaySymbol ?? t("swap.select")}
                   </span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
@@ -2747,7 +2748,7 @@ export function BridgePage({
                     type="button"
                     onClick={handleRetryBalance}
                   >
-                    Retry
+                    {t("common.retry")}
                   </button>
                 ) : null}
                 {step === "form" && fromBalancePositive ? (
@@ -2756,7 +2757,7 @@ export function BridgePage({
                     type="button"
                     onClick={handleMax}
                   >
-                    MAX
+                    {t("common.max")}
                   </button>
                 ) : null}
               </span>
@@ -2768,7 +2769,7 @@ export function BridgePage({
           {/* To */}
           <div className="swap-half swap-half--to">
             <div className="swap-half-top">
-              <span className="swap-half-label">To</span>
+              <span className="swap-half-label">{t("swap.to")}</span>
               <div className="swap-half-selectors">
                 <button
                   className="swap-token-pill"
@@ -2793,7 +2794,7 @@ export function BridgePage({
                     <span className="swap-token-pill__icon">?</span>
                   )}
                   <span className="swap-token-pill__sym">
-                    {toToken?.symbol ?? "Token"}
+                    {toToken?.symbol ?? t("swap.select")}
                   </span>
                   <span className="swap-token-pill__chevron">▾</span>
                 </button>
@@ -2816,8 +2817,7 @@ export function BridgePage({
         </div>
 
         <SwapRouteNotice>
-          Cross-chain route powered by LI.FI. This may take longer than a
-          same-chain swap.
+          {t("bridge.poweredByLifi")}
         </SwapRouteNotice>
 
         {/* TRON source with an unreadable balance: stay honest and unblocking —
@@ -2839,7 +2839,7 @@ export function BridgePage({
         {step === "form" ? (
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>Max slippage</span>
+              <span>{t("swap.maxSlippage")}</span>
               <span style={{ display: "flex", gap: 6 }}>
                 {SLIPPAGE_PRESETS.map((bps) => (
                   <button
@@ -2867,20 +2867,20 @@ export function BridgePage({
         {step === "review" && quote ? (
           <div className="swap-quote-card">
             <div className="swap-quote-row">
-              <span>From</span>
+              <span>{t("swap.from")}</span>
               <strong>
                 {amount} {fromDisplaySymbol} · {fromChain?.name}
               </strong>
             </div>
             <div className="swap-quote-row">
-              <span>To (est.)</span>
+              <span>{t("activity.toEstimate")}</span>
               <strong>
                 {estReceive} {toToken?.symbol} · {toChain?.name}
               </strong>
             </div>
             {quote.toAmountMinBaseUnits ? (
               <div className="swap-quote-row">
-                <span>Minimum received</span>
+                <span>{t("swap.minimumReceived")}</span>
                 <strong>
                   {formatBaseUnits(
                     quote.toAmountMinBaseUnits,
@@ -2891,16 +2891,16 @@ export function BridgePage({
               </div>
             ) : null}
             <div className="swap-quote-row">
-              <span>Route type</span>
+              <span>{t("bridge.routeType")}</span>
               <strong>{routeModeLabel}</strong>
             </div>
             <div className="swap-quote-row swap-quote-row--route">
-              <span>Provider</span>
+              <span>{t("activity.provider")}</span>
               <strong>{quote.toolName} via LI.FI</strong>
             </div>
             {quote.feeCostBaseUnits && quote.feeCostSymbol ? (
               <div className="swap-quote-row">
-                <span>Route fee</span>
+                <span>{t("activity.routeFee")}</span>
                 <strong>
                   {formatBaseUnits(quote.feeCostBaseUnits, quote.feeCostDecimals)}{" "}
                   {quote.feeCostSymbol}
@@ -2909,7 +2909,7 @@ export function BridgePage({
             ) : null}
             {quote.gasCostBaseUnits && quote.gasCostSymbol ? (
               <div className="swap-quote-row">
-                <span>Gas estimate</span>
+                <span>{t("bridge.gasEstimate")}</span>
                 <strong>
                   ~
                   {formatBaseUnits(quote.gasCostBaseUnits, quote.gasCostDecimals)}{" "}
@@ -2918,23 +2918,23 @@ export function BridgePage({
               </div>
             ) : null}
             <div className="swap-quote-row">
-              <span>Max slippage</span>
+              <span>{t("swap.maxSlippage")}</span>
               <strong>{formatSlippage(slippageBps)}</strong>
             </div>
             {formatDuration(quote.estimatedDurationSeconds) ? (
               <div className="swap-quote-row">
-                <span>Est. time</span>
+                <span>{t("bridge.estTime")}</span>
                 <strong>{formatDuration(quote.estimatedDurationSeconds)}</strong>
               </div>
             ) : null}
             <div className="swap-quote-row">
-              <span>Status</span>
+              <span>{t("bridge.status")}</span>
               <strong>
                 {quote.executionStatus === "executable"
-                  ? "Execution supported"
+                  ? t("bridge.execSupported")
                   : quote.executionStatus === "quoteOnly"
-                    ? "Quote only"
-                    : "Unsupported route"}
+                    ? t("bridge.quoteOnly")
+                    : t("bridge.unsupportedRoute")}
               </strong>
             </div>
           </div>
@@ -3034,18 +3034,18 @@ export function BridgePage({
               onClick={handleGetQuote}
             >
               {reviewLoading
-                ? "Finding route…"
+                ? t("swap.findingRoute")
                 : validation
                   ? validation
                   : quoteBlock === "amountTooLow"
-                    ? "Amount too small"
+                    ? t("bridge.amountTooSmall")
                     : quoteBlock === "noRoute" || quoteBlock === "unavailable"
-                      ? "No route available"
-                      : "Review swap"}
+                      ? t("bridge.noRouteAvailable")
+                      : t("swap.reviewSwap")}
             </button>
           ) : previewOnly ? (
             <button className="btn primary lg full" type="button" disabled>
-              Execution coming soon
+              {t("bridge.execComingSoon")}
             </button>
           ) : approvalState === "needed" ||
             approvalState === "approving" ||
@@ -3061,12 +3061,12 @@ export function BridgePage({
               onClick={handleApprove}
             >
               {approvalState === "approving"
-                ? `Approving ${fromToken?.symbol ?? "token"}…`
+                ? t("swap.approvingSymbol", { symbol: fromToken?.symbol ?? "token" })
                 : approvalState === "submitted"
-                  ? `Approving ${fromToken?.symbol ?? "token"}…`
+                  ? t("swap.approvingSymbol", { symbol: fromToken?.symbol ?? "token" })
                   : approvalFeeBlocked
-                    ? "Add TRX to continue"
-                    : `Approve ${fromToken?.symbol ?? "token"}`}
+                    ? t("bridge.addTrxToContinue")
+                    : t("swap.approve", { symbol: fromToken?.symbol ?? "token" })}
             </button>
           ) : (
             <button
@@ -3078,22 +3078,22 @@ export function BridgePage({
               }
             >
               {reviewLoading
-                ? "Refreshing route…"
+                ? t("bridge.refreshingRoute")
                 : submitStatus === "preparingAccount"
                   ? "Preparing SOL account…"
                   : submitStatus === "preparing"
-                    ? "Preparing fresh route…"
+                    ? t("bridge.preparingRoute")
                     : submitStatus === "simulating"
-                      ? "Simulating transaction…"
+                      ? t("bridge.simulating")
                       : submitStatus === "signing"
-                        ? "Waiting for signature…"
+                        ? t("bridge.waitingSignature")
                         : submitStatus === "submitting"
-                          ? "Broadcasting…"
+                          ? t("bridge.broadcasting")
                           : submitStatus === "error"
-                            ? "Get a fresh quote"
+                            ? t("bridge.getFreshQuote")
                             : approvalState === "checking"
-                              ? "Checking allowance…"
-                              : "Confirm swap"}
+                              ? t("bridge.checkingAllowance")
+                              : t("swap.confirmSwap")}
             </button>
           )}
         </div>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { getAddress, isAddress } from "ethers";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
 
 type AddWatchWalletPageProps = {
   onAdded: () => void | Promise<void>;
@@ -58,6 +59,7 @@ export function AddWatchWalletPage({
   onAdded,
   onBack,
 }: AddWatchWalletPageProps) {
+  const { t } = useTranslation();
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("");
   const [adding, setAdding] = useState(false);
@@ -71,17 +73,18 @@ export function AddWatchWalletPage({
   // Inline address error: shown once something invalid is typed, or when the
   // service rejected the address. Service-level errors (non-address) render
   // separately just above the button.
+  const invalidAddressError = t("accounts.invalidEvmAddress");
   const showAddressError =
-    error === "Enter a valid EVM address." ||
+    error === invalidAddressError ||
     (trimmedAddress.length > 0 && !addressIsValid);
   const serviceError =
-    error && error !== "Enter a valid EVM address." ? error : null;
+    error && error !== invalidAddressError ? error : null;
 
   async function addWatchWallet() {
     setError(null);
 
     if (!addressIsValid || !checksumAddress) {
-      setError("Enter a valid EVM address.");
+      setError(invalidAddressError);
       return;
     }
 
@@ -111,11 +114,11 @@ export function AddWatchWalletPage({
           <BackIcon />
         </button>
 
-        <div className="awatch-header-title">Watch wallet</div>
+        <div className="awatch-header-title">{t("accounts.watchWallet")}</div>
 
         <span style={{ flex: 1 }} />
 
-        <span className="awatch-viewonly-pill">View-only</span>
+        <span className="awatch-viewonly-pill">{t("accounts.viewOnly")}</span>
       </div>
 
       <div className="screen-body" style={{ display: "grid", gap: 16 }}>
@@ -126,9 +129,9 @@ export function AddWatchWalletPage({
           </span>
 
           <div className="awatch-hero__text">
-            <div className="awatch-hero__title">Add watch wallet</div>
+            <div className="awatch-hero__title">{t("accounts.watchHeroTitle")}</div>
             <div className="awatch-hero__sub">
-              Track any EVM address without private keys.
+              {t("accounts.watchHeroSub")}
             </div>
           </div>
         </section>
@@ -141,7 +144,7 @@ export function AddWatchWalletPage({
           }}
         >
           <label className="awatch-field">
-            <SectionLabel>Wallet address</SectionLabel>
+            <SectionLabel>{t("accounts.walletAddress")}</SectionLabel>
 
             <div className="awatch-input-wrap">
               <input
@@ -157,7 +160,7 @@ export function AddWatchWalletPage({
               />
 
               {addressIsValid ? (
-                <span className="awatch-check" aria-label="Valid address">
+                <span className="awatch-check" aria-label={t("accounts.validAddress")}>
                   <CheckIcon />
                 </span>
               ) : null}
@@ -165,18 +168,18 @@ export function AddWatchWalletPage({
 
             {showAddressError ? (
               <div className="send-field-error awatch-field-error">
-                Enter a valid EVM address.
+                {t("accounts.invalidEvmAddress")}
               </div>
             ) : null}
           </label>
 
           <label className="awatch-field">
-            <SectionLabel>Label optional</SectionLabel>
+            <SectionLabel>{t("accounts.labelOptional")}</SectionLabel>
 
             <input
               className="input lg"
               value={label}
-              placeholder="Name this wallet"
+              placeholder={t("accounts.nameWalletShort")}
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => {
@@ -193,9 +196,9 @@ export function AddWatchWalletPage({
             </span>
 
             <div className="awatch-notice__body">
-              <div className="awatch-notice__title">View-only wallet</div>
+              <div className="awatch-notice__title">{t("accounts.viewOnlyTitle")}</div>
               <div className="awatch-notice__text">
-                You can monitor assets, but cannot send or sign.
+                {t("accounts.viewOnlyBody")}
               </div>
             </div>
           </section>
@@ -211,7 +214,7 @@ export function AddWatchWalletPage({
             type="submit"
             disabled={!addressIsValid || adding}
           >
-            {adding ? "Adding…" : "Add watch wallet"}
+            {adding ? t("common.adding") : t("accounts.addWatchButton")}
           </button>
         </form>
       </div>

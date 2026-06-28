@@ -1,8 +1,9 @@
 {
-  "name": "app",
-  "version": "1.0.0",
+  "name": "simpl-wallet",
+  "version": "0.1.0",
+  "description": "simpl — a clean, self-custodial multi-chain crypto wallet browser extension (EVM, Solana, Bitcoin, TRON).",
   "type": "module",
-  "main": "index.js",
+  "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
     "check:derivation": "tsx scripts/check-derivation.ts",
@@ -16,14 +17,25 @@
     "check:tron": "tsx scripts/check-tron.ts",
     "check:bitcoin": "tsx scripts/check-bitcoin.ts",
     "check:solana": "tsx scripts/check-solana.ts",
+    "check:ton": "tsx scripts/check-ton.ts",
+    "check:i18n": "tsx scripts/check-i18n.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "zip:cws": "npm run build && rm -f simpl-cws.zip && cd dist && zip -rqX ../simpl-cws.zip . -x '.DS_Store' '*/.DS_Store' '*.map' && cd .. && echo 'Packaged dist/ -> simpl-cws.zip'"
   },
-  "keywords": [],
+  "keywords": [
+    "crypto",
+    "wallet",
+    "ethereum",
+    "solana",
+    "bitcoin",
+    "tron",
+    "web3",
+    "chrome-extension"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "@reown/walletkit": "^1.5.5",
     "@scure/bip39": "^2.2.0",
@@ -31,6 +43,9 @@
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "@tailwindcss/vite": "^4.3.0",
+    "@ton/core": "^0.63.1",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^16.3.0",
     "@types/qrcode": "^1.5.6",
     "@walletconnect/core": "^2.23.9",
     "@walletconnect/utils": "^2.23.9",

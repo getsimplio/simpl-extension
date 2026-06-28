@@ -14,8 +14,10 @@ import {
   isTronChainId,
   isBitcoinChainId,
   isSolanaChainId,
+  isTonChainId,
 } from "../../core/networks/chain-registry";
 import { walletService } from "../../core/wallet/wallet.service";
+import { useTranslation } from "../../i18n";
 import { AssetIcon } from "../components/AssetIcon";
 import { QrCode } from "../components/QrCode";
 import { NetworkIcon } from "../components/NetworkIcon";
@@ -183,6 +185,7 @@ export function ReceivePage({
   onBack,
   onChanged,
 }: ReceivePageProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [accountSheetOpen, setAccountSheetOpen] = useState(false);
   const [switchingId, setSwitchingId] = useState<WalletAccountId | null>(null);
@@ -197,10 +200,11 @@ export function ReceivePage({
   const isTron = isTronChainId(chainId);
   const isBitcoin = isBitcoinChainId(chainId);
   const isSolana = isSolanaChainId(chainId);
-  // TRON + Bitcoin + Solana resolve their receive address lazily through the
-  // service (base58 TRON address / BIP-84 BTC receive address / base58 Solana
+  const isTon = isTonChainId(chainId);
+  // TRON + Bitcoin + Solana + TON resolve their receive address lazily through
+  // the service (base58 TRON / BIP-84 BTC receive / base58 Solana / UQ… TON
   // address) instead of the stored EVM address.
-  const usesDerivedAddress = isTron || isBitcoin || isSolana;
+  const usesDerivedAddress = isTron || isBitcoin || isSolana || isTon;
 
   // The address to display/copy for the selected network. For EVM this is the
   // account's stored address; for TRON it is the (lazily derived) base58 TRON
@@ -234,18 +238,24 @@ export function ReceivePage({
       .catch((error) => {
         if (!active) return;
         setReceiveAddress("");
-        const family = isBitcoin ? "Bitcoin" : isSolana ? "Solana" : "TRON";
+        const family = isBitcoin
+          ? "Bitcoin"
+          : isSolana
+            ? "Solana"
+            : isTon
+              ? "TON"
+              : "TRON";
         setAddressError(
           error instanceof Error
             ? error.message
-            : `${family} address is unavailable for this account.`,
+            : t("receive.addressUnavailable", { network: family }),
         );
       });
 
     return () => {
       active = false;
     };
-  }, [chainId, usesDerivedAddress, isBitcoin, isSolana, selectedAccount?.id, selectedAccount?.address]);
+  }, [chainId, usesDerivedAddress, isBitcoin, isSolana, isTon, selectedAccount?.id, selectedAccount?.address, t]);
 
   // Use the passed receive asset only while it belongs to the selected chain;
   // switching the network in-page falls back to that chain's native asset.
@@ -273,7 +283,9 @@ export function ReceivePage({
             ? { available: true }
             : {
                 available: false,
-                reason: `Not available for ${receiveAsset.symbol}`,
+                reason: t("receive.notAvailableForSymbol", {
+                  symbol: receiveAsset.symbol,
+                }),
               }
       : undefined;
 
@@ -340,7 +352,9 @@ export function ReceivePage({
     } catch (error) {
       // Stay on the selector and surface the error inline.
       setNetworkError(
-        error instanceof Error ? error.message : "Could not switch network.",
+        error instanceof Error
+          ? error.message
+          : t("receive.couldNotSwitchNetwork"),
       );
     } finally {
       setSwitchingChainId(null);
@@ -372,13 +386,13 @@ export function ReceivePage({
           </button>
 
           <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-            Receive
+            {t("receive.title")}
           </div>
         </div>
 
         <div className="screen-body" style={{ display: "grid", gap: 14 }}>
           <section style={{ paddingTop: 10 }}>
-            <div className="t-h2">No account</div>
+            <div className="t-h2">{t("receive.noAccount")}</div>
 
             <div
               style={{
@@ -388,12 +402,12 @@ export function ReceivePage({
                 lineHeight: 1.45,
               }}
             >
-              Select an account before receiving assets.
+              {t("receive.selectAccountFirst")}
             </div>
           </section>
 
           <button className="btn secondary lg full" type="button" onClick={onBack}>
-            Back
+            {t("common.back")}
           </button>
         </div>
       </div>
@@ -401,7 +415,7 @@ export function ReceivePage({
   }
 
   const isWatch = selectedAccount.type === "watch";
-  const accountLabel = selectedAccount.label || "Account";
+  const accountLabel = selectedAccount.label || t("common.account");
 
   return (
     <div className="ext-popup receive-page" data-screen-label="10 Receive">
@@ -411,7 +425,7 @@ export function ReceivePage({
         </button>
 
         <div style={{ fontSize: 13, fontWeight: 650, color: "var(--ink-1)" }}>
-          Receive
+          {t("receive.title")}
         </div>
 
         <span style={{ flex: 1 }} />
@@ -421,7 +435,7 @@ export function ReceivePage({
           className="net-chip network-pill-button receive-network-pill"
           onClick={openNetworkSelect}
           title={networkLabel}
-          aria-label={`Change receive network. Current: ${networkLabel}`}
+          aria-label={t("receive.changeNetwork", { label: networkLabel })}
         >
           <NetworkIcon chainId={chainId} size={16} showTestnetBadge={false} />
           {networkLabel}
@@ -453,9 +467,9 @@ export function ReceivePage({
 
           <div style={{ minWidth: 0 }}>
             <div className="receive-hero__title">
-              Receive {receiveSymbol}
+              {t("receive.receiveSymbol", { symbol: receiveSymbol })}
               {isWatch ? (
-                <span className="acct-watch-pill receive-watch-pill">Watch-only</span>
+                <span className="acct-watch-pill receive-watch-pill">{t("accounts.watchOnly")}</span>
               ) : null}
             </div>
             <div className="receive-hero__sub">
@@ -464,7 +478,7 @@ export function ReceivePage({
                 type="button"
                 className="receive-hero__account"
                 onClick={() => setAccountSheetOpen(true)}
-                aria-label="Change receive account"
+                aria-label={t("receive.changeAccountShort")}
               >
                 {accountLabel}
               </button>
@@ -475,31 +489,30 @@ export function ReceivePage({
         {/* Safety notice — tokens also call out the chain's token standard.
             TRON gets an explicit cross-network loss warning. */}
         {isBitcoin ? (
-          <Notice
-            title="Bitcoin network only"
-            note="Sending other assets to this address may result in permanent loss."
-          >
-            {`Only send BTC on the ${networkLabel} network to this address.`}
+          <Notice title={t("receive.bitcoinOnlyTitle")}>
+            {t("receive.bitcoinOnlyBody", { network: networkLabel })}
           </Notice>
         ) : isTron ? (
-          <Notice
-            title="TRON network only"
-            note="Sending assets from another network may result in permanent loss."
-          >
-            Only send TRX or TRC-20 tokens on TRON to this address.
+          <Notice title={t("receive.tronOnlyTitle")}>
+            {t("receive.tronOnlyBody")}
           </Notice>
         ) : isSolana ? (
-          <Notice
-            title="Solana network only"
-            note="Sending assets from another network may result in permanent loss."
-          >
-            {`Only send SOL or SPL tokens on ${networkLabel} to this address.`}
+          <Notice title={t("receive.solanaOnlyTitle")}>
+            {t("receive.solanaOnlyBody", { network: networkLabel })}
           </Notice>
         ) : (
-          <Notice title="Check network" note="Wrong network may cause loss of funds.">
-            {isTokenReceive
-              ? `Only send ${receiveSymbol} on ${networkLabel}. Use ${standardLabel}.`
-              : `Only send ${receiveSymbol} on ${networkLabel}.`}
+          <Notice
+            title={t("receive.checkNetworkTitle")}
+            note={
+              isTokenReceive
+                ? t("receive.useStandardNote", { standard: standardLabel })
+                : undefined
+            }
+          >
+            {t("receive.checkNetworkBody", {
+              symbol: receiveSymbol,
+              network: networkLabel,
+            })}
           </Notice>
         )}
 
@@ -514,9 +527,9 @@ export function ReceivePage({
             type="button"
             className="send-meta-row receive-account-row"
             onClick={openNetworkSelect}
-            aria-label={`Change receive network. Current: ${networkLabel}`}
+            aria-label={t("receive.changeNetwork", { label: networkLabel })}
           >
-            <span className="send-meta-label">Network</span>
+            <span className="send-meta-label">{t("common.network")}</span>
 
             <span className="receive-account-row__value">
               <strong className="send-meta-value" title={networkLabel}>
@@ -536,9 +549,9 @@ export function ReceivePage({
             className="send-meta-row receive-account-row"
             onClick={() => setAccountSheetOpen(true)}
             aria-haspopup="dialog"
-            aria-label={`Change receive account. Current: ${accountLabel}`}
+            aria-label={t("receive.changeAccount", { label: accountLabel })}
           >
-            <span className="send-meta-label">Account</span>
+            <span className="send-meta-label">{t("common.account")}</span>
 
             <span className="receive-account-row__value">
               <strong
@@ -569,33 +582,45 @@ export function ReceivePage({
               textTransform: "uppercase",
             }}
           >
-            Wallet address
+            {t("receive.walletAddress")}
           </div>
 
           {addressError ? (
             <div className="receive-network-error">{addressError}</div>
           ) : (
             <>
-              {/* Bitcoin + Solana receive show a QR of the address for easy
-                  scanning (the QR carries the plain base58/native address). */}
-              {(isBitcoin || isSolana) && receiveAddress ? (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    padding: "10px 0 6px",
-                  }}
-                >
-                  <QrCode value={receiveAddress} size={168} />
+              {/* QR of the receive address for easy cross-device scanning. The
+                  QR encodes the plain address string and is rendered locally
+                  (no network call). It tracks `receiveAddress`, which is kept
+                  in sync with the selected network + account above, so the code
+                  and the text below always match. */}
+              <div className="receive-qr">
+                <div className="receive-qr__frame">
+                  {receiveAddress ? (
+                    <QrCode value={receiveAddress} size={184} />
+                  ) : (
+                    // Loading state: address not resolved yet — show a neutral
+                    // skeleton instead of a broken/empty QR.
+                    <div
+                      className="receive-qr__skeleton"
+                      aria-label={t("receive.resolvingAddress")}
+                    />
+                  )}
                 </div>
-              ) : null}
+
+                {receiveAddress ? (
+                  <div className="receive-qr__helper">
+                    {t("receive.qr.helper")}
+                  </div>
+                ) : null}
+              </div>
 
               <div className="receive-address-short">
                 {receiveAddress ? shortAddress(receiveAddress) : "…"}
               </div>
 
               <div className="receive-address-full">
-                {receiveAddress || "Resolving address…"}
+                {receiveAddress || t("receive.resolvingAddress")}
               </div>
             </>
           )}
@@ -607,7 +632,7 @@ export function ReceivePage({
             onClick={() => void copyAddress()}
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
-            {copied ? "Copied" : "Copy address"}
+            {copied ? t("common.copied") : t("receive.copyAddress")}
           </button>
         </section>
       </div>
