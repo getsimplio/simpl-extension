@@ -1119,6 +1119,12 @@ export function HomePage(props: HomePageProps) {
     const backendRange =
       range === "1D" ? "1d" : range === "7D" ? "7d" : "1m";
 
+    // TON routes exclusively through the TON proxy (ton.prices.ts), which serves
+    // only line history (/v1/ton/prices/history) — there is no TON OHLC route.
+    // Skip the generic /v1/prices/ohlc fetch for TON so it can never 404; TON
+    // gets a line-only chart.
+    const supportsCandles = !isTonChainId(assetDetails.chainId);
+
     setChartStatus("loading");
     // Candle availability is range-specific. Drop the previous range's candles
     // and points up-front so a range with no candles can never show the prior
@@ -1129,12 +1135,15 @@ export function HomePage(props: HomePageProps) {
     void (async () => {
       const [ohlc, points] = await Promise.all([
         // Real OHLC candles. Empty/unavailable just means no candle mode — no
-        // fake candles are ever synthesized.
-        getPriceOhlc({
-          chainId: assetDetails.chainId,
-          address,
-          range: backendRange,
-        }),
+        // fake candles are ever synthesized. Skipped entirely for TON (no TON
+        // OHLC route → would 404 on the generic gateway).
+        supportsCandles
+          ? getPriceOhlc({
+              chainId: assetDetails.chainId,
+              address,
+              range: backendRange,
+            })
+          : Promise.resolve(null),
         // Line/area history.
         priceHistoryService.getAssetPriceHistory({
           chainId: assetDetails.chainId,
@@ -1172,7 +1181,9 @@ export function HomePage(props: HomePageProps) {
         chainId: assetDetails.chainId,
         address: address ?? "native",
         range: backendRange,
-        ohlcUrl: `/v1/prices/ohlc?chainId=${toBackendChainId(assetDetails.chainId)}&address=${address ?? "native"}&range=${backendRange}&vs=usd`,
+        ohlcUrl: supportsCandles
+          ? `/v1/prices/ohlc?chainId=${toBackendChainId(assetDetails.chainId)}&address=${address ?? "native"}&range=${backendRange}&vs=usd`
+          : null,
         source: ohlc?.source ?? null,
         candles: ohlc?.candles?.length ?? 0,
         historyPoints: nextPoints?.length ?? 0,

@@ -36,15 +36,18 @@ const {
 const { TON_MAINNET_CHAIN_ID } = await import(
   "../src/core/networks/chain-registry"
 );
-const { assertTonSendAmount, TON_FEE_RESERVE_NANO } = await import(
-  "../src/chains/ton/ton.transactions"
-);
+const { assertTonSendAmount, TON_FEE_RESERVE_NANO, mapTonTxStatus } =
+  await import("../src/chains/ton/ton.transactions");
+const { mapTonAccountState } = await import("../src/chains/ton/ton.balance");
 const {
   TON_MAINNET,
+  TON_API_BASE_URL,
+  SIMPL_API_BASE_URL,
   getTonAddressExplorerUrl,
   getTonTransactionExplorerUrl,
   getTonJettonExplorerUrl,
 } = await import("../src/chains/ton/ton.config");
+const { tonApiClient } = await import("../src/core/ton/tonApiClient");
 const { Address } = await import("@ton/core");
 
 let failures = 0;
@@ -344,6 +347,87 @@ console.log("=== legacy history-row rename (applyTonNativeRename) ===");
     evm.assetSymbol === "TON" && evm.assetName === "Toncoin",
   );
 }
+
+console.log("=== tonApiClient (Simpl gateway base + surface) ===");
+ok(
+  "TON_API_BASE_URL routes through the Simpl gateway /v1/ton",
+  TON_API_BASE_URL === `${SIMPL_API_BASE_URL}/v1/ton`,
+);
+ok(
+  "default Simpl base is api.getsimpl.io (no provider host)",
+  SIMPL_API_BASE_URL === "https://api.getsimpl.io",
+);
+ok(
+  "TON_API_BASE_URL never points at a direct provider",
+  !/tonapi\.io|toncenter/.test(TON_API_BASE_URL),
+);
+for (const method of [
+  "getAccount",
+  "getWalletInfo",
+  "getHistory",
+  "getJettons",
+  "sendBoc",
+  "getTxStatus",
+  "getSpot",
+  "getPriceHistory",
+]) {
+  ok(
+    `client exposes ${method}()`,
+    typeof (tonApiClient as Record<string, unknown>)[method] === "function",
+  );
+}
+
+console.log("=== mapTonAccountState (gateway state → wallet state) ===");
+ok("active stays active", mapTonAccountState("active", 0n) === "active");
+ok("frozen stays frozen", mapTonAccountState("frozen", 5n) === "frozen");
+ok(
+  "uninitialized + balance → uninit",
+  mapTonAccountState("uninitialized", 10n) === "uninit",
+);
+ok(
+  "uninit + zero balance → nonexist",
+  mapTonAccountState("uninit", 0n) === "nonexist",
+);
+ok(
+  "explicit nonexist stays nonexist",
+  mapTonAccountState("nonexist", 0n) === "nonexist",
+);
+ok(
+  "unknown state disambiguated by balance",
+  mapTonAccountState(undefined, 7n) === "uninit" &&
+    mapTonAccountState(undefined, 0n) === "nonexist",
+);
+
+console.log("=== mapTonTxStatus (safe-by-default tx status) ===");
+ok(
+  "null DTO → submitted (never a false failed)",
+  mapTonTxStatus(null) === "submitted",
+);
+ok(
+  "normalized status confirmed",
+  mapTonTxStatus({ status: "confirmed" }) === "confirmed",
+);
+ok("normalized status failed", mapTonTxStatus({ status: "failed" }) === "failed");
+ok(
+  "pending → submitted",
+  mapTonTxStatus({ status: "pending" }) === "submitted",
+);
+ok(
+  "unknown → submitted",
+  mapTonTxStatus({ status: "unknown" }) === "submitted",
+);
+ok(
+  "success flag → confirmed",
+  mapTonTxStatus({ success: true }) === "confirmed",
+);
+ok(
+  "aborted flag → failed",
+  mapTonTxStatus({ aborted: true }) === "failed",
+);
+ok(
+  "empty DTO → submitted",
+  mapTonTxStatus({}) === "submitted",
+);
 
 console.log("");
 if (failures > 0) {

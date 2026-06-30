@@ -12,6 +12,7 @@ import { type TonChainConfig } from "./ton.config";
 import { tonToNano } from "./ton.format";
 import { getTonBalance, getTonBalanceNano } from "./ton.balance";
 import { getTonJettonBalances } from "./ton.jettons";
+import { loadTonActivity } from "./ton.history";
 import {
   sendNativeTon,
   getTonTransactionStatus,
@@ -19,7 +20,7 @@ import {
 } from "./ton.transactions";
 import { tonErrorFor } from "./ton.errors";
 import { TON_NATIVE_TOKEN } from "./ton.tokens";
-import type { TonJettonBalance } from "./ton.types";
+import type { TonActivityItem, TonJettonBalance } from "./ton.types";
 import type { KeyPair } from "@ton/crypto";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
 import type { TransactionHistoryStatus } from "../../core/transactions/transaction-history.service";
@@ -177,8 +178,18 @@ export async function sendTonAsset(
   };
 }
 
+// Load normalized native-Toncoin activity (incoming + outgoing) for an address
+// via the gateway `/history` route. Best-effort: the wallet layer merges this
+// with locally recorded sends and tolerates failures.
+export async function getTonActivity(
+  config: TonChainConfig,
+  address: string,
+): Promise<TonActivityItem[]> {
+  return loadTonActivity(config, address);
+}
+
 // Map a sent TON message's status onto the wallet's shared activity statuses.
-// `account` is the sender's user-friendly address, required by the proxy to
+// `account` is the sender's user-friendly address, required by the gateway to
 // locate the message on-chain.
 export async function getTonActivityStatus(
   config: TonChainConfig,

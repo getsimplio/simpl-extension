@@ -34,6 +34,21 @@ export type DerivedTonAccount = {
   derivationPath: string;
 };
 
+// A normalized native-Toncoin activity row from the gateway `/history` route.
+// `direction` is relative to the queried account; `amountNano` is the native
+// transferred value (nanoton). `status` maps the on-chain outcome onto the
+// wallet's shared activity statuses. Jetton transfers are intentionally NOT
+// surfaced here (native-only MVP), so amounts always carry GRAM's 9 decimals.
+export type TonActivityItem = {
+  hash: string;
+  direction: "incoming" | "outgoing" | "self";
+  amountNano: bigint;
+  status: "confirmed" | "failed" | "submitted";
+  // Unix seconds, or null when the gateway omits a timestamp.
+  timestamp: number | null;
+  explorerUrl: string | null;
+};
+
 // A trusted Jetton balance held by an account, normalized for the adapter.
 // `master` is the canonical user-friendly master address (display / price
 // identity / explorer). Amounts are integer base units (bigint) with the

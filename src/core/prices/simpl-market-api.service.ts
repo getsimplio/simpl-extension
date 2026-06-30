@@ -329,6 +329,21 @@ export async function resolveAsset(params: {
   chainId: number;
   address: string | null;
 }): Promise<SimplAssetResolution | null> {
+  // TON native (Gram) is resolved LOCALLY — the gateway has no generic
+  // /v1/assets/resolve route for TON (it 404s on chainId=ton&address=native).
+  // TON market data routes exclusively through the /v1/ton/* proxy; the native
+  // asset is a known mainnet asset that always counts toward total balance.
+  // Metadata mirrors ton.tokens TON_NATIVE_TOKEN (GRAM / Gram / 9).
+  if (params.chainId === TON_MAINNET_CHAIN_ID && params.address === null) {
+    return {
+      chainId: "ton",
+      address: NATIVE_ADDRESS,
+      symbol: "GRAM",
+      name: "Gram",
+      includeInTotalBalance: true,
+    };
+  }
+
   const search = new URLSearchParams({
     chainId: toBackendChainId(params.chainId),
     address: toBackendAddress(params.address),
@@ -352,6 +367,19 @@ export async function getAssetMetadata(params: {
   chainId: number;
   address: string | null;
 }): Promise<SimplAssetMetadata | null> {
+  // TON native (Gram) metadata is local — the gateway has no generic asset
+  // route for TON native (see resolveAsset). Mirrors ton.tokens TON_NATIVE_TOKEN.
+  if (params.chainId === TON_MAINNET_CHAIN_ID && params.address === null) {
+    return {
+      chainId: "ton",
+      address: NATIVE_ADDRESS,
+      symbol: "GRAM",
+      name: "Gram",
+      decimals: 9,
+      logoUrl: null,
+    };
+  }
+
   const search = new URLSearchParams({
     chainId: toBackendChainId(params.chainId),
     address: toBackendAddress(params.address),

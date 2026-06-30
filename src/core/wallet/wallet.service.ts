@@ -47,9 +47,11 @@ import {
   getTonNativeBalanceNano,
   getTonPortfolio,
   sendTonAsset,
+  getTonActivity,
   getTonActivityStatus,
   waitForTonActivity,
 } from "../../chains/ton/ton.adapter";
+import { TON_NATIVE_TOKEN } from "../../chains/ton/ton.tokens";
 import type { KeyPair } from "@ton/crypto";
 import {
   getRequiredSolanaConfigByChainId,
@@ -2929,6 +2931,65 @@ export class WalletService {
         updatedAt: createdAt,
       };
     });
+  }
+
+  // Live TON activity for the selected account, mapped onto the wallet's shared
+  // history-item shape so the Activity screen renders incoming GRAM transfers
+  // like EVM/TRON/BTC/Solana entries. Returns [] for non-TON chains, when the
+  // TON address isn't resolvable from the cache (locked / not yet derived), or
+  // on any gateway failure — the caller still shows locally recorded sends.
+  //
+  // INCOMING-ONLY: outgoing sends are already recorded locally (keyed by the
+  // external-message hash, which differs from the on-chain tx hash), so we only
+  // surface receives here to avoid double-listing the same send.
+  async getSelectedTonActivity(): Promise<TransactionHistoryItem[]> {
+    const walletState = await this.storage.getWalletState();
+
+    if (!isTonChainId(walletState.selectedChainId)) {
+      return [];
+    }
+
+    const config = getRequiredTonConfigByChainId(walletState.selectedChainId);
+    const address = this.getSelectedTonAddress(walletState);
+    if (!address) {
+      return [];
+    }
+
+    let activity: Awaited<ReturnType<typeof getTonActivity>>;
+    try {
+      activity = await getTonActivity(config, address);
+    } catch {
+      return [];
+    }
+
+    return activity
+      .filter((item) => item.direction === "incoming")
+      .map((item) => {
+        const createdAt = item.timestamp
+          ? new Date(item.timestamp * 1000).toISOString()
+          : new Date().toISOString();
+
+        return {
+          id: `${config.chainId}:${item.hash.toLowerCase()}`,
+          hash: item.hash,
+          chainId: config.chainId,
+          chainName: config.name,
+          direction: "receive" as const,
+          status: item.status,
+          assetType: "native",
+          assetSymbol: config.symbol,
+          assetName: TON_NATIVE_TOKEN.name,
+          contractAddress: null,
+          amount: nanoToTon(item.amountNano),
+          // Both endpoints are the wallet's own address for filtering purposes;
+          // the row renders by direction + amount, not address.
+          fromAddress: address,
+          toAddress: address,
+          explorerUrl: item.explorerUrl,
+          createdAt,
+          updatedAt: createdAt,
+        };
+      });
   }
 
   // Resolve a Solana address for display: the persisted value if present, else

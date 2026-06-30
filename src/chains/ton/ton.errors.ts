@@ -12,6 +12,7 @@ export type TonErrorCode =
   | "TON_PROVIDER_UNAVAILABLE"
   | "TON_BALANCE_FETCH_FAILED"
   | "TON_JETTON_FETCH_FAILED"
+  | "TON_HISTORY_FETCH_FAILED"
   | "TON_INSUFFICIENT_BALANCE"
   | "TON_INSUFFICIENT_BALANCE_FOR_FEE"
   | "TON_WALLET_UNINIT"
@@ -46,6 +47,7 @@ const DEFAULT_MESSAGES: Record<TonErrorCode, string> = {
   TON_PROVIDER_UNAVAILABLE: "TON network is unavailable. Try again later.",
   TON_BALANCE_FETCH_FAILED: "Couldn't load your TON balance. Try again.",
   TON_JETTON_FETCH_FAILED: "Couldn't load your TON tokens. Try again.",
+  TON_HISTORY_FETCH_FAILED: "Couldn't load your TON activity. Try again.",
   TON_INSUFFICIENT_BALANCE: "Insufficient TON balance for this amount.",
   TON_INSUFFICIENT_BALANCE_FOR_FEE:
     "Not enough TON to cover this amount plus the network fee.",

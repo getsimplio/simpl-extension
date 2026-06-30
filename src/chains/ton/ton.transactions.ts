@@ -5,9 +5,10 @@
 // message to the sender's own wallet contract carrying one internal transfer.
 // We build and sign it with the SAME audited @ton SDK WalletContractV4 used for
 // address derivation (no hand-rolled contract code BoC), then broadcast the
-// serialized message via the Simpl API TON proxy `POST /v1/ton/send-boc`. The
-// proxy fronts the upstream broadcast provider server-side; no provider key
-// ships in this bundle and the proxy only ever receives the already-signed BOC.
+// serialized message via the centralized TON API client (Simpl gateway
+// `POST /v1/ton/send-boc`). The gateway fronts the upstream broadcast provider
+// server-side; no provider key ships in this bundle and the gateway only ever
+// receives the already-signed BOC.
 //
 // Fees: TON has no cheap exact pre-flight fee estimate without full emulation,
 // so we DON'T guess a precise number — we keep a conservative fee RESERVE
@@ -30,11 +31,12 @@ import type { KeyPair } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 import {
   getTonAddressExplorerUrl,
-  tonApiUrl,
   type TonChainConfig,
 } from "./ton.config";
 import { isValidTonAddress } from "./ton.address";
 import { normalizeTonError, tonErrorFor } from "./ton.errors";
+import { mapTonAccountState } from "./ton.balance";
+import { tonApiClient, type TonTxStatusDto } from "../../core/ton/tonApiClient";
 import type { TonAccountState } from "./ton.types";
 import type { TransactionHistoryStatus } from "../../core/transactions/transaction-history.service";
 
@@ -54,51 +56,14 @@ export type TonWalletInformation = {
   deployed: boolean;
 };
 
-// Normalized account info from the Simpl API TON proxy `/account` endpoint.
-type ProxyAccountInfo = {
-  state?: string;
-  balanceNano?: string | number;
-  seqno?: number;
-  isActive?: boolean;
-};
-
-function mapState(raw: string | undefined, balance: bigint): TonAccountState {
-  const value = (raw ?? "").toLowerCase();
-  if (value === "active") return "active";
-  if (value === "frozen") return "frozen";
-  if (value === "nonexist") return "nonexist";
-  // "uninit" / "uninitialized" / unknown → disambiguate by balance.
-  return balance > 0n ? "uninit" : "nonexist";
-}
-
-// Read balance + deployment state + seqno in one Simpl API proxy call. Used for
-// the send pre-flight (balance/fee checks and the seqno the transfer is signed
-// for). The proxy fronts the provider server-side; no key ships in this bundle.
+// Read balance + deployment state + seqno in one gateway call (via the
+// centralized client). Used for the send pre-flight (balance/fee checks and the
+// seqno the transfer is signed for). No key ships in this bundle.
 export async function getTonWalletInformation(
   address: string,
   config: TonChainConfig,
 ): Promise<TonWalletInformation> {
-  const url = tonApiUrl(
-    config,
-    `/account?address=${encodeURIComponent(address)}`,
-  );
-
-  let response: Response;
-  try {
-    response = await fetch(url, { headers: { Accept: "application/json" } });
-  } catch (error) {
-    throw normalizeTonError(error, "TON_SEQNO_FETCH_FAILED");
-  }
-  if (!response.ok) {
-    throw tonErrorFor("TON_SEQNO_FETCH_FAILED", `TON API responded ${response.status}.`);
-  }
-
-  let payload: ProxyAccountInfo;
-  try {
-    payload = (await response.json()) as ProxyAccountInfo;
-  } catch (error) {
-    throw normalizeTonError(error, "TON_SEQNO_FETCH_FAILED");
-  }
+  const payload = await tonApiClient.getWalletInfo(config, address);
 
   let balanceNano: bigint;
   try {
@@ -108,14 +73,14 @@ export async function getTonWalletInformation(
   }
   if (balanceNano < 0n) balanceNano = 0n;
 
-  const state = mapState(payload.state, balanceNano);
+  const state = mapTonAccountState(payload.state, balanceNano);
 
   return {
     balanceNano,
     state,
     seqno: Number.isInteger(payload.seqno) ? (payload.seqno as number) : 0,
-    // A deployed wallet contract is the "active" state; the proxy also surfaces
-    // an explicit isActive flag.
+    // A deployed wallet contract is the "active" state; the gateway also
+    // surfaces an explicit isActive flag.
     deployed: payload.isActive === true || state === "active",
   };
 }
@@ -227,41 +192,11 @@ export async function sendNativeTon(
     throw normalizeTonError(error, "TON_SIGN_FAILED");
   }
 
-  // Broadcast the serialized external message through the Simpl API proxy. The
-  // proxy receives ONLY the already-signed BOC and a public address context —
-  // never any secret/seed/key material.
-  const url = tonApiUrl(config, `/send-boc`);
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  };
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ boc: bocBase64 }),
-    });
-  } catch (error) {
-    throw normalizeTonError(error, "TON_BROADCAST_FAILED");
-  }
-
-  if (!response.ok) {
-    throw tonErrorFor(
-      response.status === 429 || response.status >= 500
-        ? "TON_PROVIDER_UNAVAILABLE"
-        : "TON_BROADCAST_FAILED",
-      `TON broadcast responded ${response.status}.`,
-    );
-  }
-
-  let payload: { ok?: boolean; error?: string };
-  try {
-    payload = (await response.json()) as typeof payload;
-  } catch {
-    payload = { ok: true };
-  }
+  // Broadcast the serialized external message through the centralized client.
+  // The gateway receives ONLY the already-signed BOC — never any secret/seed/key
+  // material. The client throws a coded TON_BROADCAST_FAILED /
+  // TON_PROVIDER_UNAVAILABLE on transport/HTTP failure.
+  const payload = await tonApiClient.sendBoc(config, bocBase64);
   if (payload.ok === false) {
     throw tonErrorFor("TON_BROADCAST_FAILED", payload.error);
   }
@@ -276,49 +211,40 @@ export async function sendNativeTon(
 
 // --- Confirmation / reconciliation ---------------------------------------
 
+// Map a gateway tx-status DTO onto the wallet's shared status. Safe by default:
+// anything not clearly resolved is "submitted" (never a false "failed"), so a
+// pending / unknown / transient state can't wrongly mark a real, funds-moving
+// send as failed. Pure — unit-testable without the network.
+export function mapTonTxStatus(
+  tx: TonTxStatusDto | null,
+): TransactionHistoryStatus {
+  if (!tx) return "submitted";
+
+  // Prefer the gateway's normalized status when present.
+  const status = (tx.status ?? "").toLowerCase();
+  if (status === "confirmed") return "confirmed";
+  if (status === "failed") return "failed";
+  if (status === "submitted" || status === "pending" || status === "unknown") {
+    return "submitted";
+  }
+  // Fall back to the raw success/aborted signals.
+  if (tx.success === true) return "confirmed";
+  if (tx.success === false || tx.aborted === true) return "failed";
+  return "submitted";
+}
+
 // Resolve a sent external message to its on-chain transaction status via the
-// Simpl API proxy (`GET /v1/ton/tx/status?account=&hash=`). Safe by default:
-// anything other than a clearly-resolved transaction returns "submitted" (never
-// a false "failed") so a hash-format mismatch or transient API issue can't
-// wrongly mark a real, funds-moving send as failed.
+// centralized client (`GET /v1/ton/tx/status?account=&hash=`). The gateway needs
+// the sender account to locate the message on-chain; without it (or on any
+// transient failure) we degrade safely to "submitted".
 export async function getTonTransactionStatus(
   config: TonChainConfig,
   account: string,
   hash: string,
 ): Promise<TransactionHistoryStatus> {
-  // The proxy needs the sender account to locate the message on-chain. Without
-  // it we can't resolve a status — degrade safely to "submitted".
   if (!account) return "submitted";
-
-  const url = tonApiUrl(
-    config,
-    `/tx/status?account=${encodeURIComponent(account)}&hash=${encodeURIComponent(hash)}`,
-  );
-
-  try {
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-    });
-    if (response.status === 404) return "submitted";
-    if (!response.ok) return "submitted";
-
-    const tx = (await response.json()) as {
-      status?: string;
-      success?: boolean;
-      aborted?: boolean;
-    };
-    // Prefer the proxy's normalized status when present.
-    const status = (tx.status ?? "").toLowerCase();
-    if (status === "confirmed") return "confirmed";
-    if (status === "failed") return "failed";
-    if (status === "submitted" || status === "pending") return "submitted";
-    // Fall back to the raw success/aborted signals.
-    if (tx.success === true) return "confirmed";
-    if (tx.success === false || tx.aborted === true) return "failed";
-    return "submitted";
-  } catch {
-    return "submitted";
-  }
+  const tx = await tonApiClient.getTxStatus(config, account, hash);
+  return mapTonTxStatus(tx);
 }
 
 // Poll a sent message to confirmation. Throws TON_CONFIRMATION_TIMEOUT if it

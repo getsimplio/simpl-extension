@@ -422,17 +422,19 @@ export function TransactionHistoryPage({
     const localItems =
       transactionHistoryService.listByAddresses(accountAddresses);
 
-    // Bitcoin + Solana: merge live on-chain activity (incoming + outgoing) with
-    // any locally recorded sends, de-duplicating by id and preferring the live
-    // entry (it carries confirmation status + block time). Each call is for the
-    // currently selected network only and returns [] off-network or on failure.
+    // Bitcoin + Solana + TON: merge live on-chain activity with any locally
+    // recorded sends, de-duplicating by id and preferring the live entry (it
+    // carries confirmation status + block time). TON contributes incoming GRAM
+    // receives (outgoing sends are already recorded locally). Each call is for
+    // the currently selected network only and returns [] off-network/on failure.
     let liveItems: TransactionHistoryItem[] = [];
     try {
-      const [bitcoin, solana] = await Promise.all([
+      const [bitcoin, solana, ton] = await Promise.all([
         walletService.getSelectedBitcoinActivity().catch(() => []),
         walletService.getSelectedSolanaActivity().catch(() => []),
+        walletService.getSelectedTonActivity().catch(() => []),
       ]);
-      liveItems = [...bitcoin, ...solana];
+      liveItems = [...bitcoin, ...solana, ...ton];
     } catch {
       liveItems = [];
     }
