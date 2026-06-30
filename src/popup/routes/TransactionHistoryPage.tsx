@@ -10,6 +10,7 @@ import {
   type TransactionHistoryItem,
 } from "../../core/transactions/transaction-history.service";
 import { reconcilePendingBridgeTransactions } from "../../core/bridge/bridge-history.service";
+import { applyTonNativeRename } from "../../chains/ton/ton.tokens";
 import { t, useTranslation } from "../../i18n";
 
 type TransactionHistoryPageProps = {
@@ -378,6 +379,7 @@ export function TransactionHistoryPage({
       selectedAccount.address,
       "tronAddress" in selectedAccount ? selectedAccount.tronAddress : null,
       "solanaAddress" in selectedAccount ? selectedAccount.solanaAddress : null,
+      "tonAddress" in selectedAccount ? selectedAccount.tonAddress : null,
       ...bitcoinAddresses,
     ];
 
@@ -498,7 +500,9 @@ export function TransactionHistoryPage({
     void refresh();
   }
 
-  const groups = groupByDate(items);
+  // Render legacy native TON rows (assetSymbol "TON" / assetName "Toncoin")
+  // under the current Gram naming. No-op for everything else.
+  const groups = groupByDate(items.map(applyTonNativeRename));
 
   return (
     <div className="ext-popup" data-screen-label="09 Activity">

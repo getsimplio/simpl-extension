@@ -1,0 +1,48 @@
+name = "simpl-zero-x-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+routes = [
+  { pattern = "api.getsimpl.io", zone_name = "getsimpl.io", custom_domain = true }
+]
+
+[vars]
+SIMPLE_SWAP_FEE_BPS = "50"
+ALLOWED_ORIGINS = "chrome-extension://aklgbinnbghdgfcigfiglplkdjjfkego"
+
+# Solana swaps via Jupiter. Non-secret config only — keep secrets out of this
+# file and set them with `wrangler secret put <NAME>`:
+#   JUPITER_API_KEY          (optional; only needed for the keyed api.jup.ag host)
+#   JUPITER_REFERRAL_ACCOUNT (optional; enables the Simpl fee when set)
+#   JUPITER_REFERRAL_FEE_BPS (optional; defaults to 50 when a referral account is set)
+JUPITER_BASE_URL = "https://lite-api.jup.ag"
+LIFI_ENABLE_SOLANA_EXECUTION = "true"
+
+# Solana portfolio/balance gateway. Set SOLANA_RPC_URL (and any fallbacks) to a
+# production RPC. If the URL embeds an API key (Helius/QuickNode/etc), set it as
+# a secret instead — `wrangler secret put SOLANA_RPC_URL` — not in this file.
+# When unset, a public RPC is used (fine for local testing only).
+# SOLANA_RPC_URL = "https://..."
+# SOLANA_RPC_FALLBACK_URLS = "https://...,https://..."
+# Set SOLANA_RPC_DEBUG = "true" to include sanitized per-provider diagnostics
+# (hostname only — never full URLs, query params, or API keys) in portfolio
+# error responses. Leave unset/false in production for safe, short errors.
+# SOLANA_RPC_DEBUG = "true"
+
+# Cross-chain bridge proxy via LI.FI. Non-secret config only — keep the API key
+# out of this file and set it with `wrangler secret put LIFI_API_KEY`:
+#   LIFI_API_KEY (optional; sent as the x-lifi-api-key backend header)
+LIFI_BASE_URL = "https://li.quest/v1"
+LIFI_INTEGRATOR = "simpl"
+# Simpl integrator fee as a decimal string ("0.005" = 0.5%). Omit for no fee.
+LIFI_FEE = "0.005"
+# Comma-separated allow-list of LI.FI chain IDs. Omit to allow all chains.
+# Note: LI.FI's Solana chain id is 1151111081099710 (not 501).
+# LIFI_ALLOWED_CHAINS = "1,56,8453,42161,10,137,1151111081099710"
+# Set LIFI_DEBUG = "true" to include sanitized upstream status/message in error
+# responses. Leave unset/false in production for safe, public errors.
+# LIFI_DEBUG = "true"
+# Solana-source routes return a serialized SVM transaction (transactionRequest
+# .format = "solana"). They stay quote-only until the app's signer is verified
+# for that format. Set to "true" only after that work lands to mark them
+# executable. Default false.

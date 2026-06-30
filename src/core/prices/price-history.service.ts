@@ -128,8 +128,8 @@ export class PriceHistoryService {
       return fresh;
     }
 
-    // Native TON history comes from tonapi — the Simpl gateway has no TON
-    // support. Jettons (address != null) are intentionally left to the gateway
+    // Native TON history comes from the Simpl API TON proxy — the generic Simpl
+    // gateway has no TON support. Jettons (address != null) are left to the gateway
     // (no chart yet), so they fall through and resolve to a graceful empty chart.
     if (isTonChainId(input.chainId) && input.address === null) {
       return this.getTonNativeHistory(input);
@@ -183,7 +183,7 @@ export class PriceHistoryService {
     }
   }
 
-  // Native TON history via tonapi, normalized + cached exactly like the gateway
+  // Native TON history via the Simpl API proxy, normalized + cached exactly like the gateway
   // path so range switching, caching and stale-fallback all behave identically.
   private async getTonNativeHistory(
     input: HistoryInput,
@@ -194,11 +194,7 @@ export class PriceHistoryService {
       // gateway's wider SimplHistoryRange "max" is never produced here).
       const tonRange =
         input.range === "1D" ? "1d" : input.range === "7D" ? "7d" : "1m";
-      const raw = await getTonNativeHistory(
-        config,
-        tonRange,
-        Math.floor(Date.now() / 1000),
-      );
+      const raw = await getTonNativeHistory(config, tonRange);
 
       const points = normalizePoints(raw ?? undefined);
       if (!points) {

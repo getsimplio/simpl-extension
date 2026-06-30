@@ -23,6 +23,7 @@ import {
   BITCOIN_TESTNET_CHAIN_ID,
   SOLANA_MAINNET_CHAIN_ID,
   SOLANA_DEVNET_CHAIN_ID,
+  TON_MAINNET_CHAIN_ID,
 } from "../../core/networks/chain-registry";
 import { isValidTronAddress } from "../../chains/tron/tron.address";
 import { isValidBitcoinAddress } from "../../chains/bitcoin/bitcoin.address";
@@ -80,6 +81,9 @@ const GAS_RESERVES: Record<number, number> = {
   // ~0.001 SOL kept back for the network fee on a native SOL max-send.
   [SOLANA_MAINNET_CHAIN_ID]: 0.001,
   [SOLANA_DEVNET_CHAIN_ID]: 0.001,
+  // ~0.05 TON conservative reserve for the network fee (+ first-deploy cost) on
+  // a native TON max-send. Matches TON_FEE_RESERVE_NANO in ton.transactions.ts.
+  [TON_MAINNET_CHAIN_ID]: 0.05,
 };
 
 // Validate a recipient for the active chain's address family.
@@ -602,6 +606,8 @@ export function SendPage({
   const [solanaFromAddress, setSolanaFromAddress] = useState<string | null>(
     null,
   );
+  // The account's TON address (UQ…) (the `from` shown in the UI / history).
+  const [tonFromAddress, setTonFromAddress] = useState<string | null>(null);
   // Bitcoin fee presets (sat/vB) + the user's chosen preset.
   const [bitcoinFeeQuotes, setBitcoinFeeQuotes] =
     useState<BitcoinFeeQuotes | null>(null);
@@ -625,6 +631,7 @@ export function SendPage({
   const isTron = isTronChainId(currentChainId);
   const isBitcoin = isBitcoinChainId(currentChainId);
   const isSolana = isSolanaChainId(currentChainId);
+  const isTon = isTonChainId(currentChainId);
   const recipientIsValid = isValidRecipientForChain(currentChainId, toAddress);
   const amountIsValid = isPositiveAmount(normalizedAmount);
   const amountCanBeConverted = amountMode === "asset" || assetUsdPrice !== null;
@@ -638,7 +645,9 @@ export function SendPage({
       ? bitcoinFromAddress ?? selectedAccount.address
       : isSolana
         ? solanaFromAddress ?? selectedAccount.address
-        : selectedAccount.address;
+        : isTon
+          ? tonFromAddress ?? selectedAccount.address
+          : selectedAccount.address;
 
   const assetBalance = Number(selectedAsset.formatted);
   const toAddressError =
@@ -649,7 +658,9 @@ export function SendPage({
           ? t("send.invalidBitcoinAddress")
           : isSolana
             ? t("send.invalidSolanaAddress")
-            : t("send.invalidEvmAddress")
+            : isTon
+              ? t("send.invalidRecipient")
+              : t("send.invalidEvmAddress")
       : null;
 
   // The chosen Bitcoin fee rate (sat/vB) and a representative network-fee
@@ -676,6 +687,18 @@ export function SendPage({
       return null;
     }
   })();
+  // TON has no cheap exact pre-flight fee; we surface the conservative reserve as
+  // an upper-bound ("≤") estimate. Native TON only (Jetton send is out of scope).
+  const tonIsNativeSend = isTon && selectedAsset.type === "native";
+  const tonFeeReserve = GAS_RESERVES[TON_MAINNET_CHAIN_ID] ?? 0.05;
+  const tonEstimatedFeeText = tonIsNativeSend
+    ? `≤ ${trimDecimal(tonFeeReserve.toFixed(9))} TON`
+    : null;
+  const tonTotalText =
+    tonIsNativeSend && amountIsValid
+      ? `≤ ${trimDecimal((Number(normalizedAmount) + tonFeeReserve).toFixed(9))} TON`
+      : null;
+
   const hasInsufficientBalance =
     amountIsValid && Number(normalizedAmount) > assetBalance;
   const amountError =
@@ -718,17 +741,18 @@ export function SendPage({
   useEffect(() => {
     let active = true;
 
-    if (!isTron && !isBitcoin && !isSolana) {
+    if (!isTron && !isBitcoin && !isSolana && !isTon) {
       setTronFromAddress(null);
       setBitcoinFromAddress(null);
       setSolanaFromAddress(null);
+      setTonFromAddress(null);
       return () => {
         active = false;
       };
     }
 
-    // TRON, Bitcoin and Solana resolve their display "from" address through the
-    // wallet service (TRON base58 / BTC receive address / Solana base58).
+    // TRON, Bitcoin, Solana and TON resolve their display "from" address through
+    // the wallet service (TRON base58 / BTC receive / Solana base58 / TON UQ…).
     void walletService
       .getSelectedReceiveAddress()
       .then((address) => {
@@ -736,18 +760,20 @@ export function SendPage({
         setBitcoinFromAddress(isBitcoin ? address : null);
         setSolanaFromAddress(isSolana ? address : null);
         setTronFromAddress(isTron ? address : null);
+        setTonFromAddress(isTon ? address : null);
       })
       .catch(() => {
         if (!active) return;
         setTronFromAddress(null);
         setBitcoinFromAddress(null);
         setSolanaFromAddress(null);
+        setTonFromAddress(null);
       });
 
     return () => {
       active = false;
     };
-  }, [isTron, isBitcoin, isSolana, currentChainId, selectedAccount.address]);
+  }, [isTron, isBitcoin, isSolana, isTon, currentChainId, selectedAccount.address]);
 
   // Load Bitcoin fee presets (sat/vB) when on a BTC network. getBitcoinFeeQuotes
   // never throws — it falls back to fixed rates if the provider is down.
@@ -1470,6 +1496,13 @@ export function SendPage({
               </Notice>
             ) : null}
 
+            {tonEstimatedFeeText ? (
+              <div className="send-meta-row">
+                <span className="send-meta-label">{t("send.estimatedFee")}</span>
+                <strong className="send-meta-value">{tonEstimatedFeeText}</strong>
+              </div>
+            ) : null}
+
             <button
               className="btn primary lg full send-submit"
               type="submit"
@@ -1548,6 +1581,12 @@ export function SendPage({
                 ) : null}
                 {isBitcoin && bitcoinTotalBtc ? (
                   <MetaRow label={t("common.total")} value={`≈ ${bitcoinTotalBtc} BTC`} />
+                ) : null}
+                {tonEstimatedFeeText ? (
+                  <MetaRow label={t("send.networkFee")} value={tonEstimatedFeeText} />
+                ) : null}
+                {tonTotalText ? (
+                  <MetaRow label={t("common.total")} value={tonTotalText} />
                 ) : null}
                 <MetaRow label={t("common.network")} value={networkLabel} />
                 {!isBitcoin ? (

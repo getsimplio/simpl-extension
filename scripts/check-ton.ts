@@ -23,9 +23,28 @@ const {
 } = await import("../src/chains/ton/ton.address");
 const { nanoToTon, tonToNano, formatTonTokenAmount, parseTonTokenAmount } =
   await import("../src/chains/ton/ton.format");
-const { TRUSTED_JETTONS, resolveTrustedJetton } = await import(
-  "../src/chains/ton/ton.tokens"
+const {
+  TRUSTED_JETTONS,
+  resolveTrustedJetton,
+  TON_NATIVE_TOKEN,
+  TON_NATIVE_SYMBOL,
+  TON_NATIVE_NAME,
+  displayTonNativeSymbol,
+  displayTonNativeName,
+  applyTonNativeRename,
+} = await import("../src/chains/ton/ton.tokens");
+const { TON_MAINNET_CHAIN_ID } = await import(
+  "../src/core/networks/chain-registry"
 );
+const { assertTonSendAmount, TON_FEE_RESERVE_NANO } = await import(
+  "../src/chains/ton/ton.transactions"
+);
+const {
+  TON_MAINNET,
+  getTonAddressExplorerUrl,
+  getTonTransactionExplorerUrl,
+  getTonJettonExplorerUrl,
+} = await import("../src/chains/ton/ton.config");
 const { Address } = await import("@ton/core");
 
 let failures = 0;
@@ -194,6 +213,137 @@ ok(
   "resolveTrustedJetton rejects a non-TON address (spam guard)",
   resolveTrustedJetton("0x0000000000000000000000000000000000000000") === null,
 );
+
+console.log("=== ton native send: recipient validation ===");
+ok("UQ recipient accepted", isValidTonAddress(account0.address));
+ok(
+  "EQ recipient accepted",
+  isValidTonAddress("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"),
+);
+ok(
+  "EVM recipient rejected",
+  !isValidTonAddress("0x0000000000000000000000000000000000000000"),
+);
+ok("empty recipient rejected", !isValidTonAddress(""));
+
+console.log("=== ton native send: amount guard + fee reserve ===");
+ok("fee reserve is 0.05 TON", TON_FEE_RESERVE_NANO === 50_000_000n);
+throwsCode(
+  "zero amount rejected",
+  () => assertTonSendAmount(tonToNano("1"), 0n),
+  "TON_INVALID_AMOUNT",
+);
+throwsCode(
+  "amount over balance rejected",
+  () => assertTonSendAmount(tonToNano("0.5"), tonToNano("1")),
+  "TON_INSUFFICIENT_BALANCE",
+);
+throwsCode(
+  "amount leaving no fee room rejected",
+  () => assertTonSendAmount(tonToNano("1"), tonToNano("0.98")),
+  "TON_INSUFFICIENT_BALANCE_FOR_FEE",
+);
+throwsCode(
+  "sending the FULL balance is rejected (no fee room)",
+  () => assertTonSendAmount(tonToNano("1"), tonToNano("1")),
+  "TON_INSUFFICIENT_BALANCE_FOR_FEE",
+);
+
+console.log("=== ton native send: safe MAX = balance - feeReserve ===");
+{
+  const balance = tonToNano("2");
+  const maxSend = balance - TON_FEE_RESERVE_NANO;
+  let passed = true;
+  try {
+    // Safe MAX (balance - reserve) must be sendable...
+    assertTonSendAmount(balance, maxSend);
+  } catch {
+    passed = false;
+  }
+  ok("balance - feeReserve is sendable", passed);
+  // ...but one nanoton more must fail the fee-room check.
+  throwsCode(
+    "balance - feeReserve + 1 fails fee check",
+    () => assertTonSendAmount(balance, maxSend + 1n),
+    "TON_INSUFFICIENT_BALANCE_FOR_FEE",
+  );
+}
+
+console.log("=== ton explorer URL generation ===");
+ok(
+  "address URL → tonviewer.com/<addr>",
+  getTonAddressExplorerUrl(TON_MAINNET, account0.address) ===
+    `https://tonviewer.com/${account0.address}`,
+);
+ok(
+  "tx URL → tonviewer.com/transaction/<hash>",
+  getTonTransactionExplorerUrl(TON_MAINNET, "deadbeef") ===
+    "https://tonviewer.com/transaction/deadbeef",
+);
+ok(
+  "jetton URL → tonviewer.com/<master>",
+  getTonJettonExplorerUrl(TON_MAINNET, usdtMaster) ===
+    `https://tonviewer.com/${usdtMaster}`,
+);
+
+console.log("=== native asset rebrand: Toncoin/TON → Gram/GRAM ===");
+ok("TON_NATIVE_SYMBOL is GRAM", TON_NATIVE_SYMBOL === "GRAM");
+ok("TON_NATIVE_NAME is Gram", TON_NATIVE_NAME === "Gram");
+ok("native token symbol is GRAM", TON_NATIVE_TOKEN.symbol === "GRAM");
+ok("native token name is Gram", TON_NATIVE_TOKEN.name === "Gram");
+ok("config native symbol is GRAM", TON_MAINNET.symbol === "GRAM");
+ok("network name stays TON (not renamed)", TON_MAINNET.name === "TON");
+
+ok(
+  "legacy symbol TON renders as GRAM",
+  displayTonNativeSymbol("TON") === "GRAM",
+);
+ok("current symbol GRAM stays GRAM", displayTonNativeSymbol("GRAM") === "GRAM");
+ok(
+  "other symbol (USDT) is left unchanged",
+  displayTonNativeSymbol("USDT") === "USDT",
+);
+ok(
+  "legacy name Toncoin renders as Gram",
+  displayTonNativeName("Toncoin") === "Gram",
+);
+ok("other name left unchanged", displayTonNativeName("Tether USD") === "Tether USD");
+
+console.log("=== legacy history-row rename (applyTonNativeRename) ===");
+{
+  const legacy = applyTonNativeRename({
+    chainId: TON_MAINNET_CHAIN_ID,
+    assetType: "native",
+    assetSymbol: "TON",
+    assetName: "Toncoin",
+  });
+  ok(
+    "legacy native TON row → GRAM/Gram",
+    legacy.assetSymbol === "GRAM" && legacy.assetName === "Gram",
+  );
+
+  const jetton = applyTonNativeRename({
+    chainId: TON_MAINNET_CHAIN_ID,
+    assetType: "jetton",
+    assetSymbol: "USDT",
+    assetName: "Tether USD",
+  });
+  ok(
+    "TON jetton row is untouched",
+    jetton.assetSymbol === "USDT" && jetton.assetName === "Tether USD",
+  );
+
+  const evm = applyTonNativeRename({
+    chainId: 1,
+    assetType: "native",
+    assetSymbol: "TON",
+    assetName: "Toncoin",
+  });
+  ok(
+    "non-TON chain row is untouched (no accidental cross-chain rename)",
+    evm.assetSymbol === "TON" && evm.assetName === "Toncoin",
+  );
+}
 
 console.log("");
 if (failures > 0) {

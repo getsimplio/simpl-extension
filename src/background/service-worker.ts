@@ -1023,6 +1023,9 @@ async function handleDappRequest(
         return;
       }
 
+      // Switch the active signer account. `simpl_switchAccount` is the preferred
+      // name (accepts accountId); `simpl_setActiveAccount` is kept as an alias.
+      case "simpl_switchAccount":
       case "simpl_setActiveAccount": {
         const connected = await getDappConnectionForOrigin(origin);
         if (!connected) {
@@ -1030,7 +1033,12 @@ async function handleDappRequest(
           return;
         }
         const param = message.params[0] as Record<string, unknown> | undefined;
-        const targetId = typeof param?.["id"] === "string" ? (param["id"] as string) : null;
+        const targetId =
+          typeof param?.["accountId"] === "string"
+            ? (param["accountId"] as string)
+            : typeof param?.["id"] === "string"
+              ? (param["id"] as string)
+              : null;
         const targetAddress = typeof param?.["address"] === "string" ? (param["address"] as string) : null;
         const match = bootstrap.walletState.accounts.find(
           (a) =>
@@ -1046,9 +1054,15 @@ async function handleDappRequest(
           sendResponse({ ok: true, result: [match.address] });
           return;
         }
-        const { selectedAccount: nextSelected } = await walletService.selectAccount({ accountId: match.id });
-        // Notify every connected dApp (incl. the dashboard) of the new active account.
+        const { walletState: nextState, selectedAccount: nextSelected } =
+          await walletService.selectAccount({ accountId: match.id });
+        // Notify every connected dApp of the new active account (standard event),
+        // and push the full sanitized list so first-party surfaces live-update.
         await broadcastProviderEvent("accountsChanged", [nextSelected.address]);
+        await broadcastProviderEvent(
+          "simpl_accountsChanged",
+          nextState.accounts.map((a) => toSafeAccountMeta(a, nextState.selectedAccountId)),
+        );
         sendResponse({ ok: true, result: [nextSelected.address] });
         return;
       }

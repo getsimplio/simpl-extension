@@ -1597,9 +1597,9 @@ export function HomePage(props: HomePageProps) {
       !isTon &&
       !swapAvailable &&
       !isWatchOnlyAccount;
-    // Sending TON is not wired yet — hide the Send action for TON so there is no
-    // dead-end button (receive-only MVP). Every other chain keeps Send.
-    const sendAvailable = !isTon;
+    // Native TON send is supported; TON Jetton send is not (out of scope), so
+    // hide Send for TON Jettons only. Every other chain keeps Send.
+    const sendAvailable = !isTon || isNative;
 
     // Address label is chain-aware: Solana mints vs EVM/TRON contracts.
     const tokenAddressLabel = isSolanaChainId(asset.chainId)
@@ -2192,21 +2192,19 @@ export function HomePage(props: HomePageProps) {
 
         {!isWatchOnlyAccount && (
           <div className="actions">
-            {/* TON is receive-only in this MVP: hide Send & Swap so there are no
-                dead-end actions; Receive stays available. */}
-            {!isTonChainId(selectedChainId) ? (
-              <button
-                className="action"
-                type="button"
-                onClick={() => {
-                  if (defaultSendAsset) props.onSendAsset(defaultSendAsset);
-                }}
-                disabled={!defaultSendAsset}
-              >
-                <SimpleInstrumentIcon instrument="send" iconSize={16} />
-                <span className="a-lbl">{t("home.send")}</span>
-              </button>
-            ) : null}
+            {/* Send sends the chain's native asset (defaultSendAsset) — native
+                TON IS sendable. Swap stays hidden on TON (out of scope). */}
+            <button
+              className="action"
+              type="button"
+              onClick={() => {
+                if (defaultSendAsset) props.onSendAsset(defaultSendAsset);
+              }}
+              disabled={!defaultSendAsset}
+            >
+              <SimpleInstrumentIcon instrument="send" iconSize={16} />
+              <span className="a-lbl">{t("home.send")}</span>
+            </button>
 
             <button
               className="action"

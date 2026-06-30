@@ -13,14 +13,17 @@
 // hand would risk an incorrect address — and an incorrect receive address means
 // lost funds — so we deliberately rely on the SDK here.
 //
-// SECURITY: this MVP is receive-only and never returns or persists secret key
-// material. Only the public address and public key leave this module.
+// SECURITY: the public derivation entry points (deriveTonAccountFromMnemonic,
+// deriveTonAddress) never return secret key material. The signing entry point
+// (deriveTonKeyPairFromMnemonic) returns an Ed25519 key pair and is for the
+// wallet/background service layer ONLY — its secretKey must never reach the
+// React UI, logs, activity or errors, and is held transiently at signing time.
 
 import { mnemonicToSeedSync } from "@scure/bip39";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha512 } from "@noble/hashes/sha2.js";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
-import { keyPairFromSeed } from "@ton/crypto";
+import { keyPairFromSeed, type KeyPair } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 import { normalizeMnemonicForDerivation } from "../../core/accounts/derivation";
 import { getTonDerivationPath } from "./ton.address";
@@ -117,4 +120,22 @@ export function deriveTonAddress(
   accountIndex: number,
 ): string {
   return deriveTonAccountFromMnemonic(mnemonic, accountIndex).address;
+}
+
+// Signing material for `accountIndex`: the Ed25519 key pair plus the wallet's
+// user-friendly address. SERVICE-LAYER ONLY — the returned `keyPair.secretKey`
+// is signing material and must never be exposed to the UI, logged or persisted.
+export function deriveTonKeyPairFromMnemonic(
+  mnemonic: string,
+  accountIndex: number,
+): { keyPair: KeyPair; address: string; derivationPath: string } {
+  const normalized = normalizeMnemonicForDerivation(mnemonic);
+  const seed = mnemonicToSeedSync(normalized);
+  const derivationPath = getTonDerivationPath(accountIndex);
+
+  const ed25519Seed = deriveEd25519Seed(derivationPath, seed);
+  const keyPair = keyPairFromSeed(Buffer.from(ed25519Seed));
+  const address = walletAddressForPublicKey(keyPair.publicKey);
+
+  return { keyPair, address, derivationPath };
 }

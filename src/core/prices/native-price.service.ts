@@ -93,9 +93,9 @@ export class NativePriceService {
       return cached;
     }
 
-    // TON is not served by the Simpl price gateway ("Unsupported asset"), so its
-    // native price comes from tonapi (the same provider used for Jetton
-    // discovery) via getTonNativeSpot. Same cache, same NativeAssetQuote shape.
+    // TON is not served by the generic Simpl price gateway ("Unsupported
+    // asset"), so its native price comes from the dedicated Simpl API TON proxy
+    // via getTonNativeSpot. Same cache, same NativeAssetQuote shape.
     if (isTonChainId(input.chainId)) {
       return this.getTonNativeQuote(input, cached);
     }
@@ -150,7 +150,7 @@ export class NativePriceService {
     }
   }
 
-  // TON native quote via tonapi (USD authoritative, EUR alongside for the EUR
+  // TON native quote via the Simpl API proxy (USD authoritative, EUR alongside for the EUR
   // toggle). Mirrors the gateway path's caching + degradation: a USD success
   // with an EUR miss still yields a usable quote; total failure keeps cache.
   private async getTonNativeQuote(

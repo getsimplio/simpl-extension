@@ -193,16 +193,20 @@ export const DEFAULT_CHAINS: ChainConfig[] = [
   {
     chainId: TON_MAINNET_CHAIN_ID,
     family: "ton",
+    // NETWORK identity stays "TON" (name/displayName, chip, selector). Only the
+    // native ASSET was rebranded Toncoin → Gram (symbol TON → GRAM) below.
     name: "TON",
     displayName: "TON",
     nativeCurrency: {
-      name: "Toncoin",
-      symbol: "TON",
+      name: "Gram",
+      symbol: "GRAM",
       decimals: 9,
     },
-    // TON uses an HTTP API (toncenter) rather than JSON-RPC; the configurable
-    // base URL lives in ton.config.ts. Kept here for display/parity only.
-    rpcUrl: "https://toncenter.com/api/v2",
+    // TON uses an HTTP API rather than JSON-RPC and is never reached through
+    // this rpcUrl (the TON adapter routes every call through the Simpl API TON
+    // proxy in ton.config.ts). Kept here for display/parity only and pointed at
+    // the proxy so no direct provider URL ships in the bundle.
+    rpcUrl: "https://api.getsimpl.io/v1/ton",
     blockExplorerUrl: "https://tonviewer.com",
     isTestnet: false,
     standardLabel: "TON",

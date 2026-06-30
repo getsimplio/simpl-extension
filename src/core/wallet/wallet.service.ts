@@ -38,13 +38,19 @@ import {
   getTonAddressExplorerUrl,
   TON_MAINNET,
 } from "../../chains/ton/ton.config";
-import { deriveTonAccountFromMnemonic } from "../../chains/ton/ton.derivation";
+import {
+  deriveTonAccountFromMnemonic,
+  deriveTonKeyPairFromMnemonic,
+} from "../../chains/ton/ton.derivation";
 import { nanoToTon } from "../../chains/ton/ton.format";
-import { tonErrorFor } from "../../chains/ton/ton.errors";
 import {
   getTonNativeBalanceNano,
   getTonPortfolio,
+  sendTonAsset,
+  getTonActivityStatus,
+  waitForTonActivity,
 } from "../../chains/ton/ton.adapter";
+import type { KeyPair } from "@ton/crypto";
 import {
   getRequiredSolanaConfigByChainId,
   getSolanaAddressExplorerUrl,
@@ -1114,10 +1120,7 @@ export class WalletService {
     }
 
     if (isTonChainId(walletState.selectedChainId)) {
-      // Sending TON is not wired in this receive-only MVP; the UI hides the Send
-      // action for TON. This backstop fails cleanly with a coded error instead
-      // of misrouting a TON send through the EVM signing path.
-      throw tonErrorFor("TON_SEND_UNSUPPORTED");
+      return this.sendSelectedTonAsset(walletState, selectedAccount, input);
     }
 
     const privateKey = await this.getPrivateKeyForAccount(
@@ -1370,6 +1373,15 @@ export class WalletService {
       );
     }
 
+    if (isTonChainId(walletState.selectedChainId)) {
+      return waitForTonActivity(
+        getRequiredTonConfigByChainId(walletState.selectedChainId),
+        this.getSelectedTonAddress(walletState),
+        input.hash,
+        input.timeoutMs ?? 180_000,
+      );
+    }
+
     const chain = networkService.getRequiredChainById(walletState.selectedChainId);
     const provider = new JsonRpcProvider(chain.rpcUrl);
 
@@ -1405,6 +1417,14 @@ export class WalletService {
     if (isSolanaChainId(walletState.selectedChainId)) {
       return getSolanaActivityStatus(
         getRequiredSolanaConfigByChainId(walletState.selectedChainId),
+        input.hash,
+      );
+    }
+
+    if (isTonChainId(walletState.selectedChainId)) {
+      return getTonActivityStatus(
+        getRequiredTonConfigByChainId(walletState.selectedChainId),
+        this.getSelectedTonAddress(walletState),
         input.hash,
       );
     }
@@ -2470,6 +2490,77 @@ export class WalletService {
     );
   }
 
+  // Derive the TON signing material (Ed25519 key pair + address) for an account
+  // from decrypted vault material. Only mnemonic-derivable accounts are
+  // supported (TON uses Ed25519, so private-key imports and watch-only accounts
+  // have no TON key).
+  //
+  // SECURITY: the returned keyPair.secretKey is signing material held transiently
+  // inside this method's caller chain only — never logged, persisted or returned
+  // to the UI.
+  private deriveTonMaterialForAccount(
+    account: WalletAccount,
+    payload: VaultPayload,
+  ): { keyPair: KeyPair; address: string } {
+    if (account.type === "mnemonic") {
+      const derived = deriveTonKeyPairFromMnemonic(
+        payload.mnemonic,
+        account.index,
+      );
+      return { keyPair: derived.keyPair, address: derived.address };
+    }
+
+    if (account.type === "importedMnemonic") {
+      const secret = (payload.importedAccounts ?? []).find(
+        (item) => item.id === account.id,
+      );
+
+      if (!secret) {
+        throw new Error(
+          "Key material for this imported account is missing. Re-import the account.",
+        );
+      }
+
+      if (secret.type === "importedMnemonic") {
+        const derived = deriveTonKeyPairFromMnemonic(
+          secret.mnemonic,
+          secret.index,
+        );
+        return { keyPair: derived.keyPair, address: derived.address };
+      }
+    }
+
+    throw new Error(
+      "This account type does not support TON. Use a recovery-phrase account.",
+    );
+  }
+
+  // Orchestrate a native TON send: derive signing material + the sender address,
+  // then hand off to the adapter which does the balance/fee/seqno checks, builds
+  // + signs the transfer and broadcasts it. Jetton sends are refused in the
+  // adapter with a coded error (out of scope this PR).
+  private async sendSelectedTonAsset(
+    walletState: WalletState,
+    account: WalletAccount,
+    input: SendSelectedAssetInput,
+  ): Promise<SendSelectedAssetResult> {
+    const config = getRequiredTonConfigByChainId(walletState.selectedChainId);
+
+    const payload = await this.getDecryptedPayloadForSensitiveOperation(
+      input.password,
+    );
+    const material = this.deriveTonMaterialForAccount(account, payload);
+
+    return sendTonAsset({
+      config,
+      asset: input.asset,
+      amount: input.amount,
+      recipient: input.toAddress,
+      fromAddress: material.address,
+      keyPair: material.keyPair,
+    });
+  }
+
   private async persistTonAddress(
     walletState: WalletState,
     accountId: WalletAccountId,
@@ -2493,6 +2584,18 @@ export class WalletService {
   // Resolve a TON address for display: the persisted value if present, else
   // derive from the vault when unlocked. Watch-only / private-key → none.
   // Display-only: no key material is held or persisted here.
+  // Selected account's cached TON address for read-only status reconciliation
+  // (the Simpl proxy needs the sender account to locate a sent message). Uses
+  // only the persisted public address — no vault decryption — and returns "" if
+  // unavailable, which getTonActivityStatus treats as a safe "submitted".
+  private getSelectedTonAddress(walletState: WalletState): string {
+    const account = accountService.getSelectedAccount(
+      this.toAccountsState(walletState),
+    );
+    if (!account) return "";
+    return this.resolveTonDisplayAddress(account, null) ?? "";
+  }
+
   private resolveTonDisplayAddress(
     account: WalletAccount,
     payload: VaultPayload | null,

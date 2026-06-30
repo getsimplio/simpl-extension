@@ -154,7 +154,8 @@ export const KNOWN_PRICE_ASSETS: Record<string, KnownPriceAsset> = {
     canHaveChart: true,
   },
   [`${TON_MAINNET_CHAIN_ID}:native`]: {
-    symbol: "TON",
+    // Native asset rebranded Toncoin → Gram; the network stays "TON".
+    symbol: "GRAM",
     coinGeckoId: "the-open-network",
     canHaveChart: true,
   },

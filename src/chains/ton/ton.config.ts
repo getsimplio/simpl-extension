@@ -4,9 +4,16 @@
 // The app routes every chain by a single numeric `chainId` (see
 // core/networks/chain-registry.ts); TON has no canonical numeric id, so it uses
 // the internal sentinel id defined there. This module exposes the human
-// "ton-mainnet" id, the configurable toncenter HTTP API endpoint, the Tonviewer
-// explorer URL builders and TON constants used only by the TON adapter. No EVM
-// chainId is ever used for TON.
+// "ton-mainnet" id, the Simpl API TON proxy base, the Tonviewer explorer URL
+// builders and TON constants used only by the TON adapter. No EVM chainId is
+// ever used for TON.
+//
+// PROVIDER PROXY: all TON network reads/writes go through the Simpl API Worker
+// (`api.getsimpl.io/v1/ton/*`), NEVER directly to tonapi.io / toncenter. The
+// provider API keys live ONLY in the Worker's server-side secrets and never
+// reach this client bundle. Signing always stays local in the extension; the
+// proxy only ever receives a public address, a signed BOC, a tx hash and
+// period/currency params.
 
 import { TON_MAINNET_CHAIN_ID } from "../../core/networks/chain-registry";
 
@@ -20,29 +27,18 @@ export type TonChainConfig = {
   name: string;
   symbol: string;
   decimals: number;
-  // Primary toncenter HTTP API base (no trailing slash). TON is account/contract
-  // based and exposes an HTTP API rather than JSON-RPC.
+  // Simpl API TON proxy base (no trailing slash), e.g.
+  // "https://api.getsimpl.io/v1/ton". Every TON request (account, prices,
+  // jettons, send-boc, tx status) is built off this base. No provider keys are
+  // ever attached client-side — the Worker holds them.
   apiBaseUrl: string;
-  // Optional toncenter API key (raises the anonymous rate limit). Empty by
-  // default; set via VITE_TON_API_KEY for production.
-  apiKey: string;
-  // tonapi read API base — no trailing slash. Used for TON market data the simpl
-  // gateway does NOT serve (the gateway has no TON support): the native Toncoin
-  // spot price + chart, and Jetton balance discovery (balances + metadata +
-  // verification in one call, which keeps spam/unknown jettons out of the
-  // portfolio). Read-only; no signing ever touches it.
-  tonapiBaseUrl: string;
-  // Optional tonapi bearer token (raises the anonymous rate limit). Empty by
-  // default; set via VITE_TONAPI_KEY for production.
-  tonapiKey: string;
   // Human-facing block explorer (Tonviewer) base — no trailing slash.
   explorerUrl: string;
   isTestnet: boolean;
 };
 
-// Optional build-time override. In production this should point at a backend
-// proxy or a keyed toncenter endpoint. `import.meta.env` is statically replaced
-// by Vite; it is undefined under tsx/node, where this yields the defaults.
+// `import.meta.env` is statically replaced by Vite; it is undefined under
+// tsx/node, where this yields the defaults.
 const env = import.meta.env as Record<string, string | undefined> | undefined;
 
 function envString(value: unknown, fallback: string): string {
@@ -51,20 +47,29 @@ function envString(value: unknown, fallback: string): string {
     : fallback;
 }
 
+// Simpl API gateway base URL. VITE_SIMPL_API_BASE_URL is preferred; we fall back
+// to the existing VITE_SIMPL_API_URL used by the market-data/swap services, then
+// to the public default. No trailing slash.
+export const SIMPL_API_BASE_URL = envString(
+  env?.VITE_SIMPL_API_BASE_URL ?? env?.VITE_SIMPL_API_URL,
+  "https://api.getsimpl.io",
+).replace(/\/$/, "");
+
+// All TON provider traffic is proxied under this base by the getsimpl-api
+// Worker. The Worker holds the tonapi/toncenter secrets; nothing sensitive is
+// inlined here.
+export const TON_API_BASE_URL = `${SIMPL_API_BASE_URL}/v1/ton`;
+
 export const TON_MAINNET: TonChainConfig = {
   id: "ton-mainnet",
   family: "ton",
   chainId: TON_MAINNET_CHAIN_ID,
+  // `name` is the NETWORK name (chainName) and stays "TON". `symbol` is the
+  // native ASSET symbol, rebranded Toncoin → Gram (GRAM).
   name: "TON",
-  symbol: "TON",
+  symbol: "GRAM",
   decimals: 9,
-  apiBaseUrl: envString(
-    env?.VITE_TON_MAINNET_API_URL,
-    "https://toncenter.com/api/v2",
-  ),
-  apiKey: envString(env?.VITE_TON_API_KEY, ""),
-  tonapiBaseUrl: envString(env?.VITE_TONAPI_URL, "https://tonapi.io"),
-  tonapiKey: envString(env?.VITE_TONAPI_KEY, ""),
+  apiBaseUrl: TON_API_BASE_URL,
   explorerUrl: "https://tonviewer.com",
   isTestnet: false,
 };
@@ -90,6 +95,13 @@ export function getRequiredTonConfigByChainId(chainId: number): TonChainConfig {
   }
 
   return config;
+}
+
+// Build a TON proxy endpoint URL off the config's Simpl API base. Centralizes
+// the trailing-slash trim so every caller hits a consistent origin.
+export function tonApiUrl(config: TonChainConfig, path: string): string {
+  const base = config.apiBaseUrl.replace(/\/$/, "");
+  return path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
 }
 
 // Tonviewer address page. Tonviewer accepts the user-friendly address verbatim.

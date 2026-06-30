@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { TransactionHistoryItem } from "../../core/transactions/transaction-history.service";
 import "./TransactionDetailsPage.css";
+import { applyTonNativeRename } from "../../chains/ton/ton.tokens";
 import { t, useTranslation } from "../../i18n";
 
 type TransactionDetailsPageProps = {
@@ -275,11 +276,15 @@ function StatusBadge({ status }: { status: string }) {
 // ── Main page ───────────────────────────────────────────────────────
 
 export function TransactionDetailsPage({
-  item,
+  item: rawItem,
   onBack,
 }: TransactionDetailsPageProps) {
   const { t } = useTranslation();
   const [copiedHash, setCopiedHash] = useState(false);
+
+  // Render a legacy native TON row (assetSymbol "TON" / assetName "Toncoin")
+  // under the current Gram naming. No-op for everything else.
+  const item = rawItem ? applyTonNativeRename(rawItem) : rawItem;
 
   async function copyHash() {
     if (!item?.hash) return;

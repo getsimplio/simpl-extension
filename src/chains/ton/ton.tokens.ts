@@ -1,7 +1,7 @@
 // src/chains/ton/ton.tokens.ts
 //
-// TON token registry: the native Toncoin plus a curated allowlist of TRUSTED
-// Jettons (TON's fungible-token standard). Trust is keyed on the Jetton MASTER
+// TON token registry: the native asset (Gram) plus a curated allowlist of
+// TRUSTED Jettons (TON's fungible-token standard). Trust is keyed on the MASTER
 // CONTRACT ADDRESS — never on symbol/name, which any spam jetton can spoof
 // ("USD₮", "Tether", etc.). For a trusted jetton we always use OUR canonical
 // metadata (symbol/name/decimals), not whatever the on-chain/API metadata says.
@@ -12,6 +12,13 @@
 // send-ready: a master address + decimals is all a future transfer needs).
 
 import { Address } from "@ton/core";
+import { TON_MAINNET_CHAIN_ID } from "../../core/networks/chain-registry";
+
+// The native asset of the TON network after the Toncoin → Gram rebrand. The
+// NETWORK is still "TON" (see chain-registry); only this user-facing asset
+// name/symbol changed. Single source of truth for the rename + legacy mapping.
+export const TON_NATIVE_SYMBOL = "GRAM";
+export const TON_NATIVE_NAME = "Gram";
 
 export type TonTokenType = "native" | "jetton";
 
@@ -26,11 +33,49 @@ export type TonToken = {
 
 export const TON_NATIVE_TOKEN: TonToken = {
   type: "native",
-  symbol: "TON",
-  name: "Toncoin",
+  symbol: TON_NATIVE_SYMBOL,
+  name: TON_NATIVE_NAME,
   decimals: 9,
   masterAddress: null,
 };
+
+// --- Legacy display compatibility (Toncoin/TON → Gram/GRAM) ---------------
+//
+// Live balances re-derive from this registry, so they already read "Gram"/
+// "GRAM". The only place pre-rebrand values can persist is recorded transaction
+// history (a native send stored assetSymbol "TON" / assetName "Toncoin"). These
+// helpers render such legacy values under the new name so history stays
+// consistent — without rewriting stored data.
+
+export function displayTonNativeSymbol(symbol: string): string {
+  return symbol === "TON" || symbol === "GRAM" ? TON_NATIVE_SYMBOL : symbol;
+}
+
+export function displayTonNativeName(name: string): string {
+  return name === "Toncoin" || name === "Gram" ? TON_NATIVE_NAME : name;
+}
+
+// Map a native TON-chain record's asset symbol/name to the current Gram naming.
+// No-op for non-TON chains, TON Jettons, and already-renamed records. Generic so
+// it works on any record carrying these fields (e.g. a transaction-history row)
+// without coupling this module to that type.
+export function applyTonNativeRename<
+  T extends {
+    chainId: number;
+    assetType: string;
+    assetSymbol: string;
+    assetName: string;
+  },
+>(item: T): T {
+  if (item.chainId !== TON_MAINNET_CHAIN_ID || item.assetType !== "native") {
+    return item;
+  }
+  return {
+    ...item,
+    assetSymbol: displayTonNativeSymbol(item.assetSymbol),
+    assetName: displayTonNativeName(item.assetName),
+  };
+}
 
 // A curated, trusted Jetton. `master` is the canonical user-friendly master
 // address (used for display, price identity and explorer links). `coinGeckoId`
@@ -46,8 +91,9 @@ export type TrustedJetton = {
 };
 
 // Initial trusted Jettons for the read-only MVP: USDT, NOT, DOGS. Master
-// addresses + decimals verified against tonapi (`/v2/jettons/{master}`); all
-// three are tonapi-whitelisted. Append new trusted jettons here.
+// addresses + decimals are canonical, verified against the on-chain jetton
+// metadata. The Simpl API proxy additionally trust-filters server-side; this
+// allowlist is the client-side source of truth. Append new trusted jettons here.
 export const TRUSTED_JETTONS: TrustedJetton[] = [
   {
     symbol: "USDT",

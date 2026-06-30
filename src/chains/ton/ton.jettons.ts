@@ -1,59 +1,57 @@
 // src/chains/ton/ton.jettons.ts
 //
-// Read-only Jetton (TON fungible token) balance discovery via the tonapi HTTP
-// API: GET /v2/accounts/{address}/jettons returns every jetton the account
-// holds, each with metadata, a verification flag and a USD spot price, in one
-// call. We discover all holdings but surface ONLY trusted jettons (see
-// ton.tokens.ts TRUSTED_JETTONS) so spam/unknown jettons never pollute the
-// portfolio. Trusted jettons use OUR canonical metadata (anti-spoof); only the
-// raw balance and live USD price are taken from the API.
+// Read-only Jetton (TON fungible token) balance discovery via the Simpl API TON
+// proxy: GET /v1/ton/jettons?address=<address>. The Worker fronts the upstream
+// provider server-side (no provider key in this bundle) and already returns a
+// normalized, trust-filtered set of jetton balances.
+//
+// Defense in depth: even though the proxy filters to trusted jettons, we STILL
+// re-check every entry against our local TRUSTED_JETTONS allowlist by master
+// address and render OUR canonical metadata (symbol/name/decimals) — never the
+// API's — so a compromised/changed upstream can't slip a spoofed jetton into the
+// portfolio. Only the raw balance and live USD price are taken from the proxy.
 //
 // This module is balance-read only — it never signs or sends.
 
-import type { TonChainConfig } from "./ton.config";
+import { tonApiUrl, type TonChainConfig } from "./ton.config";
 import { isValidTonAddress } from "./ton.address";
 import { formatTonTokenAmount } from "./ton.format";
 import { normalizeTonError, tonErrorFor } from "./ton.errors";
 import { resolveTrustedJetton } from "./ton.tokens";
 import type { TonJettonBalance } from "./ton.types";
 
-// tonapi /v2/accounts/{address}/jettons response (only the fields we read).
-type TonapiJettonMeta = {
+// Simpl API `/jettons` response (only the fields we read). The Worker normalizes
+// provider shapes into a flat list; we accept a couple of field aliases to stay
+// resilient to minor proxy shape differences.
+type ProxyJetton = {
+  // Jetton master contract address (any encoding).
+  master?: string;
   address?: string;
-  symbol?: string;
-  decimals?: number;
-};
-
-type TonapiJettonPrice = {
-  prices?: { USD?: number };
-};
-
-type TonapiJettonBalance = {
+  // Raw balance in the jetton's base units, as a decimal string.
   balance?: string;
-  jetton?: TonapiJettonMeta;
-  price?: TonapiJettonPrice;
+  rawBalance?: string;
+  // Live USD spot price for the jetton, when available.
+  usdPrice?: number;
+  price?: number;
 };
 
-type TonapiJettonsResponse = {
-  balances?: TonapiJettonBalance[];
+type ProxyJettonsResponse = {
+  jettons?: ProxyJetton[];
+  balances?: ProxyJetton[];
 };
 
 async function fetchAccountJettons(
   address: string,
   config: TonChainConfig,
-): Promise<TonapiJettonBalance[]> {
-  const url = `${config.tonapiBaseUrl.replace(/\/$/, "")}/v2/accounts/${encodeURIComponent(
-    address,
-  )}/jettons?currencies=usd`;
-
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (config.tonapiKey) {
-    headers.Authorization = `Bearer ${config.tonapiKey}`;
-  }
+): Promise<ProxyJetton[]> {
+  const url = tonApiUrl(
+    config,
+    `/jettons?address=${encodeURIComponent(address)}`,
+  );
 
   let response: Response;
   try {
-    response = await fetch(url, { headers });
+    response = await fetch(url, { headers: { Accept: "application/json" } });
   } catch (error) {
     throw normalizeTonError(error, "TON_PROVIDER_UNAVAILABLE");
   }
@@ -67,20 +65,20 @@ async function fetchAccountJettons(
     );
   }
 
-  let payload: TonapiJettonsResponse;
+  let payload: ProxyJettonsResponse;
   try {
-    payload = (await response.json()) as TonapiJettonsResponse;
+    payload = (await response.json()) as ProxyJettonsResponse;
   } catch (error) {
     throw normalizeTonError(error, "TON_JETTON_FETCH_FAILED");
   }
 
-  return payload.balances ?? [];
+  return payload.jettons ?? payload.balances ?? [];
 }
 
-// Resolve the account's TRUSTED jetton balances (balance > 0). Non-trusted /
-// spam / unknown jettons are dropped. Trusted jettons use our canonical
-// metadata; balance + USD price come from the read API. Throws a coded TonError
-// on transport/API failure (the adapter swallows it and degrades to native).
+// Resolve the account's TRUSTED jetton balances (balance > 0). The proxy returns
+// trust-filtered jettons; we re-verify each against our allowlist (anti-spoof)
+// and use our canonical metadata. Throws a coded TonError on transport/API
+// failure (the adapter swallows it and degrades to native).
 export async function getTonJettonBalances(
   address: string,
   config: TonChainConfig,
@@ -93,22 +91,23 @@ export async function getTonJettonBalances(
   const out: TonJettonBalance[] = [];
 
   for (const entry of raw) {
-    const master = entry.jetton?.address;
+    const master = entry.master ?? entry.address;
     if (!master) continue;
 
-    // Trust is decided by master address only — never by API symbol/name.
+    // Trust is decided by master address only — never by API symbol/name, and
+    // never solely by the proxy having returned it.
     const trusted = resolveTrustedJetton(master);
     if (!trusted) continue;
 
     let rawBalance: bigint;
     try {
-      rawBalance = BigInt(entry.balance ?? "0");
+      rawBalance = BigInt(entry.rawBalance ?? entry.balance ?? "0");
     } catch {
       rawBalance = 0n;
     }
     if (rawBalance <= 0n) continue;
 
-    const usd = entry.price?.prices?.USD;
+    const usd = entry.usdPrice ?? entry.price;
     const usdPrice =
       typeof usd === "number" && Number.isFinite(usd) && usd > 0 ? usd : null;
 

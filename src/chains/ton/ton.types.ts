@@ -4,7 +4,8 @@
 // amounts are always integer base units (nanoton) as bigint; the UI only ever
 // sees formatted decimal strings.
 
-// A TON account's contract-deployment state, as reported by toncenter:
+// A TON account's contract-deployment state, as normalized by the Simpl API
+// TON proxy:
 // - "nonexist" → address has never been touched on-chain (no balance, no code)
 // - "uninit"   → address has a balance but the wallet contract isn't deployed
 //                yet (the first outgoing tx deploys it; receiving still works)
@@ -12,12 +13,14 @@
 // - "frozen"   → contract is frozen (storage debt); rare for wallets
 export type TonAccountState = "nonexist" | "uninit" | "active" | "frozen";
 
-// Native Toncoin balance for an address, in nanoton.
+// Native Gram (the TON network's native asset) balance for an address, in
+// nanoton. The unit "nanoton" is unchanged on-chain; only the user-facing
+// symbol was rebranded TON → GRAM.
 export type TonBalance = {
   raw: bigint;
   formatted: string;
   decimals: 9;
-  symbol: "TON";
+  symbol: "GRAM";
   // Contract-deployment state, so callers can distinguish "0 because empty"
   // from "uninitialised wallet" without a second request.
   state: TonAccountState;
