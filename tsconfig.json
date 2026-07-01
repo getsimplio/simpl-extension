@@ -21,6 +21,8 @@
       "@getsimpl/portfolio": ["../getsimpl-core/packages/portfolio/src/index.ts"],
       "@getsimpl/activity": ["../getsimpl-core/packages/activity/src/index.ts"],
       "@getsimpl/errors": ["../getsimpl-core/packages/errors/src/index.ts"],
+      "@getsimpl/swaps": ["../getsimpl-core/packages/swaps/src/index.ts"],
+      "@getsimpl/bridges": ["../getsimpl-core/packages/bridges/src/index.ts"],
       "@getsimpl/shared-types": ["../getsimpl-core/packages/shared-types/src/index.ts"]
     }
   },
