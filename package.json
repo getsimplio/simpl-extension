@@ -1,5 +1,5 @@
 {
-  "name": "simpl-wallet",
+  "name": "simpl-extension",
   "version": "0.1.0",
   "description": "simpl — a clean, self-custodial multi-chain crypto wallet browser extension (EVM, Solana, Bitcoin, TRON).",
   "type": "module",
