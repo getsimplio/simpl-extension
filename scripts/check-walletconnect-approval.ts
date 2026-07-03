@@ -187,6 +187,30 @@ check(
   "manifest: no nativeMessaging permission",
   !(manifest.permissions ?? []).includes("nativeMessaging"),
 );
+const hostPerms: string[] = manifest.host_permissions ?? [];
+check("manifest: host_permissions drops <all_urls>", !hostPerms.includes("<all_urls>"));
+check("manifest: host_permissions is a bounded allowlist", hostPerms.length > 0 && hostPerms.length < 40);
+for (const required of [
+  "https://api.getsimpl.io/*",
+  "https://api.trongrid.io/*",
+  "https://blockstream.info/*",
+  "https://api.mainnet-beta.solana.com/*",
+  "https://ethereum-rpc.publicnode.com/*",
+]) {
+  check(`manifest: host_permissions includes ${required}`, hostPerms.includes(required));
+}
+const contentMatches: string[] = (manifest.content_scripts ?? []).flatMap(
+  (cs: { matches?: string[] }) => cs.matches ?? [],
+);
+check(
+  "manifest: content_scripts no longer use <all_urls> (http/https only)",
+  contentMatches.length > 0 && !contentMatches.includes("<all_urls>"),
+);
+check(
+  "manifest: custom-host access is optional (not a default grant)",
+  Array.isArray(manifest.optional_host_permissions) &&
+    manifest.optional_host_permissions.length > 0,
+);
 
 const serviceWorkerSrc = readFileSync(
   resolve(root, "src/background/service-worker.ts"),
