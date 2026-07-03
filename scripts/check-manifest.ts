@@ -14,6 +14,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
+import { getAllowedHostPermissions } from "../src/core/network/endpoint-inventory";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
@@ -72,6 +74,23 @@ for (const dead of [
 ]) {
   check(`no dead host ${dead}`, !hostPerms.includes(dead));
 }
+
+// host_permissions must EXACTLY equal the endpoint inventory's derived set — the
+// registry (src/core/network/endpoint-inventory.ts) is the single source of truth.
+const expected = getAllowedHostPermissions();
+const actualSorted = [...hostPerms].sort();
+const missingFromManifest = expected.filter((h) => !hostPerms.includes(h));
+const extraInManifest = actualSorted.filter((h) => !expected.includes(h));
+check(
+  "host_permissions exactly matches the endpoint inventory",
+  missingFromManifest.length === 0 && extraInManifest.length === 0,
+  [
+    missingFromManifest.length ? `missing: ${missingFromManifest.join(", ")}` : "",
+    extraInManifest.length ? `unregistered: ${extraInManifest.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | "),
+);
 
 // ── optional_host_permissions ────────────────────────────────────────────────
 console.log("\noptional_host_permissions:");

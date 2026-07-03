@@ -23,6 +23,8 @@ const steps: Step[] = [
   { name: "WalletConnect approval model", cmd: "npm run --silent check:walletconnect" },
   { name: "Connected-site permission model", cmd: "npm run --silent check:permissions" },
   { name: "Backup / risk policy", cmd: "npm run --silent check:risk" },
+  { name: "Endpoint inventory", cmd: "npm run --silent check:endpoints" },
+  { name: "Proxy / provider secrets", cmd: "npm run --silent check:proxy" },
   { name: "Privacy / storage / logs", cmd: "npm run --silent check:privacy" },
   { name: "Manifest release validation", cmd: "npm run --silent check:manifest" },
   { name: "dApp permission regression", cmd: "npm run --silent check:dapp" },

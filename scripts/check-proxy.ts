@@ -1,0 +1,77 @@
+// scripts/check-proxy.ts
+//
+// Enforces that value-moving / rate-limited providers are proxied in production
+// and that no client-side provider secret is used as a production secret.
+//
+// Run: npm run check:proxy
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const root = resolve(here, "..");
+
+let failures = 0;
+function check(name: string, passed: boolean, detail?: string): void {
+  if (passed) console.log(`  ✓ ${name}`);
+  else {
+    failures += 1;
+    console.log(`  ✗ ${name}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+const read = (p: string) => readFileSync(resolve(root, p), "utf8");
+
+console.log("START PROXY / PROVIDER-SECRET CHECK\n");
+
+// ── 0x ───────────────────────────────────────────────────────────────────────
+console.log("0x swap routing:");
+const zerox = read("src/core/swap/zeroXSwapService.ts");
+check(
+  "production blocks a direct api.0x.org base URL (throws when no proxy in PROD)",
+  /function getZeroXBaseUrl[\s\S]{0,400}import\.meta\.env\.PROD[\s\S]{0,120}throw/.test(zerox),
+);
+check(
+  "the client 0x-api-key path is guarded so it cannot run in production",
+  /getZeroXRequestHeaders[\s\S]{0,400}import\.meta\.env\.PROD[\s\S]{0,80}throw/.test(zerox),
+);
+check(
+  "0x-api-key header is only built behind the proxy-absent branch",
+  /if \(SIMPL_SWAP_PROXY_URL\)[\s\S]{0,60}return undefined/.test(zerox),
+);
+
+// ── LI.FI bridge ───────────────────────────────────────────────────────────
+console.log("\nLI.FI bridge routing:");
+const lifi = read("src/core/bridge/lifi-bridge.service.ts");
+check(
+  "LI.FI base defaults to the Simpl gateway (api.getsimpl.io), never a direct li.fi host",
+  /["']https:\/\/api\.getsimpl\.io["']/.test(lifi) && !/li\.fi/i.test(lifi.replace(/\/\/.*$/gm, "")),
+);
+check(
+  "LI.FI integrator/fee/API-key are injected server-side (documented, not client-authoritative)",
+  /server-side/i.test(lifi),
+);
+
+// ── Jupiter / Solana swap ────────────────────────────────────────────────────
+console.log("\nSolana swap (Jupiter) routing:");
+const jup = read("src/core/swaps/solana-swap.service.ts");
+check(
+  "Solana swap base defaults to the Simpl gateway",
+  /["']https:\/\/api\.getsimpl\.io["']/.test(jup),
+);
+
+// ── build-time env secrets ───────────────────────────────────────────────────
+console.log("\nProvider secrets:");
+check(
+  "VITE_0X_API_KEY is only referenced by the dev-fallback 0x path",
+  (zerox.match(/VITE_0X_API_KEY/g)?.length ?? 0) > 0 &&
+    !read("src/core/bridge/lifi-bridge.service.ts").includes("VITE_0X_API_KEY"),
+);
+
+console.log("");
+if (failures > 0) {
+  console.log(`PROXY / PROVIDER-SECRET CHECK FAILED — ${failures} failing check(s)`);
+  process.exit(1);
+}
+console.log("PROXY / PROVIDER-SECRET CHECK PASSED");

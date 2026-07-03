@@ -118,12 +118,29 @@ See `docs/backup-and-recovery.md`. Summary:
   password; the no-account locked screen offers "Open wallet"; closing an
   approval window safely rejects the pending request; unlock never auto-approves.
 
+### Endpoint inventory, RPC & proxy hardening (Stage 5)
+
+See `docs/endpoint-inventory.md` + `docs/custom-rpc-security.md`. Summary:
+
+- `src/core/network/endpoint-inventory.ts` is the single source of truth for
+  every remote host + its policy (category, proxy requirement, data class).
+  `host_permissions` is derived from it and `check:manifest` fails if they diverge.
+- Production routes 0x swaps through the Simpl proxy: `getZeroXBaseUrl()` throws
+  in a production build if the proxy is unconfigured, so it never calls
+  `api.0x.org` directly nor uses the client-side `VITE_0X_API_KEY` as a
+  production secret. LI.FI + Jupiter already default to the getsimpl gateway.
+- `check:endpoints` fails the gate if any src references an external host not in
+  the inventory (or the documented link/`<img>` allowlist).
+- Custom-RPC validators (`validateCustomRpcUrl`) enforce https-only (http dev
+  only), block private/internal IP ranges, and reject malformed URLs. No
+  add-network UI ships yet; the flow is specified for when it does.
+
 ### Automated release gate — `npm run check:release`
 
 Runs: `typecheck` · `check:i18n` · `check:walletconnect` · `check:permissions` ·
-`check:risk` · `check:privacy` · `check:manifest` · `check:dapp` ·
-`check:security` · production `build`. Each sub-check fails the gate (exit 1) on
-regression:
+`check:risk` · `check:endpoints` · `check:proxy` · `check:privacy` ·
+`check:manifest` · `check:dapp` · `check:security` · production `build`. Each
+sub-check fails the gate (exit 1) on regression:
 
 | Check | Guards against |
 | --- | --- |
@@ -131,7 +148,9 @@ regression:
 | `check:permissions` | v1→v2 migration granting broad access; broken scope predicates / grant / revoke / expiry; uncapped audit log |
 | `check:risk` | backup status misclassification (fresh vs migrated); risk policy letting watch-only sign, unverified mnemonic send, or locked/unsupported-chain actions through |
 | `check:privacy` | raw WC proposal/request payload storage keys; `*_DEBUG = true`; secrets in `console.*` |
-| `check:manifest` | `<all_urls>` in `host_permissions`; missing/dead hosts; `nativeMessaging` without a host; missing permission/endpoint docs |
+| `check:manifest` | `<all_urls>` in `host_permissions`; missing/dead hosts; `host_permissions` diverging from the endpoint inventory; `nativeMessaging` without a host; missing permission/endpoint docs |
+| `check:endpoints` | an external host referenced in src that is not registered in the endpoint inventory; custom-RPC validator regressions |
+| `check:proxy` | production 0x calling `api.0x.org` directly / using a client-side key; LI.FI or Jupiter not defaulting to the Simpl gateway |
 | `check:dapp` | `simpl_switchAccount`/`simpl_switchChain` bypassing approval; sensitive methods without an active-permission guard; missing account/chain/method scoping; revoke not removing access |
 
 ## ⚠️ Git history note (important)

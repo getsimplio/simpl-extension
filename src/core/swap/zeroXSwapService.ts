@@ -8,13 +8,34 @@ const SIMPL_SWAP_PROXY_URL = (import.meta.env.VITE_SIMPL_SWAP_PROXY_URL ?? "")
   .trim()
   .replace(/\/+$/u, "");
 
+// Production MUST route 0x through the Simpl swap proxy (server-side API key,
+// no client secret, no direct provider call). Only a development build may fall
+// back to calling api.0x.org directly with a client-side key. This blocks the
+// insecure path if a production build is ever made without the proxy configured,
+// without changing the working (proxy-configured) flow. See
+// src/core/network/endpoint-inventory.ts (zerox: mustUseProxy).
 function getZeroXBaseUrl(): string {
-  return SIMPL_SWAP_PROXY_URL || ZERO_X_BASE_URL;
+  if (SIMPL_SWAP_PROXY_URL) {
+    return SIMPL_SWAP_PROXY_URL;
+  }
+  if (import.meta.env.PROD) {
+    throw new Error(
+      "Swaps are unavailable: the Simpl swap proxy is not configured for this build.",
+    );
+  }
+  // Dev-only direct fallback.
+  return ZERO_X_BASE_URL;
 }
 
 function getZeroXRequestHeaders(): Record<string, string> | undefined {
   if (SIMPL_SWAP_PROXY_URL) {
     return undefined;
+  }
+
+  // Reached only in development (production throws in getZeroXBaseUrl above).
+  // The client-side 0x key is a DEV convenience, never a production secret.
+  if (import.meta.env.PROD) {
+    throw new Error("Swap proxy is required in production.");
   }
 
   return {
