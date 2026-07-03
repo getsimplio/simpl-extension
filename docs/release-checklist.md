@@ -18,6 +18,8 @@ Runs, fail-fast, in order:
 | WalletConnect approval | `npm run check:walletconnect` | Explicit-approval model (no auto-approve, no connect-before-approve, allowlist, approve/reject clear pending, WC sessions stored/guarded as scoped permissions) |
 | Permission model | `npm run check:permissions` | v1→v2 migration safety, scope predicates, grant/revoke/expiry, audit-log cap |
 | Backup / risk policy | `npm run check:risk` | backup-status classification + risk-policy (watch-only, locked, unsupported chain, unverified-mnemonic) |
+| Endpoint inventory | `npm run check:endpoints` | unregistered external endpoint in src; custom-RPC validators |
+| Proxy / provider secrets | `npm run check:proxy` | production 0x direct/client-key; LI.FI/Jupiter proxy routing |
 | Privacy | `npm run check:privacy` | No raw WC payload storage, no hard-enabled debug flags, no secret logging |
 | Manifest | `npm run check:manifest` | No `<all_urls>` host_permissions, no unshipped `nativeMessaging`, docs present |
 | dApp permissions | `npm run check:dapp` | `simpl_switchAccount`/`switchChain` approval-gated; sensitive methods guarded; revoke works |
@@ -84,6 +86,16 @@ Load the unpacked production build from `dist/` in `chrome://extensions`.
 - [ ] Token logos render (Trust Wallet / 1inch / IPFS)
 - [ ] A Solana token whose metadata is on an arbitrary https host → no crash
       (logo/name enrichment may be skipped — see `docs/endpoint-inventory.md`)
+
+### Network / endpoints / proxy (Stage 5)
+- [ ] dApp connect works on a normal site → provider injects (content_scripts `<all_urls>`/http-https)
+- [ ] Extension does NOT request `<all_urls>` in host_permissions (CWS review)
+- [ ] Swap quote loads via the production Simpl proxy (network tab shows `api.getsimpl.io`, not `api.0x.org`)
+- [ ] Bridge quote loads via the proxy; Solana swap via the proxy
+- [ ] Price + balance loading works (EVM / Solana / TRON / Bitcoin history)
+- [ ] WalletConnect connect works
+- [ ] (When an add-RPC UI exists) add custom RPC → risk panel + permission prompt;
+      deny → not saved; remove → reverts to default RPC; http/private hosts rejected
 
 ### Privacy / permissions (production build)
 - [ ] `chrome://extensions` shows only the host allowlist — **no "all sites"**

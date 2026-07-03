@@ -1,10 +1,31 @@
 # Endpoint Inventory — simpl wallet
 
 Every remote host the extension contacts, why, and how it maps to
-`host_permissions` in `public/manifest.json`. Used as the source of truth for the
-Chrome Web Store data-use disclosure and for `scripts/check-manifest.ts`.
+`host_permissions` in `public/manifest.json`.
 
-Last reviewed against code: `feat/wc-explicit-approval-security`.
+**Source of truth (code):** `src/core/network/endpoint-inventory.ts`. That
+registry drives `host_permissions` (`getAllowedHostPermissions()`), the endpoint
+scanner (`npm run check:endpoints`), the proxy policy (`npm run check:proxy`), and
+the manifest equality check (`npm run check:manifest` fails if `host_permissions`
+diverges from the registry). This doc is the human-readable mirror.
+
+Last reviewed against code: `feat/endpoint-inventory-rpc-hardening`.
+
+## Data sent per category
+
+| Category | Address data | Raw tx | Via Simpl proxy | Notes |
+| --- | --- | --- | --- | --- |
+| `simpl-api` (api.getsimpl.io) | yes (balance/portfolio) | no | first-party | upstream keys server-side |
+| `swap-api` (0x) | yes (taker) | no | **required in production** | dev-only direct fallback |
+| `bridge-api` (LI.FI) | yes | no | first-party (getsimpl) | integrator/fee/key server-side |
+| `evm-rpc` / `solana-rpc` / `tron-rpc` | yes | yes (broadcast) | no (public RPC) | — |
+| `bitcoin-api` (Esplora) | yes (queries) | yes | no | — |
+| `walletconnect` | no | no | no | pairing metadata only |
+| `token-metadata` (IPFS/Arweave) | no | no | no | public metadata JSON |
+
+Seeds, private keys, signatures and raw-tx payloads are **never** sent to any
+non-RPC endpoint and never logged. RPC endpoints receive only what a blockchain
+node inherently needs (address, signed/raw tx for broadcast).
 
 ## Fetched hosts (require `host_permissions`)
 
@@ -24,7 +45,7 @@ they are declared explicitly. `host_permissions` no longer uses `<all_urls>`.
 | `api.trongrid.io` | TRON JSON-RPC / TronGrid API | chain-registry, TRON adapter |
 | `blockstream.info` | Bitcoin Esplora API (mainnet `/api`, testnet `/testnet/api`) | chain-registry, BTC adapter |
 | `api.getsimpl.io` | **Primary gateway** — prices/charts, TON RPC (`/v1/ton`), Solana portfolio, LI.FI bridge proxy, swap proxy, provider health | `core/prices/*`, `core/bridge/lifi-bridge.service.ts`, `core/swaps/*`, `core/ton/*`, `chains/solana/solana.portfolio-api.ts`, `core/api/provider-health.service.ts` |
-| `api.0x.org` | 0x swap API — used only as a fallback when `VITE_SIMPL_SWAP_PROXY_URL` is unset | `core/swap/zeroXSwapService.ts` |
+| `api.0x.org` | 0x swap API — **production must use the Simpl swap proxy**; direct calls (with a client-side `0x-api-key`) are a DEV-only fallback and `getZeroXBaseUrl()` throws in a production build if the proxy is unset | `core/swap/zeroXSwapService.ts` |
 | `*.walletconnect.com`, `*.walletconnect.org` | WalletConnect verify / explorer / relay-discovery over HTTPS (relay itself is WSS, governed by CSP) | `@reown/walletkit` + `@walletconnect/core` in `background/walletconnect-offscreen.ts` |
 | `arweave.net`, `ipfs.io`, `cloudflare-ipfs.com`, `dweb.link`, `gateway.pinata.cloud` | Solana off-chain token/NFT **metadata JSON** gateways | `chains/solana/solana.tokens.ts` |
 

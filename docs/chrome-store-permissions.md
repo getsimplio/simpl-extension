@@ -53,8 +53,10 @@ separate mechanism from `host_permissions`, which govern the extension's own
 ## `host_permissions`
 
 `<all_urls>` has been **removed**. `host_permissions` is now an explicit
-allowlist of exactly the hosts the extension `fetch`es from. The authoritative
-list with per-host justification is **`docs/endpoint-inventory.md`**; summary:
+allowlist **generated from and verified against** the endpoint inventory
+(`src/core/network/endpoint-inventory.ts` → `getAllowedHostPermissions()`);
+`npm run check:manifest` fails if the manifest and the registry diverge. The
+authoritative per-host justification is **`docs/endpoint-inventory.md`**; summary:
 
 ```
 https://ethereum-rpc.publicnode.com/*          (EVM RPC)
