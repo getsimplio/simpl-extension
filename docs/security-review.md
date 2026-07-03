@@ -51,7 +51,9 @@ for secrets, sensitive logging, remote code, and unsafe DOM/clipboard usage.
   etc.).
 - **Approval flow:** every dApp connection and signature opens a dedicated
   approval window (`chrome.windows.create` for `dappApproval` /
-  WalletConnect approval) — no auto-signing.
+  WalletConnect approval) — no auto-signing. WalletConnect **session proposals**
+  are also explicit-approval as of `feat/wc-explicit-approval-security` (see the
+  dedicated section below); they were previously auto-approved.
 
 ### OPEN — manual decision required (not changed automatically)
 
@@ -59,10 +61,41 @@ for secrets, sensitive logging, remote code, and unsafe DOM/clipboard usage.
 | --- | --- | --- | --- |
 | A | **High (action)** | Rotate any key/wallet linked to the hex string previously in `readme.md`. | Cannot be done from the repo; the string is also in **git history** (see below). |
 | B | Medium | Real `VITE_WALLETCONNECT_PROJECT_ID` value sits in the local (gitignored) `.env.local`. WC project ids are low-sensitivity (they ship in client bundles) but consider rotating before public launch. | Owner decision. |
-| C | Medium | `<all_urls>` in `host_permissions` is load-bearing today. Narrowing it (explicit host list + `optional_host_permissions`) needs a full endpoint inventory + QA. | Risk of silently breaking Solana/Bitcoin/market/bridge. See `docs/chrome-store-permissions.md`. |
-| D | Medium | `nativeMessaging` only works with a separately installed macOS native host. Decide: keep + document, gate behind a flag, or drop for the store build. | Product decision. |
+| C | ~~Medium~~ **RESOLVED** | ~~`<all_urls>` in `host_permissions` is load-bearing~~ | **Fixed in `feat/wc-explicit-approval-security`:** `<all_urls>` removed; replaced with an explicit host allowlist + `optional_host_permissions`. Full inventory in `docs/endpoint-inventory.md`; enforced by `scripts/check-manifest.ts`. |
+| D | ~~Medium~~ **RESOLVED** | ~~`nativeMessaging` needs a macOS native host~~ | **Fixed:** `nativeMessaging` removed (no native host is shipped; no code uses it). Enforced by `scripts/check-manifest.ts`. |
 | E | Low | Confirm `dangerouslySetInnerHTML` usage (if any) renders only trusted/sanitized content. | Quick manual grep before publish — see command in checklist. |
 | F | Low | Confirm watch-only accounts cannot reach the signing path. | Existing behavior; re-verify with a watch-only account during QA. |
+
+## WalletConnect explicit approval + release gate (`feat/wc-explicit-approval-security`)
+
+P0 fix + hardening, with automated regression coverage:
+
+- **WalletConnect explicit approval:** session proposals are no longer
+  auto-approved. The offscreen engine validates required chains/methods,
+  persists a **sanitized** pending proposal (no raw payload), and opens the
+  approval window; a session + connected site are created only after an explicit
+  user Approve. Reject / window-close / expiry create nothing.
+- **Method allowlist:** advertised EVM methods reduced to those with a handler +
+  approval UX (`eth_sign`, `eth_signTypedData(_v3)`, `wallet_addEthereumChain`,
+  EIP-5792 calls excluded).
+- **Privacy:** all raw/debug WalletConnect storage writes removed; balance
+  diagnostics gated to dev builds.
+- **dApp:** `simpl_switchAccount` / `simpl_switchChain` can no longer change
+  wallet-global state silently — both route through the approval popup.
+- **Manifest:** `<all_urls>` and `nativeMessaging` removed (items C/D above).
+
+### Automated release gate — `npm run check:release`
+
+Runs: `typecheck` · `check:i18n` · `check:walletconnect` · `check:privacy` ·
+`check:manifest` · `check:dapp` · `check:security` · production `build`. Each
+sub-check fails the gate (exit 1) on regression:
+
+| Check | Guards against |
+| --- | --- |
+| `check:walletconnect` | WC auto-approve; connectedSites written before approve; unsupported required method/chain; unfiltered optional methods; approve/reject not clearing pending |
+| `check:privacy` | raw WC proposal/request payload storage keys; `*_DEBUG = true`; secrets in `console.*` |
+| `check:manifest` | `<all_urls>` in `host_permissions`; missing/dead hosts; `nativeMessaging` without a host; missing permission/endpoint docs |
+| `check:dapp` | `simpl_switchAccount`/`simpl_switchChain` bypassing approval; sensitive methods without a connection guard; revoke not removing access |
 
 ## ⚠️ Git history note (important)
 
@@ -82,7 +115,8 @@ choose to). Treat the leaked hex string as compromised regardless.
 
 - [ ] History cleaned or repo re-initialized (see above)
 - [ ] Leaked key rotated / wallet abandoned
-- [ ] `<all_urls>` decision recorded
-- [ ] `nativeMessaging` decision recorded
+- [x] `<all_urls>` removed from `host_permissions` (explicit allowlist + optional) — item C
+- [x] `nativeMessaging` removed — item D
 - [ ] WalletConnect project id reviewed
+- [ ] `npm run check:release` passes
 - [ ] Fresh `npm ci && npm run build` produces a clean `dist/`
