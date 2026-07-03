@@ -96,7 +96,39 @@ usage; enforce the LI.FI integrator/fee server-side (client params may be
 stripped) — these are backend-authoritative and must not be client-side
 partial-fixed.
 
+## Consuming getsimpl-api v2 (`?format=v2`)
+
+`src/core/trade/quote-response.ts` is the single normalizer for trade responses.
+`parseTradeApiResponse(payload, {kind, provider})` returns one `SimplTradeQuote`
+(fees, approval, route, tx, expiry, warnings) from whichever shape the gateway
+returns:
+
+1. **v2 envelope** — `{version: 2, quote}` (or `data`); envelope-level warnings
+   merge into the quote (`mergeWarnings`, de-dup by code).
+2. **direct normalized quote** — the v2 shape returned without the envelope.
+3. **legacy raw provider shape** — `adaptLegacyZeroX` / `adaptLegacyLifi`. This
+   is a **required fallback**: getsimpl-api v2 is **not yet deployed to
+   production**, so `?format=v2` is currently ignored by the backend and the old
+   shape is returned. The extension must keep working on both. Legacy-marker
+   fields (`buyAmount`/`transaction` for 0x, `feeCostBaseUnits`/`txRequest` for
+   LI.FI) are checked *before* the normalized heuristic because they are disjoint
+   from the v2 field names, so a real v2 quote is never mis-adapted.
+
+Unknown shapes raise `TradeQuoteParseError` (never silently mis-parsed; raw
+provider errors are never surfaced verbatim). Accessors: `toSimplSwapQuote`
+(zeroXSwapService) and `toSimplBridgeQuote` (lifi-bridge.service).
+
+Fees are **backend-authoritative**: the extension sends no fee params (see
+`docs/fee-enforcement-matrix.md` → "Backend-authoritative migration") and only
+displays what the gateway returns; a missing fee is "unavailable", never 0.
+
+**Follow-up (separate PR):** remove the legacy adapters once v2 is the only
+production shape, and add `normalizeJupiterQuote` for the Solana swap path.
+
 ## Enforced by
 
-`scripts/check-trade.ts` (`npm run check:trade`) + `check:proxy` (fee matrix) —
-part of `npm run check:release`.
+`scripts/check-trade.ts` (`npm run check:trade`) — quote model, fee matrix,
+slippage/preflight/errors, **and the v2 parser smoke** (envelope, direct,
+legacy 0x/LI.FI adapters, unknown→error, warning de-dup, confirmability) — plus
+`check:proxy` (asserts 0x strips fee params + sends `format=v2`; LI.FI sends no
+`integrator`/`fee` and requests `format=v2`). Both part of `npm run check:release`.

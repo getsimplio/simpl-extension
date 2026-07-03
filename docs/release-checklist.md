@@ -19,8 +19,8 @@ Runs, fail-fast, in order:
 | Permission model | `npm run check:permissions` | v1→v2 migration safety, scope predicates, grant/revoke/expiry, audit-log cap |
 | Backup / risk policy | `npm run check:risk` | backup-status classification + risk-policy (watch-only, locked, unsupported chain, unverified-mnemonic) |
 | Endpoint inventory | `npm run check:endpoints` | unregistered external endpoint in src; custom-RPC validators |
-| Proxy / provider secrets | `npm run check:proxy` | production 0x direct/client-key; LI.FI/Jupiter proxy routing; fee matrix |
-| Swap/bridge reliability | `npm run check:trade` | quote model, fee matrix, slippage/price-impact, preflight, error taxonomy |
+| Proxy / provider secrets | `npm run check:proxy` | production 0x direct/client-key; LI.FI/Jupiter proxy routing; fee matrix; 0x strips fee params + `?format=v2`; LI.FI sends no `integrator`/`fee` + `?format=v2` |
+| Swap/bridge reliability | `npm run check:trade` | quote model, fee matrix, slippage/price-impact, preflight, error taxonomy, **v2 quote parser** (envelope/direct/legacy adapters, `?format=v2`) |
 | UI primitives / chain labels | `npm run check:ui` | primitive variants; registry-backed, unknown-safe chain labels |
 | Asset budget | `npm run check:assets` | oversized images, junk artifacts, extension icons |
 | Bundle budget | `npm run check:bundle` | popup main chunk + runaway-chunk budgets (after build) |

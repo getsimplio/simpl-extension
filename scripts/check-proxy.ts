@@ -42,6 +42,20 @@ check(
   "0x-api-key header is only built behind the proxy-absent branch",
   /if \(SIMPL_SWAP_PROXY_URL\)[\s\S]{0,60}return undefined/.test(zerox),
 );
+check(
+  "0x strips any client fee-override params (backend-authoritative)",
+  /function stripClientFeeParams[\s\S]{0,240}delete\("swapFeeRecipient"\)[\s\S]{0,120}delete\("swapFeeBps"\)[\s\S]{0,120}delete\("swapFeeToken"\)/.test(
+    zerox,
+  ),
+);
+check(
+  "0x never sets a swapFee* param on the outgoing request",
+  !/searchParams\.set\(\s*["']swapFee/.test(zerox),
+);
+check(
+  "0x price + quote both opt into the v2 normalized response (format=v2)",
+  (zerox.match(/set\("format", "v2"\)/g)?.length ?? 0) >= 2,
+);
 
 // ── LI.FI bridge ───────────────────────────────────────────────────────────
 console.log("\nLI.FI bridge routing:");
@@ -53,6 +67,18 @@ check(
 check(
   "LI.FI integrator/fee/API-key are injected server-side (documented, not client-authoritative)",
   /server-side/i.test(lifi),
+);
+check(
+  "LI.FI quote request body never sends `integrator` or a client `fee`",
+  !/integrator\s*:/.test(lifi) && !/\bbody\.fee\s*=/.test(lifi),
+);
+check(
+  "LI.FI quote opts into the v2 normalized response (format=v2)",
+  /\/v1\/bridge\/lifi\/quote\?format=v2/.test(lifi),
+);
+check(
+  "LI.FI status polling also requests the v2 shape (format=v2)",
+  /set\("format", "v2"\)/.test(lifi),
 );
 
 // ── Jupiter / Solana swap ────────────────────────────────────────────────────

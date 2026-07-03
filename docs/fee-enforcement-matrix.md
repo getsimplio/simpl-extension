@@ -51,3 +51,38 @@ compliance — it is enforced by the provider or the Simpl backend.
   `VITE_LIFI_FEE` if the gateway whitelists/strips request fields).
 
 These are backend-authoritative concerns; the client must not partial-fix them.
+
+## Backend-authoritative migration (`?format=v2`)
+
+As of the `feat/consume-api-v2-quotes` change the extension no longer sends any
+fee-override params on a trade request. Concretely:
+
+- **0x** — `getZeroXSwapPrice` / `getZeroXSwapQuote` call `stripClientFeeParams()`
+  (deletes `swapFeeRecipient` / `swapFeeBps` / `swapFeeToken`) and append
+  `format=v2`. `GetZeroXSwapQuoteParams` no longer carries `swapFee*` fields and
+  `SwapPage` no longer passes them. The client-side `getSimpleSwapFeeBps()` and
+  `VITE_SIMPLE_SWAP_FEE_RECIPIENT` were removed.
+- **LI.FI** — the quote request body no longer includes `integrator` or `fee`;
+  the gateway injects both server-side. The quote and status calls append
+  `format=v2`. The `VITE_LIFI_FEE` / `VITE_LIFI_INTEGRATOR` client overrides were
+  removed.
+
+The row enforcement values in the matrix above are unchanged — they describe
+*where the fee is enforced* (0x still collects it; the gateway still injects the
+LI.FI/Jupiter fee). What changed is that the **client no longer supplies the fee
+figure at all** — it only *displays* the breakdown returned by getsimpl-api.
+
+### Response consumption + display
+
+`src/core/trade/quote-response.ts` (`parseTradeApiResponse`) normalizes any
+getsimpl-api trade response into one `SimplTradeQuote`. It accepts, in order: a
+v2 envelope (`{version: 2, quote}`), a direct normalized quote, or — as a
+**required temporary fallback while v2 is not yet deployed** — the legacy raw 0x
+/ LI.FI shape (`adaptLegacyZeroX` / `adaptLegacyLifi`). The legacy adapters carry
+no simpl fee, so `simplFee` is surfaced as **unavailable ("—"), never 0**. The
+swap fee row renders the API-returned fee (`price.fees.integratorFee`) and falls
+back to "—" until a quote loads or when the breakdown is absent.
+
+**Follow-up (separate PR):** remove the legacy adapters once `?format=v2` is the
+only shape returned in production, and add `normalizeJupiterQuote` for the
+Solana swap path (currently a TODO; Jupiter still uses its own accessor).

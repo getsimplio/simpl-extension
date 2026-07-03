@@ -1,5 +1,7 @@
 // src/core/swap/zeroXSwapService.ts
 
+import { parseTradeApiResponse, type SimplTradeQuote } from "../trade/quote-response";
+
 export const ZERO_X_NATIVE_TOKEN_ADDRESS =
   "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 
@@ -45,83 +47,16 @@ function getZeroXRequestHeaders(): Record<string, string> | undefined {
 }
 
 
-const SIMPLE_SWAP_FEE_RECIPIENT_PLACEHOLDER = "0xYOUR_FEE_WALLET_ADDRESS";
-
-function isNativeTokenAddress(address: string): boolean {
-  return address.toLowerCase() === ZERO_X_NATIVE_TOKEN_ADDRESS.toLowerCase();
-}
-
-function isEvmAddress(address: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(address);
-}
-
-function getSimpleSwapFeeRecipient(): string | null {
-  const recipient = import.meta.env.VITE_SIMPLE_SWAP_FEE_RECIPIENT;
-
-  if (!recipient || recipient === SIMPLE_SWAP_FEE_RECIPIENT_PLACEHOLDER) {
-    return null;
-  }
-
-  if (!isEvmAddress(recipient)) {
-    throw new Error("Invalid VITE_SIMPLE_SWAP_FEE_RECIPIENT address.");
-  }
-
-  return recipient;
-}
-
-export function getSimpleSwapFeeBps(): number {
-  const rawBps = import.meta.env.VITE_SIMPLE_SWAP_FEE_BPS;
-
-  if (!rawBps) {
-    return 0;
-  }
-
-  const bps = Number(rawBps);
-
-  if (!Number.isInteger(bps) || bps < 0 || bps > 1000) {
-    throw new Error("VITE_SIMPLE_SWAP_FEE_BPS must be an integer from 0 to 1000.");
-  }
-
-  return bps;
-}
-
-function getSimpleSwapFeeToken(params: {
-  sellToken: string;
-  buyToken: string;
-}): string {
-  // Prefer fee in buy token, but if buy token is native, use sell token.
-  // This keeps BNB -> USDT fee in USDT, and USDC -> BNB fee in USDC.
-  if (isNativeTokenAddress(params.buyToken)) {
-    return params.sellToken;
-  }
-
-  return params.buyToken;
-}
-
-function appendSimpleSwapFeeParams(
-  searchParams: URLSearchParams,
-  params: {
-    sellToken: string;
-    buyToken: string;
-  },
-): void {
-  const recipient = getSimpleSwapFeeRecipient();
-  const bps = getSimpleSwapFeeBps();
-
-  if (!recipient || bps <= 0) {
-    return;
-  }
-
-  if (SIMPL_SWAP_PROXY_URL) {
-    searchParams.delete("swapFeeRecipient");
-    searchParams.delete("swapFeeBps");
-    searchParams.delete("swapFeeToken");
-    return;
-  }
-
-  searchParams.set("swapFeeRecipient", recipient);
-  searchParams.set("swapFeeBps", String(bps));
-  searchParams.set("swapFeeToken", getSimpleSwapFeeToken(params));
+/**
+ * Production fees are backend-authoritative. The extension must display the fee
+ * breakdown returned by getsimpl-api and must NOT override fee bps or the fee
+ * recipient client-side. This strips any legacy fee-override params so they are
+ * never sent to 0x / the proxy; the gateway injects the fee server-side.
+ */
+function stripClientFeeParams(searchParams: URLSearchParams): void {
+  searchParams.delete("swapFeeRecipient");
+  searchParams.delete("swapFeeBps");
+  searchParams.delete("swapFeeToken");
 }
 
 
@@ -221,9 +156,9 @@ export type GetZeroXSwapPriceParams = {
 
 export type GetZeroXSwapQuoteParams = GetZeroXSwapPriceParams & {
   slippageBps?: number;
-  swapFeeRecipient?: string;
-  swapFeeBps?: number;
-  swapFeeToken?: string;
+  // NOTE: no swapFee* fields. Production fees are backend-authoritative — the
+  // gateway injects the fee server-side. Any legacy fee-override params are
+  // stripped by stripClientFeeParams before the request leaves the extension.
 };
 
 export class ZeroXSwapApiError extends Error {
@@ -311,10 +246,10 @@ export async function getZeroXSwapPrice(
     searchParams.set("sellAmount", params.sellAmount);
   }
 
-  appendSimpleSwapFeeParams(searchParams, {
-    sellToken: params.sellToken,
-    buyToken: params.buyToken,
-  });
+  stripClientFeeParams(searchParams);
+  // Opt into the getsimpl-api v2 normalized response (backend still defaults to
+  // the legacy shape until deployed; the parser handles both).
+  searchParams.set("format", "v2");
 
   const response = await fetch(
     `${getZeroXBaseUrl()}/swap/allowance-holder/price?${searchParams.toString()}`,
@@ -354,14 +289,13 @@ export async function getZeroXSwapQuote(
     searchParams.set("sellAmount", params.sellAmount);
   }
 
-  appendSimpleSwapFeeParams(searchParams, {
-    sellToken: params.sellToken,
-    buyToken: params.buyToken,
-  });
+  stripClientFeeParams(searchParams);
 
+  // Slippage is a user preference (tolerance), NOT a fee — safe to send.
   if (typeof params.slippageBps === "number") {
     searchParams.set("slippageBps", String(params.slippageBps));
   }
+  searchParams.set("format", "v2");
 
   const response = await fetch(
     `${getZeroXBaseUrl()}/swap/allowance-holder/quote?${searchParams.toString()}`,
@@ -400,6 +334,13 @@ export function getZeroXRouteLabel(price: ZeroXSwapPrice | null): string {
   }
 
   return sources.slice(0, 3).join(" / ");
+}
+
+// Normalize a 0x price/quote (or a getsimpl-api v2 envelope) into the shared
+// SimplTradeQuote. Handles the current legacy 0x shape today and the v2 shape
+// once getsimpl-api deploys it — the UI fee breakdown reads this.
+export function toSimplSwapQuote(payload: unknown): SimplTradeQuote {
+  return parseTradeApiResponse(payload, { kind: "swap", provider: "zeroex" });
 }
 
 export function getZeroXAllowanceSpender(

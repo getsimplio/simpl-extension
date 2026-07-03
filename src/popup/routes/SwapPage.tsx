@@ -7,7 +7,6 @@ import { isWatchOnly } from "../../core/accounts/account.types";
 import type { WalletState } from "../../core/storage/storage.types";
 import type { WalletAssetBalance } from "../../core/tokens/token-balance.service";
 import {
-  getSimpleSwapFeeBps,
   getZeroXAllowanceSpender,
   getZeroXRouteLabel,
   getZeroXSwapPrice,
@@ -276,7 +275,6 @@ const DEFAULT_SLIPPAGE_BPS = 50;
 const QUOTE_REFRESH_INTERVAL_S = 15;
 const MIN_SLIPPAGE_BPS = 1;
 const MAX_SLIPPAGE_BPS = 1000;
-const SIMPLE_SWAP_FEE_RECIPIENT = (import.meta.env.VITE_SIMPLE_SWAP_FEE_RECIPIENT ?? "").trim();
 
 function clampSlippageBps(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_SLIPPAGE_BPS;
@@ -315,9 +313,8 @@ type SwapPriceRequest = {
 
 type SwapQuoteRequest = SwapPriceRequest & {
   slippageBps?: number;
-  swapFeeRecipient?: string;
-  swapFeeBps?: number;
-  swapFeeToken?: string;
+  // No swapFee* fields: fees are backend-authoritative (injected server-side by
+  // getsimpl-api). The extension never sends a fee bps / recipient / token.
 };
 
 async function getSwapPriceWithFallback(
@@ -745,12 +742,6 @@ function getAmountLetterSpacing(text: string): string {
   return text.trim().length > 12 ? "-0.035em" : "-0.02em";
 }
 
-function formatBps(bps: number): string {
-  return (bps / 100).toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-  });
-}
-
 function formatRate(
   price: ZeroXSwapPrice | null,
   fromToken: SwapToken | null,
@@ -1115,7 +1106,6 @@ export function SwapPage({
   const [approvalTxHash, setApprovalTxHash] = useState<string | null>(null);
 
   const selectedChainId = walletState.selectedChainId;
-  const simpleSwapFeeBps = getSimpleSwapFeeBps();
 
   // Whenever the source network changes (header selector), default the
   // destination back to the source so we land on a same-chain swap.
@@ -2091,9 +2081,6 @@ export function SwapPage({
         ...amountFields,
         taker: selectedAccount.address,
         slippageBps,
-        swapFeeRecipient: SIMPLE_SWAP_FEE_RECIPIENT || undefined,
-        swapFeeBps: simpleSwapFeeBps,
-        swapFeeToken: fromToken.address,
       });
 
       setQuote(nextQuote);
@@ -2168,9 +2155,6 @@ export function SwapPage({
         ...refreshedAmountFields,
         taker: selectedAccount?.address ?? "",
         slippageBps,
-        swapFeeRecipient: SIMPLE_SWAP_FEE_RECIPIENT || undefined,
-        swapFeeBps: simpleSwapFeeBps,
-        swapFeeToken: fromToken.address,
       });
 
       setQuote(refreshedQuote);
@@ -2852,11 +2836,12 @@ if (selectedAccount && fromToken && toToken) {
             <div className="swap-quote-row">
               <span>{t("swap.simplFee")}</span>
               <strong>
+                {/* Backend-authoritative: display the fee the API returned, never
+                    a client-configured bps. "—" until the quote loads or when the
+                    breakdown is unavailable (never assumed 0). */}
                 {priceStatus === "ready"
-                  ? formatSimpleFeeAmount(price, fromToken, toToken)
-                  : simpleSwapFeeBps > 0
-                    ? `${formatBps(simpleSwapFeeBps)}%`
-                    : "—"}
+                  ? formatSimpleFeeAmount(price, fromToken, toToken) ?? "—"
+                  : "—"}
               </strong>
             </div>
             <div className="swap-quote-row">

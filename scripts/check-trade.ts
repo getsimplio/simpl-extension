@@ -27,6 +27,16 @@ import {
 import { runPreflight, type PreflightContext } from "../src/core/trade/preflight";
 import { classifyTradeError, normalizeTradeError } from "../src/core/trade/trade-errors";
 import { getTradeStatusInfo } from "../src/core/trade/trade-status";
+import {
+  parseTradeApiResponse,
+  adaptLegacyZeroX,
+  adaptLegacyLifi,
+  mergeWarnings,
+  isTradeQuoteExpired,
+  isTradeQuoteConfirmable,
+  TradeQuoteParseError,
+  type SimplTradeWarning,
+} from "../src/core/trade/quote-response";
 
 let failures = 0;
 function check(name: string, passed: boolean, detail?: string): void {
@@ -147,6 +157,89 @@ console.log("\nStatuses:");
 check("quote_expired can retry", getTradeStatusInfo("quote_expired").canRetry);
 check("transaction_confirmed is terminal", getTradeStatusInfo("transaction_confirmed").terminal);
 check("bridge_waiting_destination is non-terminal", !getTradeStatusInfo("bridge_waiting_destination").terminal);
+
+// ── getsimpl-api v2 quote parser (format=v2 migration) ───────────────────────
+console.log("\nv2 quote parser:");
+
+// A v2 envelope is normalized from its inner `quote`, and top-level warnings merge in.
+const v2 = parseTradeApiResponse(
+  {
+    version: 2,
+    quote: {
+      kind: "swap",
+      provider: "zeroex",
+      fromToken: { symbol: "USDC", amount: "1000000" },
+      toToken: { symbol: "WETH", estimatedAmount: "5", minAmount: "4" },
+      fees: { simplFeeBps: 50, providerFee: "10", networkFee: "20", totalFeeUsd: 1.5 },
+      expiresAt: NOW + 30_000,
+    },
+    warnings: [{ code: "SLIPPAGE_HIGH", level: "warning", message: "high" }],
+  },
+  { kind: "swap", provider: "zeroex" },
+);
+check("v2 envelope → normalized quote", v2.provider === "zeroex" && v2.toToken.estimatedAmount === "5");
+check("v2 fee breakdown preserved", v2.fees.simplFeeBps === 50 && v2.fees.totalFeeUsd === 1.5);
+check("v2 envelope-level warnings merge into quote", v2.warnings.some((w) => w.code === "SLIPPAGE_HIGH"));
+check("v2 quote NOT flagged legacy", v2.legacy !== true);
+
+// A directly-normalized quote (no envelope) parses too.
+const direct = parseTradeApiResponse(
+  { kind: "bridge", provider: "lifi", fromToken: { symbol: "USDC" }, toToken: { symbol: "USDC" }, fees: {} },
+  { kind: "bridge", provider: "lifi" },
+);
+check("direct normalized quote parses", direct.kind === "bridge" && direct.provider === "lifi");
+
+// Legacy raw 0x → adapter path; simplFee is UNAVAILABLE (never assumed 0).
+const legacyZx = parseTradeApiResponse(
+  {
+    sellToken: "0xUSDC",
+    buyToken: "0xWETH",
+    buyAmount: "5",
+    minBuyAmount: "4",
+    totalNetworkFee: "20",
+    fees: { integratorFee: { amount: "10", token: "0xUSDC", type: "volume" } },
+    issues: { allowance: { spender: "0xspender" } },
+    transaction: { to: "0x", data: "0x" },
+  },
+  { kind: "swap", provider: "zeroex" },
+);
+check("legacy 0x adapts via fallback", legacyZx.legacy === true && legacyZx.provider === "zeroex");
+check("legacy 0x maps buyAmount → estimatedAmount", legacyZx.toToken.estimatedAmount === "5");
+check("legacy 0x maps totalNetworkFee → networkFee", legacyZx.fees.networkFee === "20");
+check("legacy 0x maps integratorFee → providerFee", legacyZx.fees.providerFee === "10");
+check("legacy 0x simplFee is UNAVAILABLE (not 0)", legacyZx.fees.simplFeeBps === undefined && legacyZx.fees.simplFeeAmount === undefined);
+check("legacy 0x surfaces the approval spender", legacyZx.approval?.spender === "0xspender");
+check("adaptLegacyZeroX direct call agrees", adaptLegacyZeroX({ buyAmount: "5" }).toToken.estimatedAmount === "5");
+
+// Legacy raw LI.FI → adapter path.
+const legacyLifi = parseTradeApiResponse(
+  { fromChainId: 1, toChainId: 8453, fromToken: { symbol: "USDC" }, toToken: { symbol: "USDC" }, feeCostBaseUnits: "12", txRequest: { to: "0x" } },
+  { kind: "bridge", provider: "lifi" },
+);
+check("legacy LI.FI adapts via fallback", legacyLifi.legacy === true && legacyLifi.fees.providerFee === "12");
+check("adaptLegacyLifi direct call agrees", adaptLegacyLifi({ feeCostBaseUnits: "9" }).fees.providerFee === "9");
+
+// Unknown shapes fail loudly (never silently mis-parsed).
+let threw = false;
+try {
+  parseTradeApiResponse({ totally: "unknown" }, { kind: "swap", provider: "zeroex" });
+} catch (e) {
+  threw = e instanceof TradeQuoteParseError;
+}
+check("unknown shape throws TradeQuoteParseError", threw);
+
+// Warning de-dup (first wins).
+const a: SimplTradeWarning[] = [{ code: "X", level: "warning", message: "1" }];
+const b: SimplTradeWarning[] = [{ code: "X", level: "danger", message: "2" }, { code: "Y", level: "info", message: "3" }];
+const merged = mergeWarnings(a, b);
+check("mergeWarnings de-dupes by code, first wins", merged.length === 2 && merged[0].message === "1");
+
+// Confirmability mirrors the reliability layer.
+check("v2 fresh quote is confirmable", isTradeQuoteConfirmable(v2, NOW));
+check("expired v2 quote not confirmable", !isTradeQuoteConfirmable({ ...v2, expiresAt: NOW - 1 }, NOW));
+check("blocked-warning quote not confirmable",
+  !isTradeQuoteConfirmable({ ...v2, warnings: [{ code: "B", level: "blocked", message: "no" }] }, NOW));
+check("isTradeQuoteExpired agrees with expiry", isTradeQuoteExpired({ expiresAt: NOW - 1 }, NOW) && !isTradeQuoteExpired({ expiresAt: NOW + 1 }, NOW));
 
 console.log("");
 if (failures > 0) {

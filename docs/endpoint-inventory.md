@@ -16,8 +16,8 @@ Last reviewed against code: `feat/endpoint-inventory-rpc-hardening`.
 | Category | Address data | Raw tx | Via Simpl proxy | Notes |
 | --- | --- | --- | --- | --- |
 | `simpl-api` (api.getsimpl.io) | yes (balance/portfolio) | no | first-party | upstream keys server-side |
-| `swap-api` (0x) | yes (taker) | no | **required in production** | dev-only direct fallback |
-| `bridge-api` (LI.FI) | yes | no | first-party (getsimpl) | integrator/fee/key server-side |
+| `swap-api` (0x) | yes (taker) | no | **required in production** | dev-only direct fallback; sends `?format=v2`, no fee params |
+| `bridge-api` (LI.FI) | yes | no | first-party (getsimpl) | integrator/fee/key server-side; quote+status send `?format=v2`, no client `integrator`/`fee` |
 | `evm-rpc` / `solana-rpc` / `tron-rpc` | yes | yes (broadcast) | no (public RPC) | — |
 | `bitcoin-api` (Esplora) | yes (queries) | yes | no | — |
 | `walletconnect` | no | no | no | pairing metadata only |

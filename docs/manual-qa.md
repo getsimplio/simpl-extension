@@ -51,6 +51,16 @@ on the Stage 4 backup / locked-approval / watch-only scenarios.
       destination pending → confirmed; invalid destination address blocked
 - [ ] Watch-only / locked / unverified-backup account cannot reach swap/bridge confirm
 
+## Backend-authoritative fees / `?format=v2` (API v2 migration)
+- [ ] Network tab: swap request carries `format=v2` and **no** `swapFeeBps` /
+      `swapFeeRecipient` / `swapFeeToken` params
+- [ ] Network tab: LI.FI quote (POST `/v1/bridge/lifi/quote?format=v2`) body has
+      **no** `integrator` and **no** `fee`; status poll also sends `format=v2`
+- [ ] simpl fee row shows the API-returned fee once the quote is ready, and "—"
+      (unavailable) — never "0" — before the quote loads or when absent
+- [ ] With the backend still returning the legacy shape (v2 not yet deployed),
+      swap and bridge quotes still load and complete normally (legacy fallback)
+
 ## Performance / UI polish (Stage 7)
 - [ ] Fresh install → unlock → **Home loads fast** (no swap/bridge/WC code on the initial path)
 - [ ] Navigate to Send / Swap / Bridge / Receive / Settings / Security / Accounts /
