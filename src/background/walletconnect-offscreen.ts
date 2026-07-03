@@ -3,42 +3,34 @@
 import { Core } from "@walletconnect/core";
 import { WalletKit } from "@reown/walletkit";
 
+import {
+  DEFAULT_EVENTS,
+  DEFAULT_TRON_EVENTS,
+  DEFAULT_TRON_METHODS,
+  HANDLED_REQUEST_METHODS,
+  SUPPORTED_TRON_METHODS,
+  TRON_WC_CHAIN,
+  assertEip155ProposalSupported,
+  assertTronProposalSupported,
+  collectNamespaceValues,
+  getApprovedEip155Chains,
+  getApprovedEip155Methods,
+  isProposalExpired,
+  proposalRequestsTron,
+  sanitizeMetaString,
+  sanitizePeerUrl,
+  uniqueStrings,
+} from "../core/walletconnect/wc-approval-policy";
+
 const PENDING_WALLETCONNECT_REQUEST_KEY = "pendingWalletConnectRequest";
+const PENDING_WALLETCONNECT_PROPOSAL_KEY = "pendingWalletConnectProposal";
+// Minimal, non-sensitive rejection notice so the popup can explain WHY a
+// proposal was rejected before any approval surface was shown (e.g. unsupported
+// required method). Stores only a human-readable message + timestamp — never a
+// proposal/request payload.
+const WALLETCONNECT_PROPOSAL_ERROR_KEY = "lastWalletConnectProposalError";
 const CONNECTED_SITES_KEY = "connectedSites";
 const WATCHED_ASSETS_KEY = "watchedAssets";
-
-const DEFAULT_EIP155_CHAINS = ["eip155:1", "eip155:56", "eip155:8453", "eip155:11155111"];
-
-const DEFAULT_METHODS = [
-  "eth_accounts",
-  "eth_requestAccounts",
-  "eth_sendTransaction",
-  "personal_sign",
-  "eth_sign",
-  "eth_signTypedData",
-  "eth_signTypedData_v3",
-  "eth_signTypedData_v4",
-  "wallet_switchEthereumChain",
-  "wallet_addEthereumChain",
-  "wallet_watchAsset",
-  "wallet_getCapabilities",
-  "wallet_sendCalls",
-  "wallet_getCallsStatus",
-  "wallet_showCallsStatus",
-];
-
-const DEFAULT_EVENTS = ["accountsChanged", "chainChanged"];
-
-// --- TRON namespace support (additive; the eip155 path below is unchanged) ---
-// TRON Mainnet CAIP-2 reference used by WalletConnect TRON dApps (e.g. Tronscan).
-const TRON_WC_CHAIN = "tron:0x2b6653dc";
-const DEFAULT_TRON_METHODS = [
-  "tron_signTransaction",
-  "tron_signMessage",
-  "tron_sendTransaction",
-];
-const DEFAULT_TRON_EVENTS = ["accountsChanged", "chainChanged"];
-const SUPPORTED_TRON_METHODS = new Set(DEFAULT_TRON_METHODS);
 
 type WalletConnectPendingRequest = {
   topic: string;
@@ -47,6 +39,24 @@ type WalletConnectPendingRequest = {
   params: unknown;
   chainId?: string;
   receivedAt: string;
+};
+
+// Sanitized snapshot of a session proposal that is safe to persist in
+// chrome.storage.local and render in the approval UI. It contains NO raw
+// proposal payload / debug blob — only the fields the user needs to make an
+// informed Approve/Reject decision. See buildSanitizedPendingProposal.
+type SanitizedPendingProposal = {
+  id: number;
+  peerName: string;
+  peerUrl: string;
+  peerIcon?: string;
+  requestedChains: string[];
+  requiredMethods: string[];
+  optionalMethods: string[];
+  requestedTron: boolean;
+  address: string;
+  createdAt: string;
+  expiry?: number;
 };
 
 type SimpleRuntimeMessage = {
@@ -81,6 +91,11 @@ type WatchedAsset = {
 };
 
 let walletKitPromise: Promise<Awaited<ReturnType<typeof WalletKit.init>>> | null = null;
+
+// Raw session proposals kept in memory ONLY (never written to storage) so we can
+// call approveSession/rejectSession on the exact proposal that arrived. Keyed by
+// proposal id. Cleared on approve/reject/expiry/session_delete.
+const proposalCache = new Map<number, any>();
 
 function sendServiceWorkerMessage<TResponse = { ok?: boolean; error?: string }>(
   message: Record<string, unknown>,
@@ -221,15 +236,6 @@ async function ensureWalletConnectRequestChainSelected(
     );
   }
 
-  await chromeStorageSet({
-    lastWalletConnectNetworkAwareSwitch: {
-      chainId,
-      chainNamespace,
-      result: response.result,
-      createdAt: new Date().toISOString(),
-    },
-  });
-
   return chainId;
 }
 
@@ -334,17 +340,6 @@ async function respondWalletWatchAssetNoopSuccess(args: {
     topic: args.pendingRequest.topic,
     id: args.pendingRequest.id,
     result: true,
-  });
-
-  await chromeStorageSet({
-    lastWalletConnectApprovalResult: {
-      method: args.pendingRequest.method,
-      result: true,
-      reason: args.reason,
-      chainId: args.pendingRequest.chainId,
-      params: args.pendingRequest.params,
-      createdAt: new Date().toISOString(),
-    },
   });
 
   await clearPendingWalletConnectRequest();
@@ -485,10 +480,6 @@ async function saveWalletConnectWatchedAsset(
 
   await chrome.storage.local.set({
     watchedAssets: next,
-    lastWalletConnectWatchedAsset: {
-      ...asset,
-      createdAt: new Date().toISOString(),
-    },
   });
 
   return asset;
@@ -629,6 +620,133 @@ async function clearPendingWalletConnectRequest() {
   });
 }
 
+// --- Session proposal: explicit approval helpers ---------------------------
+// The pure allowlist / validation / sanitizer helpers live in
+// ../core/walletconnect/wc-approval-policy (imported above); this file keeps
+// only the chrome/WalletKit-bound orchestration.
+
+async function buildSanitizedPendingProposal(
+  id: number,
+  proposal: any,
+): Promise<SanitizedPendingProposal> {
+  const metadata = proposal?.proposer?.metadata ?? {};
+
+  // Best-effort: the selected address is display-only here. A locked wallet
+  // must NOT block surfacing the proposal — the user unlocks at approve time.
+  let address = "";
+  try {
+    address = (await getSelectedWalletAccount()).address;
+  } catch {
+    address = "";
+  }
+
+  const expiry =
+    typeof proposal?.expiryTimestamp === "number" ? proposal.expiryTimestamp : undefined;
+
+  return {
+    id,
+    peerName: sanitizeMetaString(metadata.name) ?? "Unknown dApp",
+    peerUrl: sanitizePeerUrl(metadata.url) ?? "",
+    peerIcon: sanitizePeerUrl(Array.isArray(metadata.icons) ? metadata.icons[0] : undefined),
+    requestedChains: getApprovedEip155Chains(proposal),
+    requiredMethods: collectNamespaceValues(proposal, "eip155", "methods", "required"),
+    optionalMethods: getApprovedEip155Methods(proposal).filter((method) =>
+      collectNamespaceValues(proposal, "eip155", "methods", "optional").includes(method),
+    ),
+    requestedTron: proposalRequestsTron(proposal),
+    address,
+    createdAt: new Date().toISOString(),
+    expiry,
+  };
+}
+
+async function readPendingWalletConnectProposal(): Promise<SanitizedPendingProposal | null> {
+  const stored = await chromeStorageGet(PENDING_WALLETCONNECT_PROPOSAL_KEY);
+  const record = asRecord(stored[PENDING_WALLETCONNECT_PROPOSAL_KEY]);
+  const id = typeof record.id === "number" ? record.id : Number(record.id);
+
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+
+  return {
+    id,
+    peerName: typeof record.peerName === "string" ? record.peerName : "Unknown dApp",
+    peerUrl: typeof record.peerUrl === "string" ? record.peerUrl : "",
+    peerIcon: typeof record.peerIcon === "string" ? record.peerIcon : undefined,
+    requestedChains: Array.isArray(record.requestedChains)
+      ? (record.requestedChains as string[])
+      : [],
+    requiredMethods: Array.isArray(record.requiredMethods)
+      ? (record.requiredMethods as string[])
+      : [],
+    optionalMethods: Array.isArray(record.optionalMethods)
+      ? (record.optionalMethods as string[])
+      : [],
+    requestedTron: record.requestedTron === true,
+    address: typeof record.address === "string" ? record.address : "",
+    createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString(),
+    expiry: typeof record.expiry === "number" ? record.expiry : undefined,
+  };
+}
+
+async function savePendingWalletConnectProposal(proposal: SanitizedPendingProposal) {
+  await chromeStorageSet({
+    [PENDING_WALLETCONNECT_PROPOSAL_KEY]: proposal,
+  });
+}
+
+async function clearPendingWalletConnectProposal() {
+  await chromeStorageSet({
+    [PENDING_WALLETCONNECT_PROPOSAL_KEY]: null,
+  });
+}
+
+// Persist only a short, non-sensitive reason so the popup can explain a
+// pre-approval rejection. Never store the proposal payload here.
+async function recordProposalRejectionNotice(message: string) {
+  await chromeStorageSet({
+    [WALLETCONNECT_PROPOSAL_ERROR_KEY]: {
+      message,
+      createdAt: new Date().toISOString(),
+    },
+  });
+}
+
+function getSdkPendingProposal(walletKit: any, id: number): any | null {
+  try {
+    const pending = walletKit?.getPendingSessionProposals?.();
+
+    if (pending && typeof pending === "object") {
+      const match = Object.values(pending).find((entry: any) => Number(entry?.id) === id);
+
+      return match ?? null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function rejectWalletConnectSession(walletKit: any, id: number, message: string) {
+  if (!Number.isFinite(id)) {
+    return;
+  }
+
+  try {
+    await walletKit.rejectSession?.({
+      id,
+      reason: {
+        code: 5000,
+        message,
+      },
+    });
+  } catch (error) {
+    console.error("WalletConnect session rejection failed:", error);
+  }
+}
+
 function buildEmptyWalletCapabilities(params: unknown): Record<string, unknown> {
   if (!Array.isArray(params)) {
     return {};
@@ -749,42 +867,13 @@ async function getSelectedTronAccount() {
   return response.account;
 }
 
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter((value) => typeof value === "string" && value.length > 0)));
-}
-
-function getRequestedNamespaceValues(
-  proposal: any,
-  key: "chains" | "methods" | "events",
-): string[] {
-  const required = proposal?.requiredNamespaces?.eip155?.[key];
-  const optional = proposal?.optionalNamespaces?.eip155?.[key];
-
-  return uniqueStrings([
-    ...(Array.isArray(required) ? required : []),
-    ...(Array.isArray(optional) ? optional : []),
-  ]);
-}
-
-function getRequestedEip155Chains(proposal: any): string[] {
-  const chains = getRequestedNamespaceValues(proposal, "chains").filter((chain) =>
-    chain.startsWith("eip155:"),
-  );
-
-  return chains.length > 0 ? chains : DEFAULT_EIP155_CHAINS;
-}
-
-function getRequestedMethods(proposal: any): string[] {
-  return uniqueStrings([
-    ...DEFAULT_METHODS,
-    ...getRequestedNamespaceValues(proposal, "methods"),
-  ]);
-}
-
+// Approved eip155 events: the base set plus any requested events (events are
+// low-risk and not part of the method allowlist).
 function getRequestedEvents(proposal: any): string[] {
   return uniqueStrings([
     ...DEFAULT_EVENTS,
-    ...getRequestedNamespaceValues(proposal, "events"),
+    ...collectNamespaceValues(proposal, "eip155", "events", "required"),
+    ...collectNamespaceValues(proposal, "eip155", "events", "optional"),
   ]);
 }
 
@@ -794,19 +883,10 @@ function getRequestedTronValues(
   proposal: any,
   key: "chains" | "methods" | "events",
 ): string[] {
-  const required = proposal?.requiredNamespaces?.tron?.[key];
-  const optional = proposal?.optionalNamespaces?.tron?.[key];
-
   return uniqueStrings([
-    ...(Array.isArray(required) ? required : []),
-    ...(Array.isArray(optional) ? optional : []),
+    ...collectNamespaceValues(proposal, "tron", key, "required"),
+    ...collectNamespaceValues(proposal, "tron", key, "optional"),
   ]);
-}
-
-function proposalRequestsTron(proposal: any): boolean {
-  return Boolean(
-    proposal?.requiredNamespaces?.tron || proposal?.optionalNamespaces?.tron,
-  );
 }
 
 // Build the approved `tron` namespace, or return null when the proposal does not
@@ -854,18 +934,6 @@ async function buildTronNamespace(proposal: any) {
   };
 }
 
-// NON-SENSITIVE description of a request payload for debug storage: only the
-// top-level key names / primitive type — never values (a message or signature
-// must never be stored).
-function describeWcParamsShape(params: unknown): string {
-  const value = Array.isArray(params) ? params[0] : params;
-  if (value === null) return "null";
-  if (typeof value === "object") {
-    return `object{${Object.keys(value as Record<string, unknown>).sort().join(",")}}`;
-  }
-  return typeof value;
-}
-
 // Relay an approved TRON request (sign message / sign tx / send tx) to the
 // signing layer in the service worker and respond to the dApp with the result.
 // The private key, message and signature never enter this engine — only the
@@ -881,15 +949,6 @@ async function approveTronWalletConnectRequest(input: {
   if (!password?.trim()) {
     throw new Error("Wallet password is required.");
   }
-
-  await chromeStorageSet({
-    lastWalletConnectTronRequestDebug: {
-      method: pendingRequest.method,
-      paramsShape: describeWcParamsShape(pendingRequest.params),
-      topic: pendingRequest.topic,
-      createdAt: new Date().toISOString(),
-    },
-  });
 
   const response = await sendServiceWorkerMessage<{
     ok?: boolean;
@@ -925,8 +984,8 @@ async function approveTronWalletConnectRequest(input: {
 
 async function buildNamespacesForProposal(proposal: any) {
   const selected = await getSelectedWalletAccount();
-  const chains = getRequestedEip155Chains(proposal);
-  const methods = getRequestedMethods(proposal);
+  const chains = getApprovedEip155Chains(proposal);
+  const methods = getApprovedEip155Methods(proposal);
   const events = getRequestedEvents(proposal);
   const accounts = chains.map((chain) => `${chain}:${selected.address}`);
 
@@ -946,62 +1005,21 @@ async function buildNamespacesForProposal(proposal: any) {
     namespaces.tron = tronNamespace;
   }
 
-  const debugPayload = {
-    requiredNamespaces: proposal?.requiredNamespaces,
-    optionalNamespaces: proposal?.optionalNamespaces,
-    approvedNamespaces: namespaces,
-  };
-
-  console.log("SIMPLE WalletConnect proposal namespaces:", debugPayload);
-
-  await chromeStorageSet({
-    lastWalletConnectProposalDebug: {
-      ...debugPayload,
-      createdAt: new Date().toISOString(),
-    },
-  });
-
   return namespaces;
 }
 
 async function pairWalletKit(uri: string) {
   const walletKit = await getWalletKit();
 
-  await chromeStorageSet({
-    lastWalletConnectPairDebug: {
-      stage: "before_pair",
-      uriPrefix: uri.slice(0, 32),
-      createdAt: new Date().toISOString(),
-    },
-  });
-
   const pair = (walletKit as any).core?.pairing?.pair;
 
   if (typeof pair === "function") {
     await pair.call((walletKit as any).core?.pairing, { uri });
-
-    await chromeStorageSet({
-      lastWalletConnectPairDebug: {
-        stage: "after_core_pair",
-        uriPrefix: uri.slice(0, 32),
-        createdAt: new Date().toISOString(),
-      },
-    });
-
     return;
   }
 
   if (typeof (walletKit as any).pair === "function") {
     await (walletKit as any).pair({ uri });
-
-    await chromeStorageSet({
-      lastWalletConnectPairDebug: {
-        stage: "after_walletkit_pair",
-        uriPrefix: uri.slice(0, 32),
-        createdAt: new Date().toISOString(),
-      },
-    });
-
     return;
   }
 
@@ -1017,22 +1035,8 @@ async function approvePendingWalletConnectRequest(password?: string) {
   }
 
   if (pendingRequest.method === "eth_sendTransaction") {
-    const walletConnectTxChainId = await ensureWalletConnectRequestChainSelected(
-      pendingRequest.chainId,
-    );
+    await ensureWalletConnectRequestChainSelected(pendingRequest.chainId);
 
-    await chromeStorageSet({
-      lastWalletConnectTxDebug: {
-        step: "SIMPLE_WC_NETWORK_AWARE_TX_CHAIN",
-        method: pendingRequest.method,
-        topic: pendingRequest.topic,
-        id: pendingRequest.id,
-        chainNamespace: pendingRequest.chainId,
-        chainId: walletConnectTxChainId,
-        params: pendingRequest.params,
-        createdAt: new Date().toISOString(),
-      },
-    });
     if (!password?.trim()) {
       throw new Error("Wallet password is required.");
     }
@@ -1184,15 +1188,6 @@ async function approvePendingWalletConnectRequest(password?: string) {
       result: true,
     });
 
-    await chromeStorageSet({
-      lastWalletConnectApprovalResult: {
-        method: pendingRequest.method,
-        result: true,
-        watchedAsset,
-        createdAt: new Date().toISOString(),
-      },
-    });
-
     await clearPendingWalletConnectRequest();
 
     return {
@@ -1288,6 +1283,69 @@ async function rejectPendingWalletConnectRequest() {
   await clearPendingWalletConnectRequest();
 }
 
+// Approve a pending session proposal. Called ONLY in response to an explicit
+// user Approve from the approval UI — never automatically. The connected site is
+// persisted strictly AFTER a successful approveSession, so a failed/expired
+// approval never leaves a phantom connection behind.
+async function approvePendingWalletConnectProposal() {
+  const walletKit = await getWalletKit();
+  const pending = await readPendingWalletConnectProposal();
+
+  if (!pending) {
+    throw new Error("No pending WalletConnect proposal.");
+  }
+
+  const proposal = proposalCache.get(pending.id) ?? getSdkPendingProposal(walletKit, pending.id);
+
+  if (!proposal) {
+    await clearPendingWalletConnectProposal();
+    throw new Error("This WalletConnect request expired. Reconnect from the dApp.");
+  }
+
+  if (isProposalExpired(pending.expiry, Date.now())) {
+    proposalCache.delete(pending.id);
+    await clearPendingWalletConnectProposal();
+    await rejectWalletConnectSession(walletKit, pending.id, "Session proposal expired.");
+    throw new Error("This WalletConnect request expired. Reconnect from the dApp.");
+  }
+
+  // Defense in depth: re-validate at approve time so a proposal that somehow
+  // reached here with an unsupported REQUIRED chain/method is rejected, not
+  // approved.
+  assertEip155ProposalSupported(proposal);
+  assertTronProposalSupported(proposal);
+
+  const namespaces = await buildNamespacesForProposal(proposal);
+
+  await (walletKit as any).approveSession?.({
+    id: pending.id,
+    namespaces,
+  });
+
+  // Only now — after approveSession resolved — record the connected site.
+  await saveConnectedSiteFromProposal(proposal);
+
+  proposalCache.delete(pending.id);
+  await clearPendingWalletConnectProposal();
+
+  return { ok: true };
+}
+
+// Reject a pending session proposal on explicit user Reject (or window close /
+// timeout). No session and no connected site are ever created.
+async function rejectPendingWalletConnectProposal() {
+  const walletKit = await getWalletKit();
+  const pending = await readPendingWalletConnectProposal();
+
+  if (!pending) {
+    return;
+  }
+
+  proposalCache.delete(pending.id);
+  await clearPendingWalletConnectProposal();
+  await rejectWalletConnectSession(walletKit, pending.id, "User rejected the connection.");
+}
+
 async function getWalletKit() {
   if (walletKitPromise) {
     return walletKitPromise;
@@ -1311,52 +1369,53 @@ async function getWalletKit() {
 
   const walletKit = await walletKitPromise;
 
+  // Explicit approval model: a session proposal is NEVER auto-approved. We
+  // validate it, persist a sanitized snapshot, and open the approval window.
+  // The session is created only later, from an explicit user Approve
+  // (approvePendingWalletConnectProposal).
   walletKit.on("session_proposal", async (event: any) => {
-    await chromeStorageSet({
-      lastWalletConnectProposalRaw: {
-        id: event?.id,
-        params: event?.params,
-        createdAt: new Date().toISOString(),
-      },
-    });
+    const proposalId = Number(event?.id);
 
     try {
       const proposal = event.params;
-      const namespaces = await buildNamespacesForProposal(proposal);
 
-      await (walletKit as any).approveSession?.({
-        id: event.id,
-        namespaces,
-      });
+      // Reject up-front (no approval surface) when a REQUIRED chain/method is
+      // outside what SIMPL supports — for both eip155 and tron namespaces.
+      assertEip155ProposalSupported(proposal);
+      assertTronProposalSupported(proposal);
 
-      await saveConnectedSiteFromProposal(proposal);
+      proposalCache.set(proposalId, proposal);
 
-      console.log("SIMPLE WalletConnect session approved by offscreen engine.");
+      const sanitized = await buildSanitizedPendingProposal(proposalId, proposal);
+      await savePendingWalletConnectProposal(sanitized);
+
+      openApprovalWindow();
     } catch (error) {
-      console.error("WalletConnect session proposal approval failed:", {
-        error,
-        proposal: event?.params,
-      });
+      const message = error instanceof Error ? error.message : "Session proposal rejected.";
 
-      await chromeStorageSet({
-        lastWalletConnectProposalError: {
-          message: error instanceof Error ? error.message : String(error),
-          proposal: event?.params,
-          createdAt: new Date().toISOString(),
-        },
-      });
+      // Log only the reason — never the proposal payload.
+      console.error("WalletConnect session proposal rejected:", message);
 
-      try {
-        await (walletKit as any).rejectSession?.({
-          id: event.id,
-          reason: {
-            code: 5000,
-            message: error instanceof Error ? error.message : "Session approval failed.",
-          },
-        });
-      } catch (rejectError) {
-        console.error("WalletConnect session rejection failed:", rejectError);
-      }
+      proposalCache.delete(proposalId);
+      await clearPendingWalletConnectProposal();
+      await recordProposalRejectionNotice(message);
+      await rejectWalletConnectSession(walletKit, proposalId, message);
+    }
+  });
+
+  // If the SDK expires a pending proposal before the user acts, drop our
+  // sanitized copy so no stale Approve surface lingers.
+  walletKit.on("proposal_expire", async (event: any) => {
+    const expiredId = Number(event?.id);
+
+    if (Number.isFinite(expiredId)) {
+      proposalCache.delete(expiredId);
+    }
+
+    const pending = await readPendingWalletConnectProposal();
+
+    if (pending && (!Number.isFinite(expiredId) || pending.id === expiredId)) {
+      await clearPendingWalletConnectProposal();
     }
   });
 
@@ -1381,11 +1440,23 @@ async function getWalletKit() {
         result: buildEmptyWalletCapabilities(params),
       });
 
-      await chromeStorageSet({
-        lastWalletConnectAutoResponse: {
-          method,
-          result: buildEmptyWalletCapabilities(params),
-          createdAt: new Date().toISOString(),
+      return;
+    }
+
+    // Reject any method that has no request handler + approval UX immediately,
+    // instead of opening an approval window that could never succeed. This also
+    // hard-blocks blind-sign methods (e.g. eth_sign) even if a hostile dApp
+    // sends them outside the approved namespace.
+    if (!HANDLED_REQUEST_METHODS.has(method)) {
+      await (walletKit as any).respondSessionRequest?.({
+        topic,
+        response: {
+          id,
+          jsonrpc: "2.0",
+          error: {
+            code: 4200,
+            message: `Method not supported: ${method}.`,
+          },
         },
       });
 
@@ -1407,6 +1478,7 @@ async function getWalletKit() {
 
   walletKit.on("session_delete", async () => {
     await clearPendingWalletConnectRequest();
+    await clearPendingWalletConnectProposal();
   });
 
   console.log("SIMPLE WalletConnect offscreen engine started.");
@@ -1460,6 +1532,53 @@ chrome.runtime.onMessage.addListener(
         })
         .catch((error) => {
           console.error("WalletConnect pair failed:", error);
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+
+      return true;
+    }
+
+    if (message?.type === "SIMPLE_WALLETCONNECT_GET_PENDING_PROPOSAL") {
+      void readPendingWalletConnectProposal()
+        .then((proposal) => {
+          sendResponse({ ok: true, proposal });
+        })
+        .catch((error) => {
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+
+      return true;
+    }
+
+    if (message?.type === "SIMPLE_WALLETCONNECT_APPROVE_PROPOSAL") {
+      void approvePendingWalletConnectProposal()
+        .then((result) => {
+          sendResponse({ ok: true, result });
+        })
+        .catch((error) => {
+          console.error("WalletConnect proposal approval failed:", error);
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+
+      return true;
+    }
+
+    if (message?.type === "SIMPLE_WALLETCONNECT_REJECT_PROPOSAL") {
+      void rejectPendingWalletConnectProposal()
+        .then(() => {
+          sendResponse({ ok: true });
+        })
+        .catch((error) => {
+          console.error("WalletConnect proposal rejection failed:", error);
           sendResponse({
             ok: false,
             error: error instanceof Error ? error.message : String(error),

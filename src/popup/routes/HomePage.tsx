@@ -97,10 +97,11 @@ type HomePageProps = {
 const DEFAULT_BALANCE_REFRESH_SECONDS = 30;
 const PORTFOLIO_RETRY_DELAYS_MS = [3000, 5000, 10000, 20000, 30000];
 
-// Toggle structured balance-refresh diagnostics in the popup console. Logs only
-// public data (account label, chainId, public address, asset counts, timings,
-// error name/message/code/stack) — never seed phrase / private key / password.
-const BALANCE_DEBUG = true;
+// Toggle structured balance-refresh diagnostics in the popup console. Even
+// though these logs are "public" data (account label, chainId, public address,
+// asset counts, timings, error info), a production build must not print the
+// active address to the console — so this is gated to dev builds only.
+const BALANCE_DEBUG = import.meta.env.DEV;
 
 function balanceLog(...args: unknown[]): void {
   if (BALANCE_DEBUG) console.log("[balances]", ...args);

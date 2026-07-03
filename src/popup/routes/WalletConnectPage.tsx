@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 
 import { walletService } from "../../core/wallet/wallet.service";
@@ -86,24 +86,6 @@ type WalletSnapshot = {
 
 const CONNECTED_SITES_KEY = "connectedSites";
 const PENDING_WALLETCONNECT_REQUEST_KEY = "pendingWalletConnectRequest";
-
-const WALLETCONNECT_METHODS = [
-  "eth_requestAccounts",
-  "eth_accounts",
-  "eth_chainId",
-  "net_version",
-  "personal_sign",
-  "eth_sign",
-  "eth_signTypedData",
-  "eth_signTypedData_v3",
-  "eth_signTypedData_v4",
-  "eth_sendTransaction",
-  "wallet_switchEthereumChain",
-  "wallet_addEthereumChain",
-  "wallet_getCapabilities",
-] as const;
-
-const WALLETCONNECT_EVENTS = ["accountsChanged", "chainChanged"] as const;
 
 const PAIR_TIMEOUT_MS = 30_000;
 
@@ -456,6 +438,63 @@ function getNamespace(proposal: WalletConnectProposal, key: string): WalletConne
   };
 }
 
+// Sanitized proposal snapshot returned by the offscreen engine
+// (SIMPLE_WALLETCONNECT_GET_PENDING_PROPOSAL). Mirrors SanitizedPendingProposal
+// in walletconnect-offscreen.ts — contains NO raw proposal payload.
+type SanitizedProposal = {
+  id: number;
+  peerName: string;
+  peerUrl: string;
+  peerIcon?: string;
+  requestedChains: string[];
+  requiredMethods: string[];
+  optionalMethods: string[];
+  requestedTron: boolean;
+  address: string;
+  createdAt: string;
+  expiry?: number;
+};
+
+async function fetchPendingWalletConnectProposal(): Promise<SanitizedProposal | null> {
+  const response = await sendWalletConnectEngineMessage<{
+    ok?: boolean;
+    proposal?: SanitizedProposal | null;
+  }>({
+    type: "SIMPLE_WALLETCONNECT_GET_PENDING_PROPOSAL",
+  });
+
+  return response?.ok ? response.proposal ?? null : null;
+}
+
+// Adapt the sanitized snapshot to the WalletConnectProposal shape the approval UI
+// already renders (getProposalSite / getNamespace). The displayed method list is
+// the union of required + supported-optional methods.
+function toDisplayProposal(sanitized: SanitizedProposal): WalletConnectProposal {
+  const methods = uniqueStrings([...sanitized.requiredMethods, ...sanitized.optionalMethods]);
+
+  return {
+    id: sanitized.id,
+    params: {
+      id: sanitized.id,
+      proposer: {
+        metadata: {
+          name: sanitized.peerName,
+          url: sanitized.peerUrl,
+          icons: sanitized.peerIcon ? [sanitized.peerIcon] : [],
+        },
+      },
+      requiredNamespaces: {
+        eip155: {
+          chains: sanitized.requestedChains,
+          methods,
+          events: [],
+        },
+      },
+      optionalNamespaces: {},
+    },
+  };
+}
+
 function uniqueStrings(values: Array<string | undefined>): string[] {
   return Array.from(
     new Set(
@@ -465,32 +504,6 @@ function uniqueStrings(values: Array<string | undefined>): string[] {
         .filter(Boolean),
     ),
   );
-}
-
-function getRequestedEip155Chains(proposal: WalletConnectProposal, fallbackChainId: number): string[] {
-  const required = proposal.params.requiredNamespaces?.eip155?.chains ?? [];
-  const optional = proposal.params.optionalNamespaces?.eip155?.chains ?? [];
-  const chains = uniqueStrings([...required, ...optional]);
-
-  return chains.length > 0 ? chains : [`eip155:${fallbackChainId}`];
-}
-
-function getRequestedEip155Methods(proposal: WalletConnectProposal): string[] {
-  const required = proposal.params.requiredNamespaces?.eip155?.methods ?? [];
-  const optional = proposal.params.optionalNamespaces?.eip155?.methods ?? [];
-
-  return uniqueStrings([...required, ...optional, ...WALLETCONNECT_METHODS]);
-}
-
-function getRequestedEip155Events(proposal: WalletConnectProposal): string[] {
-  const required = proposal.params.requiredNamespaces?.eip155?.events ?? [];
-  const optional = proposal.params.optionalNamespaces?.eip155?.events ?? [];
-
-  return uniqueStrings([...required, ...optional, ...WALLETCONNECT_EVENTS]);
-}
-
-function getProjectId(): string {
-  return String(import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ?? "").trim();
 }
 
 function getSelectedAddressFromWalletState(walletState: Record<string, unknown>): string {
@@ -570,87 +583,12 @@ async function readWalletSnapshot(): Promise<WalletSnapshot> {
   };
 }
 
-async function createWalletKitClient(): Promise<WalletKitClient> {
-  const projectId = getProjectId();
-
-  if (!projectId) {
-    throw new Error("WalletConnect Project ID is missing.");
-  }
-
-  const [{ Core }, { WalletKit }] = await Promise.all([
-    import("@walletconnect/core"),
-    import("@reown/walletkit"),
-  ]);
-
-  const core = new Core({
-    projectId,
-  });
-
-  const client = await WalletKit.init({
-    core,
-    metadata: {
-      name: "SIMPLE",
-      description: "SIMPLE non-custodial wallet",
-      url: "https://diasoft.tech",
-      icons: [],
-    },
-  });
-
-  return client as WalletKitClient;
-}
-
-async function pairWalletKit(client: WalletKitClient, uri: string) {
-  if (typeof client.pair === "function") {
-    await client.pair({ uri });
-    return;
-  }
-
-  const pair = client.core?.pairing?.pair;
-
-  if (typeof pair === "function") {
-    await pair.call(client.core?.pairing, { uri });
-    return;
-  }
-
-  throw new Error("WalletConnect pair method is not available.");
-}
-
-async function buildApprovedNamespaces(
-  proposal: WalletConnectProposal,
-  snapshot: WalletSnapshot,
-): Promise<Record<string, unknown>> {
-  const { buildApprovedNamespaces: buildNamespaces } = await import("@walletconnect/utils");
-
-  const chains = getRequestedEip155Chains(proposal, snapshot.chainId);
-  const methods = getRequestedEip155Methods(proposal);
-  const events = getRequestedEip155Events(proposal);
-  const accounts = chains.map((chain) => `${chain}:${snapshot.address}`);
-
-  return buildNamespaces({
-    proposal: proposal.params as any,
-    supportedNamespaces: {
-      eip155: {
-        chains,
-        methods,
-        events,
-        accounts,
-      },
-    },
-  }) as Record<string, unknown>;
-}
-
-async function rejectWalletConnectSession(client: WalletKitClient, proposalId: number) {
-  if (typeof client.rejectSession !== "function") {
-    return;
-  }
-
-  const { getSdkError } = await import("@walletconnect/utils");
-
-  await client.rejectSession({
-    id: proposalId,
-    reason: getSdkError("USER_REJECTED"),
-  });
-}
+// NOTE: The WalletConnect runtime (WalletKit + Core) has a SINGLE owner — the
+// offscreen engine (see src/background/walletconnect-offscreen.ts). This page is
+// purely a UI bridge: it pairs via SIMPLE_WALLETCONNECT_PAIR and approves/rejects
+// proposals and requests via SIMPLE_WALLETCONNECT_*_PROPOSAL / *_REQUEST messages.
+// It must NOT create its own WalletKit client — a second client would not hold
+// the pending proposal and could not honour approveSession/rejectSession.
 
 function toHexChainId(chainId: number): string {
   return `0x${chainId.toString(16)}`;
@@ -1614,10 +1552,8 @@ export default function WalletConnectPage({
   onBack,
   onConnected,
 }: WalletConnectPageProps) {
-  const clientRef = useRef<WalletKitClient | null>(null);
   const [uri, setUri] = useState("");
   const [proposal, setProposal] = useState<WalletConnectProposal | null>(null);
-  const [walletSnapshot, setWalletSnapshot] = useState<WalletSnapshot | null>(null);
   const { t } = useTranslation();
   const [status, setStatus] = useState(t("wc.ready"));
   const [wcError, setWcError] = useState<WcError | null>(null);
@@ -1643,7 +1579,20 @@ export default function WalletConnectPage({
 
     setStatus(t("wc.restoringSessions"));
 
-    void readPendingWalletConnectRequest().then((request) => {
+    // A session proposal (connection request) takes precedence over a pending
+    // signing request. Both surface in this same approval window.
+    void (async () => {
+      const sanitized = await fetchPendingWalletConnectProposal();
+
+      if (sanitized) {
+        setProposal(toDisplayProposal(sanitized));
+        setWcError(null);
+        setStatus(t("wc.waitingApproval"));
+        return;
+      }
+
+      const request = await readPendingWalletConnectRequest();
+
       if (!request) {
         setStatus(t("wc.ready"));
         return;
@@ -1652,19 +1601,8 @@ export default function WalletConnectPage({
       setPendingRequest(request);
       setWcError(null);
       setStatus(t("wc.waitingApproval"));
-    });
+    })();
   }, []);
-
-  async function getClient(): Promise<WalletKitClient> {
-    if (clientRef.current) {
-      return clientRef.current;
-    }
-
-    const client = await createWalletKitClient();
-    clientRef.current = client;
-
-    return client;
-  }
 
   async function loadSessions() {
     setSessionsLoading(true);
@@ -1763,6 +1701,9 @@ export default function WalletConnectPage({
     }
   }
 
+  // Approve routes through the offscreen engine — the sole WalletKit owner. The
+  // engine builds the approved namespaces from the supported allowlist, calls
+  // approveSession, and only then records the connected site.
   async function approveProposal() {
     if (!proposal) {
       return;
@@ -1773,23 +1714,27 @@ export default function WalletConnectPage({
     setStatus(t("wc.approvingSession"));
 
     try {
-      const snapshot = walletSnapshot ?? (await readWalletSnapshot());
-      const client = await getClient();
-      const namespaces = await buildApprovedNamespaces(proposal, snapshot);
-
-      await client.approveSession?.({
-        id: proposal.id,
-        namespaces,
+      const response = await sendWalletConnectEngineMessage<{
+        ok?: boolean;
+        error?: string;
+      }>({
+        type: "SIMPLE_WALLETCONNECT_APPROVE_PROPOSAL",
       });
 
-      const nextSite = getProposalSite(proposal);
-      await saveConnectedSite(nextSite);
+      if (!response?.ok) {
+        throw new Error(response?.error ?? t("wc.approvalFailed"));
+      }
 
       setProposal(null);
       setUri("");
       setStatus(t("wc.sessionApproved"));
       await onConnected?.();
       await loadSessions();
+
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get("surface") === "approval") {
+        window.setTimeout(() => window.close(), 700);
+      }
     } catch (nextError) {
       const msg = nextError instanceof Error ? nextError.message : "";
       setWcError(makeWcError("generic", msg));
@@ -1809,12 +1754,24 @@ export default function WalletConnectPage({
     setStatus(t("wc.rejectingSession"));
 
     try {
-      const client = await getClient();
+      const response = await sendWalletConnectEngineMessage<{
+        ok?: boolean;
+        error?: string;
+      }>({
+        type: "SIMPLE_WALLETCONNECT_REJECT_PROPOSAL",
+      });
 
-      await rejectWalletConnectSession(client, proposal.id);
+      if (!response?.ok) {
+        throw new Error(response?.error ?? "");
+      }
 
       setProposal(null);
       setStatus(t("wc.sessionRejected"));
+
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get("surface") === "approval") {
+        window.setTimeout(() => window.close(), 300);
+      }
     } catch (nextError) {
       const msg = nextError instanceof Error ? nextError.message : "";
       setWcError(makeWcError("proposal", msg));

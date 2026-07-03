@@ -11,6 +11,78 @@ type CreateWalletPageProps = {
 
 type CreateStep = "password" | "backup";
 
+function getChromeStorageLocal() {
+  return (globalThis as unknown as {
+    chrome?: {
+      storage?: {
+        local?: {
+          get?: (
+            keys: string[] | string | null,
+            callback: (items: Record<string, unknown>) => void,
+          ) => void;
+          set?: (items: Record<string, unknown>, callback?: () => void) => void;
+        };
+      };
+    };
+  }).chrome?.storage?.local;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+// A freshly created wallet has NOT verified its recovery phrase yet. Persist an
+// explicit "pending" backup status (rather than leaving it absent) so the
+// Security Center — and any backup reminder — reliably surfaces that the seed
+// still needs to be backed up / verified. This never blocks the create flow;
+// it just makes the un-verified state a durable, queryable fact.
+async function recordSeedBackupPending(): Promise<void> {
+  const storage = getChromeStorageLocal();
+  const get = storage?.get;
+  const set = storage?.set;
+  const patch = { seedBackupConfirmed: false, seedBackupVerified: false };
+
+  const stored = await new Promise<Record<string, unknown>>((resolve) => {
+    if (!get) {
+      resolve({});
+      return;
+    }
+    try {
+      get.call(storage, ["securitySettings"], (items) => resolve(items ?? {}));
+    } catch {
+      resolve({});
+    }
+  });
+
+  const current = asRecord(stored.securitySettings);
+
+  // Never clobber an already-verified status (defensive — a new wallet's seed
+  // is by definition unverified, but this keeps the write idempotent/safe).
+  if (current.seedBackupVerified === true) {
+    return;
+  }
+
+  const next = { ...current, ...patch };
+
+  if (set) {
+    await new Promise<void>((resolve) => {
+      try {
+        set.call(storage, { securitySettings: next }, () => resolve());
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  try {
+    localStorage.setItem("securitySettings", JSON.stringify(next));
+  } catch {
+    // Local storage can be unavailable in some extension surfaces.
+  }
+}
+
 function BackIcon() {
   return <span style={{ fontSize: 22, lineHeight: 1 }}>‹</span>;
 }
@@ -337,6 +409,10 @@ export function CreateWalletPage({
   }
 
   async function finishBackup() {
+    // Record the un-verified backup status before entering the wallet, so the
+    // seed backup never silently looks "done". Verification stays available in
+    // Settings → Security (see recordSeedBackupPending).
+    await recordSeedBackupPending();
     await onCreated();
   }
 
@@ -600,6 +676,18 @@ export function CreateWalletPage({
             >
               {t("create.savedIt")}
             </button>
+
+            <p
+              style={{
+                margin: "2px 0 0",
+                color: "var(--ink-3)",
+                fontSize: 12,
+                lineHeight: 1.45,
+                textAlign: "center",
+              }}
+            >
+              {t("create.verifyReminder")}
+            </p>
           </>
         ) : null}
       </div>

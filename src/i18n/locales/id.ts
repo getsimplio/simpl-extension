@@ -903,6 +903,12 @@ export const id: TranslationDictionary = {
   "approval.currentNetwork": "Jaringan saat ini",
   "approval.requestedNetwork": "Jaringan yang diminta",
   "approval.new": "Baru",
+  "approval.switchAccount": "Ganti akun",
+  "approval.switchAccountDesc": "{domain} meminta untuk mengganti akun aktif Anda.",
+  "approval.currentAccount": "Akun saat ini",
+  "approval.requestedAccount": "Akun yang diminta",
+  "approval.switchAccountWarning":
+    "Situs ini meminta untuk mengubah akun aktif Anda. Akun ini akan digunakan untuk menandatangani transaksi dan pesan sampai Anda menggantinya kembali.",
   "approval.switchNetworkWarning":
     "Situs ini meminta untuk mengganti jaringan aktif Anda. Semua permintaan mendatang akan menggunakan jaringan baru sampai Anda beralih kembali.",
   "approval.connectWallet": "Hubungkan dompet",
@@ -944,6 +950,7 @@ export const id: TranslationDictionary = {
     "Jangan pernah membagikan frasa seed Anda. simpl tidak dapat memulihkannya jika Anda kehilangan akses.",
   "create.copySeed": "Salin frasa seed",
   "create.savedIt": "Saya sudah menyimpannya",
+  "create.verifyReminder": "Anda dapat memverifikasi frasa pemulihan kapan saja di Pengaturan → Keamanan.",
 
   // ── Onboarding: import wallet (additions) ────────────────────────────────
   "import.seedEmpty": "Masukkan frasa seed Anda.",

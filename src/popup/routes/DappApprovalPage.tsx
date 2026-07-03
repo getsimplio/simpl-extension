@@ -20,6 +20,13 @@ type SwitchChainData = {
   currentChainName: string;
 };
 
+type SwitchAccountData = {
+  requestedAccountLabel: string;
+  requestedAccountAddress: string;
+  currentAccountLabel: string;
+  currentAccountAddress: string;
+};
+
 type Erc20ApproveData = {
   spender: string;
   amountRaw: string;
@@ -50,6 +57,7 @@ type PendingData = {
     | "personal_sign"
     | "typed_data"
     | "switch_chain"
+    | "switch_account"
     | "transaction"
     | "tron_connect"
     | "tron_sign";
@@ -59,6 +67,7 @@ type PendingData = {
   displayMessage?: string;
   typedDataDisplay?: TypedDataDisplay;
   switchChain?: SwitchChainData;
+  switchAccount?: SwitchAccountData;
   transaction?: TransactionDisplayData;
   tronTransaction?: TronTxDisplay;
 };
@@ -974,6 +983,116 @@ export default function DappApprovalPage() {
           </ApprovalCard>
 
           <OriginNotice domain={domain} method="wallet_switchEthereumChain" />
+
+          {errorMsg && <ErrorLine message={errorMsg} />}
+        </ScrollSection>
+        <ApprovalFooter
+          primaryLabel={t("approval.switch")}
+          onPrimary={approve}
+          onReject={reject}
+          working={working}
+        />
+      </Shell>
+    );
+  }
+
+  // ── switch_account ──
+
+  if (kind === "switch_account") {
+    const sa = data.switchAccount;
+    return (
+      <Shell>
+        <ApprovalHeader title={t("approval.switchAccount")} onClose={reject} disabled={working} />
+        <ScrollSection>
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{
+              width: 46, height: 46, borderRadius: 15,
+              background: C.cardBg, border: `1px solid ${C.cardBorder}`,
+              display: "grid", placeItems: "center", fontSize: 22,
+            }}>
+              👤
+            </div>
+            <div style={{ display: "grid", gap: 7 }}>
+              <h1 style={{
+                margin: 0, fontSize: 24, lineHeight: "27px",
+                letterSpacing: "-0.055em", fontWeight: 880,
+              }}>
+                {t("approval.switchAccount")}
+              </h1>
+              <p style={{ margin: 0, color: C.fgMuted, fontSize: 13, lineHeight: "19px" }}>
+                {t("approval.switchAccountDesc", { domain })}
+              </p>
+            </div>
+          </div>
+
+          <ApprovalCard>
+            {sa ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 10px",
+                  border: `1px solid ${C.previewBorder}`,
+                  borderRadius: 13,
+                  background: C.previewBg,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>{t("approval.currentAccount")}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{sa.currentAccountLabel}</div>
+                    {sa.currentAccountAddress ? (
+                      <div style={{ fontSize: 11, color: C.fgMuted, fontFamily: C.monoFont }}>
+                        {shortAddress(sa.currentAccountAddress)}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 18, color: C.fgMuted,
+                }}>
+                  ↓
+                </div>
+
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 10px",
+                  border: `1px solid ${C.previewBorder}`,
+                  borderRadius: 13,
+                  background: C.previewBg,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, color: C.fgMuted, marginBottom: 1 }}>{t("approval.requestedAccount")}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>{sa.requestedAccountLabel}</div>
+                    {sa.requestedAccountAddress ? (
+                      <div style={{ fontSize: 11, color: C.fgMuted, fontFamily: C.monoFont }}>
+                        {shortAddress(sa.requestedAccountAddress)}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div style={{
+                    fontSize: 11, fontWeight: 800,
+                    color: "var(--secure)", background: "var(--secure-soft)",
+                    padding: "2px 8px", borderRadius: 8, flexShrink: 0,
+                  }}>
+                    {t("approval.new")}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div style={{
+              borderRadius: 12,
+              background: C.warnBg,
+              border: `1px solid ${C.warnBorder}`,
+              color: C.warnText,
+              padding: "10px 12px",
+              fontSize: 12, lineHeight: "17px", fontWeight: 750,
+            }}>
+              {t("approval.switchAccountWarning")}
+            </div>
+          </ApprovalCard>
+
+          <OriginNotice domain={domain} method="simpl_switchAccount" />
 
           {errorMsg && <ErrorLine message={errorMsg} />}
         </ScrollSection>

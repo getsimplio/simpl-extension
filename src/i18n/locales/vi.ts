@@ -904,6 +904,12 @@ export const vi: TranslationDictionary = {
   "approval.currentNetwork": "Mạng hiện tại",
   "approval.requestedNetwork": "Mạng được yêu cầu",
   "approval.new": "Mới",
+  "approval.switchAccount": "Chuyển tài khoản",
+  "approval.switchAccountDesc": "{domain} đang yêu cầu chuyển tài khoản đang hoạt động của bạn.",
+  "approval.currentAccount": "Tài khoản hiện tại",
+  "approval.requestedAccount": "Tài khoản được yêu cầu",
+  "approval.switchAccountWarning":
+    "Trang web này đang yêu cầu thay đổi tài khoản đang hoạt động của bạn. Tài khoản này sẽ được dùng để ký giao dịch và tin nhắn cho đến khi bạn chuyển lại.",
   "approval.switchNetworkWarning":
     "Trang web này đang yêu cầu chuyển mạng đang hoạt động của bạn. Tất cả các yêu cầu trong tương lai sẽ dùng mạng mới cho đến khi bạn chuyển lại.",
   "approval.connectWallet": "Kết nối ví",
@@ -945,6 +951,7 @@ export const vi: TranslationDictionary = {
     "Đừng bao giờ chia sẻ seed phrase của bạn. simpl không thể khôi phục nó nếu bạn mất quyền truy cập.",
   "create.copySeed": "Sao chép seed phrase",
   "create.savedIt": "Tôi đã lưu",
+  "create.verifyReminder": "Bạn có thể xác minh cụm từ khôi phục bất cứ lúc nào trong Cài đặt → Bảo mật.",
 
   // ── Onboarding: import wallet (additions) ────────────────────────────────
   "import.seedEmpty": "Nhập seed phrase của bạn.",

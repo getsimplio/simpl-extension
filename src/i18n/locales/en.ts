@@ -913,6 +913,12 @@ export const en = {
   "approval.currentNetwork": "Current network",
   "approval.requestedNetwork": "Requested network",
   "approval.new": "New",
+  "approval.switchAccount": "Switch account",
+  "approval.switchAccountDesc": "{domain} wants to switch your active account.",
+  "approval.currentAccount": "Current account",
+  "approval.requestedAccount": "Requested account",
+  "approval.switchAccountWarning":
+    "This site is requesting to change your active account. It will be used to sign future transactions and messages until you switch back.",
   "approval.switchNetworkWarning":
     "This site is requesting to switch your active network. All future requests will use the new network until you switch back.",
   "approval.connectWallet": "Connect wallet",
@@ -954,6 +960,7 @@ export const en = {
     "Never share your seed phrase. simpl cannot recover it if you lose access.",
   "create.copySeed": "Copy seed phrase",
   "create.savedIt": "I saved it",
+  "create.verifyReminder": "You can verify your recovery phrase anytime in Settings → Security.",
 
   // ── Onboarding: import wallet (additions) ────────────────────────────────
   "import.seedEmpty": "Enter your seed phrase.",

@@ -19,6 +19,7 @@
     "check:solana": "tsx scripts/check-solana.ts",
     "check:ton": "tsx scripts/check-ton.ts",
     "check:i18n": "tsx scripts/check-i18n.ts",
+    "check:walletconnect": "tsx scripts/check-walletconnect-approval.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

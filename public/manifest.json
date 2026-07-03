@@ -45,7 +45,6 @@
   },
   "permissions": [
     "storage",
-    "nativeMessaging",
     "sidePanel",
     "tabs",
     "windows",

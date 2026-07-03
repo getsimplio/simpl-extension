@@ -912,6 +912,12 @@ export const ptBR: TranslationDictionary = {
   "approval.currentNetwork": "Rede atual",
   "approval.requestedNetwork": "Rede solicitada",
   "approval.new": "Nova",
+  "approval.switchAccount": "Trocar conta",
+  "approval.switchAccountDesc": "{domain} está solicitando trocar sua conta ativa.",
+  "approval.currentAccount": "Conta atual",
+  "approval.requestedAccount": "Conta solicitada",
+  "approval.switchAccountWarning":
+    "Este site está solicitando trocar sua conta ativa. Ela será usada para assinar transações e mensagens até você trocar de volta.",
   "approval.switchNetworkWarning":
     "Este site está solicitando a troca da sua rede ativa. Todas as solicitações futuras usarão a nova rede até você voltar.",
   "approval.connectWallet": "Conectar carteira",
@@ -953,6 +959,7 @@ export const ptBR: TranslationDictionary = {
     "Nunca compartilhe sua frase-semente. A simpl não pode recuperá-la se você perder o acesso.",
   "create.copySeed": "Copiar frase-semente",
   "create.savedIt": "Eu salvei",
+  "create.verifyReminder": "Você pode verificar sua frase de recuperação a qualquer momento em Configurações → Segurança.",
 
   // ── Onboarding: import wallet (additions) ────────────────────────────────
   "import.seedEmpty": "Digite sua frase-semente.",

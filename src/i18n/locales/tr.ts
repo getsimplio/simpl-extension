@@ -908,6 +908,12 @@ export const tr: TranslationDictionary = {
   "approval.currentNetwork": "Mevcut ağ",
   "approval.requestedNetwork": "İstenen ağ",
   "approval.new": "Yeni",
+  "approval.switchAccount": "Hesabı değiştir",
+  "approval.switchAccountDesc": "{domain} etkin hesabınızı değiştirmek istiyor.",
+  "approval.currentAccount": "Geçerli hesap",
+  "approval.requestedAccount": "İstenen hesap",
+  "approval.switchAccountWarning":
+    "Bu site etkin hesabınızı değiştirmek istiyor. Geri değiştirene kadar işlemleri ve mesajları imzalamak için kullanılacak.",
   "approval.switchNetworkWarning":
     "Bu site, etkin ağınızı değiştirmek istiyor. Siz geri değiştirene kadar gelecekteki tüm istekler yeni ağı kullanacak.",
   "approval.connectWallet": "Cüzdanı bağla",
@@ -949,6 +955,7 @@ export const tr: TranslationDictionary = {
     "Tohum ifadenizi asla paylaşmayın. Erişiminizi kaybederseniz simpl bunu kurtaramaz.",
   "create.copySeed": "Tohum ifadesini kopyala",
   "create.savedIt": "Kaydettim",
+  "create.verifyReminder": "Kurtarma ifadenizi istediğiniz zaman Ayarlar → Güvenlik bölümünden doğrulayabilirsiniz.",
 
   // ── Onboarding: import wallet (additions) ────────────────────────────────
   "import.seedEmpty": "Tohum ifadenizi girin.",

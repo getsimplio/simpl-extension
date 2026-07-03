@@ -907,6 +907,12 @@ export const uk: TranslationDictionary = {
   "approval.currentNetwork": "Поточна мережа",
   "approval.requestedNetwork": "Запитувана мережа",
   "approval.new": "Нова",
+  "approval.switchAccount": "Змінити акаунт",
+  "approval.switchAccountDesc": "{domain} запитує зміну активного акаунта.",
+  "approval.currentAccount": "Поточний акаунт",
+  "approval.requestedAccount": "Запитуваний акаунт",
+  "approval.switchAccountWarning":
+    "Цей сайт запитує зміну активного акаунта. Він використовуватиметься для підпису транзакцій і повідомлень, доки ви не зміните його назад.",
   "approval.switchNetworkWarning":
     "Цей сайт запитує перемикання вашої активної мережі. Усі майбутні запити використовуватимуть нову мережу, доки ви не перемкнетеся назад.",
   "approval.connectWallet": "Підключити гаманець",
@@ -948,6 +954,7 @@ export const uk: TranslationDictionary = {
     "Ніколи не діліться своєю сид-фразою. simpl не зможе відновити її, якщо ви втратите доступ.",
   "create.copySeed": "Скопіювати сид-фразу",
   "create.savedIt": "Я зберіг(ла) її",
+  "create.verifyReminder": "Ви можете перевірити свою фразу відновлення будь-коли в «Налаштування → Безпека».",
 
   // ── Onboarding: import wallet (additions) ────────────────────────────────
   "import.seedEmpty": "Введіть свою сид-фразу.",
