@@ -8,9 +8,11 @@
 // network switch in onSelect. The list UI is identical across every caller.
 
 import {
-  DEFAULT_CHAINS,
+  getChainById,
   getNetworkDisplayName,
+  type ChainConfig,
 } from "../../core/networks/chain-registry";
+import { useRuntimeChains } from "../hooks/useRuntimeChains";
 import { t, useTranslation } from "../../i18n";
 import { NetworkIcon } from "./NetworkIcon";
 
@@ -86,7 +88,7 @@ function NetworkRow({
   reason?: string;
   onSelect: (chainId: number) => void;
 }) {
-  const chain = DEFAULT_CHAINS.find((item) => item.chainId === chainId);
+  const chain = getChainById(chainId);
   if (!chain) return null;
 
   // Short, never-truncated subtitle: "ERC-20 · Gas: ETH".
@@ -148,10 +150,14 @@ export function SelectNetworkPage({
   const { t } = useTranslation();
   const busy = busyChainId != null;
 
-  const mainnets = DEFAULT_CHAINS.filter((chain) => !chain.isTestnet);
-  const testnets = DEFAULT_CHAINS.filter((chain) => chain.isTestnet);
+  // Server-driven visible list (falls back to the full local registry before
+  // the runtime config resolves or when it is unavailable). The active chain
+  // is always kept visible by resolveVisibleChains.
+  const visibleChains = useRuntimeChains(selectedChainId);
+  const mainnets = visibleChains.filter((chain) => !chain.isTestnet);
+  const testnets = visibleChains.filter((chain) => chain.isTestnet);
 
-  const renderGroup = (label: string, chains: typeof DEFAULT_CHAINS) => {
+  const renderGroup = (label: string, chains: ChainConfig[]) => {
     if (chains.length === 0) return null;
 
     return (

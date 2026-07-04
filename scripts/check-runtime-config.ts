@@ -23,6 +23,8 @@ import {
   RUNTIME_CONFIG_STORAGE_KEY,
 } from "../src/core/config/runtime-config.service";
 import { isRemoteFeatureEnabledFor } from "../src/core/config/feature-gate";
+import { resolveVisibleChains } from "../src/core/networks/chain-visibility";
+import { BASE_CHAIN_ID, DEFAULT_CHAINS } from "../src/core/networks/chain-registry";
 
 let failures = 0;
 function check(name: string, passed: boolean, detail?: string): void {
@@ -176,6 +178,76 @@ const noFlags = {
 check(
   "server config missing a flag → enabled (existing-surface default)",
   isRemoteFeatureEnabledFor(noFlags, "swaps") === true,
+);
+
+// ── 5. Chain visibility (Stage 2 network selector) ───────────────────────────
+console.log("\nChain visibility (resolveVisibleChains):");
+
+const LOCAL_MAINNETS = DEFAULT_CHAINS.filter((c) => !c.isTestnet);
+const LOCAL_TESTNETS = DEFAULT_CHAINS.filter((c) => c.isTestnet);
+const LOCAL_RPCS = new Set(DEFAULT_CHAINS.map((c) => c.rpcUrl));
+
+// No server opinion → full local registry, unchanged (today's behavior).
+check(
+  "null config → full local registry unchanged",
+  resolveVisibleChains(null).length === DEFAULT_CHAINS.length,
+);
+check(
+  "embedded fallback config → full local registry unchanged",
+  resolveVisibleChains(fallback).length === DEFAULT_CHAINS.length,
+);
+
+// A server (db) config listing all mainnets → all mainnets visible, local
+// testnets appended (server never lists testnets for the extension).
+const serverAll = buildServerConfig(); // 7 mainnet chains, source=db
+const visAll = resolveVisibleChains(serverAll);
+check(
+  "server config → mainnets + local testnets",
+  visAll.filter((c) => !c.isTestnet).length === LOCAL_MAINNETS.length &&
+    visAll.filter((c) => c.isTestnet).length === LOCAL_TESTNETS.length,
+  `mainnets=${visAll.filter((c) => !c.isTestnet).length} testnets=${visAll.filter((c) => c.isTestnet).length}`,
+);
+check(
+  "every visible chain is a LOCAL registry entry (no config rpcUrl ever leaks)",
+  visAll.every((c) => LOCAL_RPCS.has(c.rpcUrl) && DEFAULT_CHAINS.includes(c)),
+);
+
+// Hiding a mainnet: drop Base from the server config → Base disappears.
+const serverHideBase: SimplRuntimeConfig = {
+  ...serverAll,
+  chains: serverAll.chains.filter((c) => c.chainId !== BASE_CHAIN_ID),
+};
+const visHidden = resolveVisibleChains(serverHideBase);
+check(
+  "server hides Base → Base not shown",
+  !visHidden.some((c) => c.chainId === BASE_CHAIN_ID),
+);
+
+// ...but the ACTIVE chain is always kept visible, even when hidden.
+const visHiddenSelected = resolveVisibleChains(serverHideBase, BASE_CHAIN_ID);
+check(
+  "hidden Base is re-shown when it is the active chain (never strand the user)",
+  visHiddenSelected.some((c) => c.chainId === BASE_CHAIN_ID),
+);
+
+// Reordering: reverse the server mainnet order → output mainnet order follows.
+const serverReordered: SimplRuntimeConfig = {
+  ...serverAll,
+  chains: [...serverAll.chains].reverse(),
+};
+const visReordered = resolveVisibleChains(serverReordered).filter((c) => !c.isTestnet);
+const expectedOrder = [...serverAll.chains].reverse().map((c) => c.chainId);
+check(
+  "mainnet order follows the server config order",
+  visReordered.map((c) => c.chainId).join(",") === expectedOrder.join(","),
+  `got ${visReordered.map((c) => c.chainId).join(",")}`,
+);
+
+// An empty/degenerate server config never yields an empty selector.
+const serverEmpty: SimplRuntimeConfig = { ...serverAll, chains: [] };
+check(
+  "server config with zero chains → falls back to full local registry",
+  resolveVisibleChains(serverEmpty).length === DEFAULT_CHAINS.length,
 );
 
 console.log("");

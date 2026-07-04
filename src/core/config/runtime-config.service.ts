@@ -97,6 +97,12 @@ export interface RuntimeConfigService {
   refreshRuntimeConfig(force?: boolean): Promise<SimplRuntimeConfig>;
   /** Last resolved config, synchronously. null until the first resolve lands. */
   getCachedRuntimeConfigSnapshot(): SimplRuntimeConfig | null;
+  /**
+   * Subscribe to snapshot changes (for useSyncExternalStore). The listener runs
+   * whenever the resolved snapshot's identity changes — cache hit, network
+   * refresh, or the embedded fallback landing. Returns an unsubscribe fn.
+   */
+  subscribe(listener: () => void): () => void;
 }
 
 export function createRuntimeConfigService(
@@ -118,6 +124,25 @@ export function createRuntimeConfigService(
   let inflightResolve: Promise<SimplRuntimeConfig> | null = null;
   let inflightFetch: Promise<SimplRuntimeConfig | null> | null = null;
   let lastFetchAttemptAt = 0;
+
+  // Subscribers (useSyncExternalStore). Notified only when the snapshot's
+  // identity actually changes, so a no-op refresh does not churn renders.
+  const listeners = new Set<() => void>();
+
+  function setSnapshot(config: SimplRuntimeConfig, at: number): void {
+    const changed = snapshot !== config;
+    snapshot = config;
+    snapshotAt = at;
+    if (changed) {
+      for (const listener of listeners) {
+        try {
+          listener();
+        } catch (error) {
+          configWarn("runtime config listener failed", { error: String(error) });
+        }
+      }
+    }
+  }
 
   function isSnapshotFresh(): boolean {
     return (
@@ -190,8 +215,7 @@ export function createRuntimeConfigService(
         const config = normalizeRuntimeConfig(payload);
         if (!config) throw new Error("unusable runtime config payload");
         const at = now();
-        snapshot = config;
-        snapshotAt = at;
+        setSnapshot(config, at);
         await writeCache(config, at);
         configDebug("runtime config refreshed", {
           version: config.version,
@@ -229,8 +253,7 @@ export function createRuntimeConfigService(
     // (b) storage cache.
     const cached = await readCache();
     if (cached) {
-      snapshot = cached.config;
-      snapshotAt = cached.updatedAt;
+      setSnapshot(cached.config, cached.updatedAt);
       if (!isSnapshotFresh()) scheduleBackgroundRefresh();
       return cached.config;
     }
@@ -240,8 +263,7 @@ export function createRuntimeConfigService(
     // (d) embedded fallback. snapshotAt stays 0 → always stale, so later calls
     // keep retrying the gateway (with backoff) while serving the fallback.
     const fallback = buildFallbackRuntimeConfig("extension");
-    snapshot = fallback;
-    snapshotAt = 0;
+    setSnapshot(fallback, 0);
     return fallback;
   }
 
@@ -262,10 +284,18 @@ export function createRuntimeConfigService(
     return getRuntimeConfig();
   }
 
+  function subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }
+
   return {
     getRuntimeConfig,
     refreshRuntimeConfig,
     getCachedRuntimeConfigSnapshot: () => snapshot,
+    subscribe,
   };
 }
 
@@ -290,4 +320,13 @@ export function refreshRuntimeConfig(force = false): Promise<SimplRuntimeConfig>
  */
 export function getCachedRuntimeConfigSnapshot(): SimplRuntimeConfig | null {
   return runtimeConfigService.getCachedRuntimeConfigSnapshot();
+}
+
+/**
+ * Subscribe to runtime-config snapshot changes (useSyncExternalStore store).
+ * Pair with getCachedRuntimeConfigSnapshot as the getSnapshot; the listener
+ * fires whenever the resolved config's identity changes. Returns unsubscribe.
+ */
+export function subscribeRuntimeConfig(listener: () => void): () => void {
+  return runtimeConfigService.subscribe(listener);
 }
