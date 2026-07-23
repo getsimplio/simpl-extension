@@ -24,7 +24,24 @@ import {
 } from "../src/core/config/runtime-config.service";
 import { isRemoteFeatureEnabledFor } from "../src/core/config/feature-gate";
 import { resolveVisibleChains } from "../src/core/networks/chain-visibility";
-import { BASE_CHAIN_ID, DEFAULT_CHAINS } from "../src/core/networks/chain-registry";
+import {
+  buildBridgeAllowlist,
+  buildSwapAllowlist,
+  isSwapAssetAllowed,
+} from "../src/core/config/swap-asset-availability";
+import {
+  BASE_CHAIN_ID,
+  DEFAULT_CHAINS,
+  ETHEREUM_MAINNET_CHAIN_ID,
+  SEPOLIA_CHAIN_ID,
+  SOLANA_MAINNET_CHAIN_ID,
+  TRON_MAINNET_CHAIN_ID,
+} from "../src/core/networks/chain-registry";
+import {
+  LIFI_SOLANA_CHAIN_ID,
+  LIFI_SOLANA_NATIVE_MINT,
+  LIFI_TRON_NATIVE_ADDRESS,
+} from "../src/core/bridge/lifi-constants";
 
 let failures = 0;
 function check(name: string, passed: boolean, detail?: string): void {
@@ -248,6 +265,181 @@ const serverEmpty: SimplRuntimeConfig = { ...serverAll, chains: [] };
 check(
   "server config with zero chains → falls back to full local registry",
   resolveVisibleChains(serverEmpty).length === DEFAULT_CHAINS.length,
+);
+
+// ── 6. Swap-asset availability (Stage 3 swap allowlist) ──────────────────────
+console.log("\nSwap-asset availability (buildSwapAllowlist / isSwapAssetAllowed):");
+
+const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // checksummed
+const USDT_ETH = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const assetTemplate = serverAll.assets[0];
+const swapServer: SimplRuntimeConfig = {
+  ...serverAll,
+  assets: [
+    // Base: USDC swap-enabled, native ETH swap-enabled.
+    { ...assetTemplate, chainId: BASE_CHAIN_ID, address: USDC_BASE, isNative: false, enabled: true, features: { swap: true, bridge: false } },
+    { ...assetTemplate, chainId: BASE_CHAIN_ID, address: null, isNative: true, enabled: true, features: { swap: true, bridge: true } },
+    // Ethereum: USDT listed but swap-DISABLED (bridge only).
+    { ...assetTemplate, chainId: ETHEREUM_MAINNET_CHAIN_ID, address: USDT_ETH, isNative: false, enabled: true, features: { swap: false, bridge: true } },
+    // Solana: USDC swap-enabled (registry-sentinel chain id, base58 mint) +
+    // native SOL swap-enabled (address:null).
+    { ...assetTemplate, chainId: SOLANA_MAINNET_CHAIN_ID, address: USDC_SOL_MINT, isNative: false, enabled: true, features: { swap: true, bridge: true } },
+    { ...assetTemplate, chainId: SOLANA_MAINNET_CHAIN_ID, address: null, isNative: true, enabled: true, features: { swap: true, bridge: true } },
+    // TRON: only native TRX swap-enabled.
+    { ...assetTemplate, chainId: TRON_MAINNET_CHAIN_ID, address: null, isNative: true, enabled: true, features: { swap: true, bridge: false } },
+  ],
+};
+const swapAllowlist = buildSwapAllowlist(swapServer);
+
+check(
+  "null config → no gating (fail-open)",
+  buildSwapAllowlist(null) === null &&
+    isSwapAssetAllowed(buildSwapAllowlist(null), {
+      chainId: ETHEREUM_MAINNET_CHAIN_ID,
+      address: USDT_ETH,
+      isNative: false,
+    }),
+);
+check("embedded fallback config → no gating (fail-open)", buildSwapAllowlist(fallback) === null);
+const seedServer: SimplRuntimeConfig = {
+  ...swapServer,
+  meta: { ...swapServer.meta, source: "seed" },
+};
+check(
+  'API static seed config (meta.source === "seed") → no gating (DB-outage safety)',
+  buildSwapAllowlist(seedServer) === null,
+);
+check(
+  "swap-enabled token passes (hex compared case-insensitively)",
+  isSwapAssetAllowed(swapAllowlist, {
+    chainId: BASE_CHAIN_ID,
+    address: USDC_BASE.toLowerCase(),
+    isNative: false,
+  }),
+);
+check(
+  "listed but swap-disabled token is blocked",
+  !isSwapAssetAllowed(swapAllowlist, {
+    chainId: ETHEREUM_MAINNET_CHAIN_ID,
+    address: USDT_ETH,
+    isNative: false,
+  }),
+);
+check(
+  "unlisted token is blocked",
+  !isSwapAssetAllowed(swapAllowlist, {
+    chainId: BASE_CHAIN_ID,
+    address: "0x1111111111111111111111111111111111111111",
+    isNative: false,
+  }),
+);
+check(
+  "native matches the address:null config entry",
+  isSwapAssetAllowed(swapAllowlist, {
+    chainId: BASE_CHAIN_ID,
+    address: "0x0000000000000000000000000000000000000000",
+    isNative: true,
+  }),
+);
+check(
+  "native without a config entry is blocked",
+  !isSwapAssetAllowed(swapAllowlist, {
+    chainId: ETHEREUM_MAINNET_CHAIN_ID,
+    address: null,
+    isNative: true,
+  }),
+);
+check(
+  "LI.FI Solana chain id maps onto the registry sentinel",
+  isSwapAssetAllowed(swapAllowlist, {
+    chainId: LIFI_SOLANA_CHAIN_ID,
+    address: USDC_SOL_MINT,
+    isNative: false,
+  }),
+);
+check(
+  "base58 addresses compare case-sensitively",
+  !isSwapAssetAllowed(swapAllowlist, {
+    chainId: SOLANA_MAINNET_CHAIN_ID,
+    address: USDC_SOL_MINT.toLowerCase(),
+    isNative: false,
+  }),
+);
+check(
+  "testnet candidates are never config-gated",
+  isSwapAssetAllowed(swapAllowlist, {
+    chainId: SEPOLIA_CHAIN_ID,
+    address: "0x2222222222222222222222222222222222222222",
+    isNative: false,
+  }),
+);
+// LI.FI catalog rows report native SOL as the wSOL mint and native TRX as
+// LI.FI's base58 sentinel, both with isNative=false — an address:null native
+// config entry must still allow them.
+check(
+  "wSOL-mint catalog row matches the Solana address:null native entry",
+  isSwapAssetAllowed(swapAllowlist, {
+    chainId: LIFI_SOLANA_CHAIN_ID,
+    address: LIFI_SOLANA_NATIVE_MINT,
+    isNative: false,
+  }),
+);
+check(
+  "TRX-sentinel catalog row matches the TRON address:null native entry",
+  isSwapAssetAllowed(swapAllowlist, {
+    chainId: TRON_MAINNET_CHAIN_ID,
+    address: LIFI_TRON_NATIVE_ADDRESS,
+    isNative: false,
+  }),
+);
+const noSolanaNative: SimplRuntimeConfig = {
+  ...swapServer,
+  assets: swapServer.assets.filter(
+    (a) => !(a.chainId === SOLANA_MAINNET_CHAIN_ID && a.address == null),
+  ),
+};
+check(
+  "wSOL-mint catalog row is blocked without a Solana native entry",
+  !isSwapAssetAllowed(buildSwapAllowlist(noSolanaNative), {
+    chainId: LIFI_SOLANA_CHAIN_ID,
+    address: LIFI_SOLANA_NATIVE_MINT,
+    isNative: false,
+  }),
+);
+// The bridge toggle builds an independent allowlist: USDT-ETH is bridge-only.
+const bridgeAllowlist = buildBridgeAllowlist(swapServer);
+check(
+  "bridge allowlist follows features.bridge (USDT-ETH bridge yes, swap no)",
+  isSwapAssetAllowed(bridgeAllowlist, {
+    chainId: ETHEREUM_MAINNET_CHAIN_ID,
+    address: USDT_ETH,
+    isNative: false,
+  }) &&
+    !isSwapAssetAllowed(bridgeAllowlist, {
+      chainId: BASE_CHAIN_ID,
+      address: USDC_BASE,
+      isNative: false,
+    }),
+);
+// A published db config in which the admin enabled nothing empties the lists
+// (fail-closed, dashboard parity) — the kill switch is the `swaps` flag.
+const noSwapAssets: SimplRuntimeConfig = {
+  ...serverAll,
+  assets: serverAll.assets.map((a) => ({
+    ...a,
+    features: { swap: false, bridge: false },
+  })),
+};
+const noSwapAllowlist = buildSwapAllowlist(noSwapAssets);
+check(
+  "db config with zero swap-enabled assets → gates closed (dashboard parity)",
+  noSwapAllowlist !== null &&
+    !isSwapAssetAllowed(noSwapAllowlist, {
+      chainId: BASE_CHAIN_ID,
+      address: USDC_BASE,
+      isNative: false,
+    }),
 );
 
 console.log("");

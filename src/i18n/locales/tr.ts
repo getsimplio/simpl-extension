@@ -1097,6 +1097,7 @@ export const tr: TranslationDictionary = {
   "swap.noTokensTryImport": "Token bulunamadı. İçe aktarmak için bir sözleşme adresi yapıştırmayı deneyin.",
   "swap.noVisibleAssets": "Görünür varlık bulunamadı. Önce özel bir token ekleyin.",
   "swap.importErrorHint": "Token sembolüne göre aramayı deneyin, örneğin BTCB veya USDC.",
+  "swap.assetNotSwapEnabled": "Bu token takas için etkin değil",
   "swap.didYouMean": "Şunu mu demek istediniz: {symbol}?",
   "swap.applyCustomPercent": "Özel yüzdeyi uygula",
   "swap.customPercentOfBalance": "Bakiyenin özel yüzdesi",

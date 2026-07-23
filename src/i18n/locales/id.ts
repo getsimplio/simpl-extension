@@ -1092,6 +1092,7 @@ export const id: TranslationDictionary = {
   "swap.noTokensTryImport": "Tidak ada token ditemukan. Coba tempel alamat kontrak untuk mengimpor.",
   "swap.noVisibleAssets": "Tidak ada aset yang terlihat. Tambahkan token kustom terlebih dahulu.",
   "swap.importErrorHint": "Coba cari berdasarkan simbol token, misalnya BTCB atau USDC.",
+  "swap.assetNotSwapEnabled": "Token ini tidak diaktifkan untuk swap",
   "swap.didYouMean": "Maksud Anda {symbol}?",
   "swap.applyCustomPercent": "Terapkan persen kustom",
   "swap.customPercentOfBalance": "Persen kustom dari saldo",

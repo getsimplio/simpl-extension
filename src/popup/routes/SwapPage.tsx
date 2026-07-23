@@ -49,6 +49,14 @@ import {
 import { SolanaSwapPage } from "./SolanaSwapPage";
 import { BridgePage } from "./BridgePage";
 import { LIFI_NATIVE_ADDRESS } from "../../core/bridge/lifi-bridge.service";
+import {
+  isSwapAssetAllowed,
+  toConfigChainId,
+} from "../../core/config/swap-asset-availability";
+import {
+  useBridgeAssetAllowlist,
+  useSwapAssetAllowlist,
+} from "../hooks/useSwapAssetAllowlist";
 import "./SwapPage.css";
 
 type SwapPageProps = {
@@ -1020,6 +1028,11 @@ export function SwapPage({
   initialToAsset,
 }: SwapPageProps) {
   const { t } = useTranslation();
+  // Stage 3 runtime-config projection: admin-allowed swap/bridge assets.
+  // null → no gating (offline / fallback / seed config), lists behave exactly
+  // as before.
+  const swapAllowlist = useSwapAssetAllowlist();
+  const bridgeAllowlist = useBridgeAssetAllowlist();
   const [networkSelectorOpen, setNetworkSelectorOpen] = useState(false);
   // Destination chain for the chain-aware Swap. Equal to the source chain → a
   // same-chain swap (existing 0x / Jupiter flow). Different → a cross-chain swap
@@ -1106,6 +1119,26 @@ export function SwapPage({
   const [approvalTxHash, setApprovalTxHash] = useState<string | null>(null);
 
   const selectedChainId = walletState.selectedChainId;
+
+  // Stable predicate for the cross-network TO picker (LI.FI chain ids are
+  // normalized inside isSwapAssetAllowed). A same-chain pick executes as a
+  // swap → the admin's swap toggle applies; a cross-chain pick executes as a
+  // bridge → the bridge toggle applies. undefined → picker skips gating.
+  const isPickerTokenAllowed = useMemo(
+    () =>
+      swapAllowlist || bridgeAllowlist
+        ? (token: PickerToken) => {
+            const sameChain =
+              toConfigChainId(token.chainId) === toConfigChainId(selectedChainId);
+            return isSwapAssetAllowed(sameChain ? swapAllowlist : bridgeAllowlist, {
+              chainId: token.chainId,
+              address: token.address,
+              isNative: token.isNative,
+            });
+          }
+        : undefined,
+    [swapAllowlist, bridgeAllowlist, selectedChainId],
+  );
 
   // Whenever the source network changes (header selector), default the
   // destination back to the source so we land on a same-chain swap.
@@ -1347,6 +1380,54 @@ export function SwapPage({
     };
   }, [selectedAccount?.address, selectedChainId]);
 
+  // ── Stage 3: admin swap allowlist over the loaded portfolio tokens. Kept
+  // OUT of the load effect so a config refresh (new snapshot identity) never
+  // refetches the portfolio or clobbers a picker selection — instead the
+  // derived list narrows and the revalidation effect below corrects only
+  // selections that actually became disallowed. ──
+  const isSwapTokenAllowed = useMemo(
+    () => (token: SwapToken) =>
+      isSwapAssetAllowed(swapAllowlist, {
+        chainId: selectedChainId,
+        address: token.address,
+        isNative: token.type === "native",
+      }),
+    [swapAllowlist, selectedChainId],
+  );
+
+  const allowedTokens = useMemo(
+    () => tokens.filter(isSwapTokenAllowed),
+    [tokens, isSwapTokenAllowed],
+  );
+
+  // Re-validate the current FROM/TO picks whenever the allowlist narrows —
+  // this also covers tokens preselected via initialToAsset (asset details
+  // modal) and defaults chosen before the config resolved.
+  useEffect(() => {
+    if (!swapAllowlist) return;
+
+    setFromToken((current) => {
+      if (!current || isSwapTokenAllowed(current)) return current;
+      return (
+        allowedTokens.find((token) => token.type === "native") ??
+        allowedTokens[0] ??
+        null
+      );
+    });
+    setToToken((current) => {
+      if (!current || isSwapTokenAllowed(current)) return current;
+      const stableToken = allowedTokens.find((token) => {
+        const symbol = token.symbol.toUpperCase();
+        return symbol === "USDC" || symbol === "USDT" || symbol === "DAI";
+      });
+      return (
+        stableToken ??
+        allowedTokens.find((token) => token.type !== "native") ??
+        null
+      );
+    });
+  }, [swapAllowlist, isSwapTokenAllowed, allowedTokens]);
+
   const sellAmountBaseUnits = useMemo(() => {
     if (!fromToken) return null;
 
@@ -1411,12 +1492,22 @@ export function SwapPage({
       );
     }
 
+    // Stage 3: every picker section obeys the admin swap allowlist (the
+    // wallet section via the pre-filtered allowedTokens).
+    const isTokenAllowed = (address: string) =>
+      isSwapAssetAllowed(swapAllowlist, {
+        chainId: selectedChainId,
+        address,
+        isNative: false,
+      });
+
     return {
-      pickerWallet: tokens.filter((t) => matchesSearch(t.name, t.symbol, t.address)),
+      pickerWallet: allowedTokens.filter((t) => matchesSearch(t.name, t.symbol, t.address)),
       pickerPopular: registeredTokensForChain
         .filter(
           (r) =>
             !walletAddresses.has(r.address.toLowerCase()) &&
+            isTokenAllowed(r.address) &&
             matchesSearch(r.name, r.symbol, r.address),
         )
         .map(registeredToSwapToken),
@@ -1424,11 +1515,12 @@ export function SwapPage({
         .filter(
           (c) =>
             !walletAddresses.has(c.address.toLowerCase()) &&
+            isTokenAllowed(c.address) &&
             matchesSearch(c.name, c.symbol, c.address),
         )
         .map(customToSwapToken),
     };
-  }, [tokenPickerSearch, tokens, registeredTokensForChain, importedCustomTokens]);
+  }, [tokenPickerSearch, tokens, allowedTokens, registeredTokensForChain, importedCustomTokens, swapAllowlist, selectedChainId]);
 
   const pickerHasNoResults =
     pickerWallet.length === 0 && pickerPopular.length === 0 && pickerImported.length === 0;
@@ -1574,6 +1666,20 @@ export function SwapPage({
     const trimmed = tokenPickerSearch.trim();
     if (!isEvmAddress(trimmed)) return;
 
+    // Stage 3: a token the admin hasn't swap-enabled can't be imported into the
+    // swap picker — explain instead of silently previewing it.
+    if (
+      !isSwapAssetAllowed(swapAllowlist, {
+        chainId: selectedChainId,
+        address: trimmed,
+        isNative: false,
+      })
+    ) {
+      setTokenImportStatus("error");
+      setTokenImportError(t("swap.assetNotSwapEnabled"));
+      return;
+    }
+
     const chainId = selectedChainId;
     const ownerAddress = selectedAccount.address;
 
@@ -1595,7 +1701,7 @@ export function SwapPage({
     }, 400);
 
     return () => window.clearTimeout(timerId);
-  }, [tokenPickerSearch, tokenPickerSide, tokenImportStatus, pickerHasNoResults, selectedAccount, selectedChainId]);
+  }, [tokenPickerSearch, tokenPickerSide, tokenImportStatus, pickerHasNoResults, selectedAccount, selectedChainId, swapAllowlist, t]);
 
   // Auto-add the bought token to assets after a confirmed swap
   useEffect(() => {
@@ -2427,6 +2533,21 @@ if (selectedAccount && fromToken && toToken) {
 
   function handleConfirmImport() {
     if (!tokenImportPreview) return;
+
+    // Stage 3: re-check the allowlist at confirm time — a config may have
+    // resolved (or narrowed) after the preview was fetched.
+    if (
+      !isSwapAssetAllowed(swapAllowlist, {
+        chainId: tokenImportPreview.chainId,
+        address: tokenImportPreview.address,
+        isNative: false,
+      })
+    ) {
+      setTokenImportPreview(null);
+      setTokenImportStatus("error");
+      setTokenImportError(t("swap.assetNotSwapEnabled"));
+      return;
+    }
 
     const customToken: CustomToken = {
       chainId: tokenImportPreview.chainId,
@@ -3402,6 +3523,7 @@ if (selectedAccount && fromToken && toToken) {
         <CrossChainTokenPicker
           side="to"
           currentChainId={selectedChainId}
+          isTokenAllowed={isPickerTokenAllowed}
           onSelect={handlePickToToken}
           onClose={() => setCrossToPickerOpen(false)}
         />
@@ -3471,6 +3593,10 @@ if (selectedAccount && fromToken && toToken) {
                         className="swap-picker-back-btn"
                         type="button"
                         onClick={() => {
+                          // Clear the query too — otherwise a synchronous
+                          // rejection (e.g. the Stage-3 allowlist gate) would
+                          // re-fire on the unchanged address instantly.
+                          setTokenPickerSearch("");
                           setTokenImportStatus("idle");
                           setTokenImportError(null);
                         }}

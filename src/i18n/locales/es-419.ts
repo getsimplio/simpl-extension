@@ -1102,6 +1102,7 @@ export const es419: TranslationDictionary = {
   "swap.noTokensTryImport": "No se encontraron tokens. Intenta pegar una dirección de contrato para importar.",
   "swap.noVisibleAssets": "No se encontraron activos visibles. Agrega primero un token personalizado.",
   "swap.importErrorHint": "Intenta buscar por símbolo del token, por ejemplo BTCB o USDC.",
+  "swap.assetNotSwapEnabled": "Este token no está habilitado para swaps",
   "swap.didYouMean": "¿Quisiste decir {symbol}?",
   "swap.applyCustomPercent": "Aplicar porcentaje personalizado",
   "swap.customPercentOfBalance": "Porcentaje personalizado del saldo",

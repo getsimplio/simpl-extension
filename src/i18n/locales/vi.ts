@@ -1093,6 +1093,7 @@ export const vi: TranslationDictionary = {
   "swap.noTokensTryImport": "Không tìm thấy token nào. Thử dán địa chỉ hợp đồng để nhập.",
   "swap.noVisibleAssets": "Không tìm thấy tài sản hiển thị nào. Hãy thêm token tùy chỉnh trước.",
   "swap.importErrorHint": "Thử tìm theo ký hiệu token, ví dụ BTCB hoặc USDC.",
+  "swap.assetNotSwapEnabled": "Token này chưa được bật để hoán đổi",
   "swap.didYouMean": "Có phải bạn muốn {symbol}?",
   "swap.applyCustomPercent": "Áp dụng phần trăm tùy chỉnh",
   "swap.customPercentOfBalance": "Phần trăm tùy chỉnh của số dư",

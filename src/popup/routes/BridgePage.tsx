@@ -88,6 +88,8 @@ import {
   CrossChainTokenPicker,
   type PickerToken,
 } from "../components/CrossChainTokenPicker";
+import { isSwapAssetAllowed } from "../../core/config/swap-asset-availability";
+import { useBridgeAssetAllowlist } from "../hooks/useSwapAssetAllowlist";
 import { SwapHeader } from "../components/SwapHeader";
 import { SwapRouteNotice } from "../components/SwapRouteNotice";
 import "./SwapPage.css";
@@ -740,6 +742,37 @@ export function BridgePage({
   );
   const tronAddress = persistedTronAddress ?? derivedTronAddress;
 
+  // Stage 3 runtime-config projection: admin-allowed bridge assets
+  // (assets[].features.bridge). null → no gating (offline / fallback / seed
+  // config), lists behave exactly as before. A ref mirrors the latest value so
+  // the async token-load effects filter without re-running on config refresh.
+  const bridgeAllowlist = useBridgeAssetAllowlist();
+  const bridgeAllowlistRef = useRef(bridgeAllowlist);
+  bridgeAllowlistRef.current = bridgeAllowlist;
+  const isBridgeTokenAllowed = useMemo(
+    () =>
+      bridgeAllowlist
+        ? (token: PickerToken) =>
+            isSwapAssetAllowed(bridgeAllowlist, {
+              chainId: token.chainId,
+              address: token.address,
+              isNative: token.isNative,
+            })
+        : undefined,
+    [bridgeAllowlist],
+  );
+  function filterAllowedBridgeTokens(list: BridgeToken[]): BridgeToken[] {
+    const allowlist = bridgeAllowlistRef.current;
+    if (!allowlist) return list;
+    return list.filter((token) =>
+      isSwapAssetAllowed(allowlist, {
+        chainId: token.chainId,
+        address: token.address,
+        isNative: token.isNative,
+      }),
+    );
+  }
+
   const [chains, setChains] = useState<BridgeChain[]>([]);
   const [chainsError, setChainsError] = useState<string | null>(null);
 
@@ -1050,7 +1083,8 @@ export function BridgePage({
     setFromToken((cur) => (cur && cur.chainId === fromChainId ? cur : null));
     void (async () => {
       try {
-        const list = await getBridgeTokens(fromChainId);
+        // Stage 3: defaults may only come from admin-allowed bridge assets.
+        const list = filterAllowedBridgeTokens(await getBridgeTokens(fromChainId));
         if (!active) return;
         setFromTokens(list);
         setFromToken((cur) => {
@@ -1086,7 +1120,8 @@ export function BridgePage({
     setToToken((cur) => (cur && cur.chainId === toChainId ? cur : null));
     void (async () => {
       try {
-        const list = await getBridgeTokens(toChainId);
+        // Stage 3: defaults may only come from admin-allowed bridge assets.
+        const list = filterAllowedBridgeTokens(await getBridgeTokens(toChainId));
         if (!active) return;
         setToTokens(list);
         setToToken((cur) => cur ?? pickDefaultToken(list));
@@ -1098,6 +1133,28 @@ export function BridgePage({
       active = false;
     };
   }, [toChainId]);
+
+  // Stage 3: re-validate current picks + cached default lists when the
+  // allowlist narrows mid-flow (the load effects above only run on chain
+  // change). Identity is preserved when nothing was actually removed.
+  useEffect(() => {
+    if (!bridgeAllowlist) return;
+    const allowed = (token: BridgeToken | null) =>
+      !token ||
+      isSwapAssetAllowed(bridgeAllowlist, {
+        chainId: token.chainId,
+        address: token.address,
+        isNative: token.isNative,
+      });
+    const prune = (list: BridgeToken[]) => {
+      const next = list.filter((token) => allowed(token));
+      return next.length === list.length ? list : next;
+    };
+    setFromTokens(prune);
+    setToTokens(prune);
+    setFromToken((cur) => (allowed(cur) ? cur : null));
+    setToToken((cur) => (allowed(cur) ? cur : null));
+  }, [bridgeAllowlist]);
 
   // Any input change invalidates a prepared quote.
   function resetQuote() {
@@ -3105,6 +3162,7 @@ export function BridgePage({
         <CrossChainTokenPicker
           side={tokenPicker}
           currentChainId={tokenPicker === "from" ? fromChainId : toChainId}
+          isTokenAllowed={isBridgeTokenAllowed}
           onSelect={handlePickToken}
           onClose={() => setTokenPicker(null)}
         />

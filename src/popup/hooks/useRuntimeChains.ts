@@ -20,7 +20,7 @@ import {
 import { resolveVisibleChains } from "../../core/networks/chain-visibility";
 import type { ChainConfig } from "../../core/networks/chain-registry";
 
-function useRuntimeConfigSnapshot(): SimplRuntimeConfig | null {
+export function useRuntimeConfigSnapshot(): SimplRuntimeConfig | null {
   useEffect(() => {
     // Ensure a resolve is in flight; harmless if one already ran.
     void getRuntimeConfig();

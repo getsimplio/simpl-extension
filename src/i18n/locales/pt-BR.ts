@@ -1101,6 +1101,7 @@ export const ptBR: TranslationDictionary = {
   "swap.noTokensTryImport": "Nenhum token encontrado. Tente colar um endereço de contrato para importar.",
   "swap.noVisibleAssets": "Nenhum ativo visível encontrado. Adicione um token personalizado primeiro.",
   "swap.importErrorHint": "Tente buscar pelo símbolo do token, por exemplo BTCB ou USDC.",
+  "swap.assetNotSwapEnabled": "Este token não está habilitado para swaps",
   "swap.didYouMean": "Você quis dizer {symbol}?",
   "swap.applyCustomPercent": "Aplicar porcentagem personalizada",
   "swap.customPercentOfBalance": "Porcentagem personalizada do saldo",

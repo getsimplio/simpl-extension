@@ -1103,6 +1103,7 @@ export const en = {
   "swap.noTokensTryImport": "No tokens found. Try pasting a contract address to import.",
   "swap.noVisibleAssets": "No visible assets found. Add a custom token first.",
   "swap.importErrorHint": "Try searching by token symbol, for example BTCB or USDC.",
+  "swap.assetNotSwapEnabled": "This token isn't enabled for swaps",
   "swap.didYouMean": "Did you mean {symbol}?",
   "swap.applyCustomPercent": "Apply custom percent",
   "swap.customPercentOfBalance": "Custom percent of balance",

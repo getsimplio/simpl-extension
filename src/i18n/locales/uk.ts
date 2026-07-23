@@ -1096,6 +1096,7 @@ export const uk: TranslationDictionary = {
   "swap.noTokensTryImport": "Токени не знайдено. Спробуйте вставити адресу контракту для імпорту.",
   "swap.noVisibleAssets": "Видимих активів не знайдено. Спершу додайте власний токен.",
   "swap.importErrorHint": "Спробуйте пошук за тікером токена, наприклад BTCB або USDC.",
+  "swap.assetNotSwapEnabled": "Цей токен недоступний для свопу",
   "swap.didYouMean": "Можливо, ви мали на увазі {symbol}?",
   "swap.applyCustomPercent": "Застосувати власний відсоток",
   "swap.customPercentOfBalance": "Власний відсоток балансу",

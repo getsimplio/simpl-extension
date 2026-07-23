@@ -50,6 +50,9 @@ type CrossChainTokenPickerProps = {
   currentChainId: number;
   // Held assets to surface under "Your assets" (with balances).
   yourAssets?: PickerToken[];
+  // Optional availability gate (Stage 3 runtime-config projection): rows this
+  // predicate rejects are filtered out of every section. Omitted → no gating.
+  isTokenAllowed?: (token: PickerToken) => boolean;
   onSelect: (token: PickerToken) => void;
   onClose: () => void;
 };
@@ -132,6 +135,7 @@ export function CrossChainTokenPicker({
   side,
   currentChainId,
   yourAssets = [],
+  isTokenAllowed,
   onSelect,
   onClose,
 }: CrossChainTokenPickerProps) {
@@ -215,9 +219,15 @@ export function CrossChainTokenPicker({
   }
 
   const yourFiltered = useMemo(
-    () => yourAssets.filter((t) => matchesChainFilter(t.chainId) && matchesSearch(t)),
+    () =>
+      yourAssets.filter(
+        (t) =>
+          matchesChainFilter(t.chainId) &&
+          matchesSearch(t) &&
+          (isTokenAllowed?.(t) ?? true),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [yourAssets, filter, q, currentChainId],
+    [yourAssets, filter, q, currentChainId, isTokenAllowed],
   );
 
   const popular = useMemo(() => {
@@ -230,13 +240,14 @@ export function CrossChainTokenPicker({
       const key = `${t.chainId}:${t.address.toLowerCase()}`;
       if (heldKeys.has(key) || seen.has(key)) continue;
       if (!matchesChainFilter(t.chainId) || !matchesSearch(t)) continue;
+      if (!(isTokenAllowed?.(t) ?? true)) continue;
       seen.add(key);
       out.push(t);
       if (out.length >= DISPLAY_CAP) break;
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, yourAssets, filter, q, currentChainId]);
+  }, [catalog, yourAssets, filter, q, currentChainId, isTokenAllowed]);
 
   const title =
     side === "from"

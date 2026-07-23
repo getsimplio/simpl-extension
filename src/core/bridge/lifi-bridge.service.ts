@@ -60,9 +60,21 @@ export function toSimplBridgeQuote(payload: unknown): SimplTradeQuote {
   return parseTradeApiResponse(payload, { kind: "bridge", provider: "lifi" });
 }
 
-// LI.FI's sentinel for a chain's native asset (ETH / BNB / MATIC …).
-export const LIFI_NATIVE_ADDRESS =
-  "0x0000000000000000000000000000000000000000";
+// LI.FI chain / address constants live in the env-free leaf module
+// lifi-constants.ts (importable by the tsx-run release gates); re-exported here
+// so existing importers keep working.
+export {
+  LIFI_NATIVE_ADDRESS,
+  LIFI_SOLANA_CHAIN_ID,
+  LIFI_TRON_CHAIN_ID,
+  LIFI_TRON_NATIVE_ADDRESS,
+} from "./lifi-constants";
+import {
+  LIFI_NATIVE_ADDRESS,
+  LIFI_SOLANA_CHAIN_ID,
+  LIFI_TRON_CHAIN_ID,
+  LIFI_TRON_NATIVE_ADDRESS,
+} from "./lifi-constants";
 
 // ── Diagnostics ─────────────────────────────────────────────────────────────
 //
@@ -656,20 +668,6 @@ export type BridgeQuote = {
   sourceChainType: "EVM" | "SVM" | "TVM";
   destinationChainType: "EVM" | "SVM" | "TVM";
 };
-
-// LI.FI's Solana (SVM) chain id. Used to detect Solana-source routes.
-export const LIFI_SOLANA_CHAIN_ID = 1151111081099710;
-
-// LI.FI's TRON (TVM) chain id. Identical to the wallet's canonical TRON routing
-// key (TRON_MAINNET_CHAIN_ID, 0x2b6653dc) — LI.FI returns Tron under this id with
-// chainType "TVM". Used to detect TRON-source / TRON-destination routes.
-export const LIFI_TRON_CHAIN_ID = 728126428;
-
-// LI.FI's sentinel address for NATIVE TRX. Unlike EVM/SVM natives (the 0x000…0
-// zero address), LI.FI identifies native TRX by this specific base58 address —
-// using the EVM zero address for TRON native would be rejected. Used to seed the
-// token picker's TRX entry so it matches LI.FI's canonical identifier.
-export const LIFI_TRON_NATIVE_ADDRESS = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 
 type RawGasCost = {
   amount?: string;
