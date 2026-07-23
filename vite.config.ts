@@ -24,6 +24,7 @@ export default defineConfig({
       "@getsimpl/assets": corePkg("assets"),
       "@getsimpl/balances": corePkg("balances"),
       "@getsimpl/portfolio": corePkg("portfolio"),
+      "@getsimpl/prices": corePkg("prices"),
       "@getsimpl/activity": corePkg("activity"),
       "@getsimpl/errors": corePkg("errors"),
       "@getsimpl/swaps": corePkg("swaps"),

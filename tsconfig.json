@@ -21,6 +21,7 @@
       "@getsimpl/assets": ["../getsimpl-core/packages/assets/src/index.ts"],
       "@getsimpl/balances": ["../getsimpl-core/packages/balances/src/index.ts"],
       "@getsimpl/portfolio": ["../getsimpl-core/packages/portfolio/src/index.ts"],
+      "@getsimpl/prices": ["../getsimpl-core/packages/prices/src/index.ts"],
       "@getsimpl/activity": ["../getsimpl-core/packages/activity/src/index.ts"],
       "@getsimpl/errors": ["../getsimpl-core/packages/errors/src/index.ts"],
       "@getsimpl/swaps": ["../getsimpl-core/packages/swaps/src/index.ts"],
