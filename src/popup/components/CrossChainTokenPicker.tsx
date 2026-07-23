@@ -26,6 +26,7 @@ import {
   LIFI_TRON_NATIVE_ADDRESS,
   type BridgeToken,
 } from "../../core/bridge/lifi-bridge.service";
+import { getCatalogTokensForChains } from "../../core/tokens/token-catalog.service";
 import { TRON_TOKENS } from "../../chains/tron/tron.tokens";
 import { configAssetSeeds } from "../../core/config/config-asset-seeds";
 import { useRuntimeConfigSnapshot } from "../hooks/useRuntimeChains";
@@ -200,13 +201,32 @@ export function CrossChainTokenPicker({
   }, [filterOpen]);
 
   // Load the cross-network token catalog once (one multi-chain request).
+  // Source order (each layer only runs when the previous one yields nothing,
+  // so the picker NEVER regresses below today's behavior):
+  //   1. the gateway's UNION catalog (/v1/tokens/catalog — LI.FI + pancake +
+  //      jupiter + registry, merged server-side),
+  //   2. the LI.FI-only proxy (getBridgeTokensForChains) while the union
+  //      endpoint is not yet deployed / on any union failure,
+  //   3. the local TRON registry seed, so TRON stays selectable offline.
   useEffect(() => {
     let active = true;
     void (async () => {
+      const chainIds = PRODUCTION_CHAINS.map((c) => c.id);
       try {
-        const tokens = await getBridgeTokensForChains(
-          PRODUCTION_CHAINS.map((c) => c.id),
-        );
+        const tokens = await getCatalogTokensForChains(chainIds);
+        // An empty union catalog is treated as a miss, not an answer — fall
+        // back rather than show a thinner picker than the LI.FI proxy does.
+        if (tokens.length > 0) {
+          if (active) {
+            setCatalog(mergeWithTronRegistry(tokens.map(toPickerToken)));
+          }
+          return;
+        }
+      } catch {
+        // Union endpoint unreachable / bad payload — fall through to LI.FI.
+      }
+      try {
+        const tokens = await getBridgeTokensForChains(chainIds);
         if (active) {
           setCatalog(mergeWithTronRegistry(tokens.map(toPickerToken)));
         }

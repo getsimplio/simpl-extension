@@ -45,7 +45,7 @@ export const ENDPOINT_INVENTORY: readonly EndpointPolicy[] = [
     category: "simpl-api",
     origin: "api.getsimpl.io",
     purpose:
-      "First-party gateway: prices/charts, TON RPC (/v1/ton), Solana portfolio, LI.FI bridge proxy, swap proxy, provider health, runtime config (/v1/config/runtime). Upstream API keys live server-side.",
+      "First-party gateway: prices/charts, TON RPC (/v1/ton), Solana portfolio, LI.FI bridge proxy, swap proxy, provider health, runtime config (/v1/config/runtime), union token catalog (/v1/tokens/catalog). Upstream API keys live server-side.",
     environment: "all",
     permissionRequired: true,
     mustUseProxy: false,
