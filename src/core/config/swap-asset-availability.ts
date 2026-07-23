@@ -31,7 +31,7 @@
 //     base58 sentinel (both with isNative=false) — those sentinel addresses
 //     are recognized as the chain's native asset here.
 
-import type { SimplRuntimeConfig } from "@getsimpl/config";
+import { isFeatureEnabled, type SimplRuntimeConfig } from "@getsimpl/config";
 import { DEFAULT_CHAINS, SOLANA_MAINNET_CHAIN_ID, TRON_MAINNET_CHAIN_ID } from "../networks/chain-registry";
 import {
   LIFI_SOLANA_CHAIN_ID,
@@ -41,6 +41,15 @@ import {
 
 /** Per-asset admin toggles this projection understands. */
 export type TradeFeature = "swap" | "bridge";
+
+/**
+ * Admin mode switch (feature flag, editable in the dashboard's Config →
+ * Features tab): ON / missing → curated mode, only catalog-enabled assets are
+ * offered (the behavior below); OFF → the wallet offers the FULL live provider
+ * catalogs (LI.FI etc.) for swap and bridge — curated config assets still seed
+ * the pickers, so admin additions unknown to providers remain available.
+ */
+export const ASSET_GATING_FLAG = "asset-gating";
 
 /** A trade candidate from any local source (portfolio, registry, LI.FI catalog). */
 export type SwapAssetCandidate = {
@@ -90,6 +99,9 @@ export function buildTradeAllowlist(
 ): SwapAssetAllowlist {
   // Only a published server config gates; fallback/seed → today's behavior.
   if (!config || config.meta.source !== "db") return null;
+
+  // Admin turned curation off → full provider catalogs, no per-asset gating.
+  if (!isFeatureEnabled(config, ASSET_GATING_FLAG, true)) return null;
 
   const byChain = new Map<number, ChainAllowlist>();
 

@@ -443,6 +443,25 @@ check(
     }),
 );
 
+// The asset-gating flag: OFF → no per-asset gating (full provider catalogs);
+// ON / missing → curated mode (all checks above already ran with it missing).
+const gatingOff: SimplRuntimeConfig = {
+  ...swapServer,
+  features: { ...swapServer.features, "asset-gating": false },
+};
+check(
+  "asset-gating flag OFF → no gating (full provider catalogs)",
+  buildSwapAllowlist(gatingOff) === null && buildBridgeAllowlist(gatingOff) === null,
+);
+const gatingOn: SimplRuntimeConfig = {
+  ...swapServer,
+  features: { ...swapServer.features, "asset-gating": true },
+};
+check(
+  "asset-gating flag ON → curated gating stays active",
+  buildSwapAllowlist(gatingOn) !== null,
+);
+
 // ── Stage 3b: config assets as picker seeds ──
 const PICKER_CHAINS = [1, 56, BASE_CHAIN_ID, LIFI_SOLANA_CHAIN_ID, TRON_MAINNET_CHAIN_ID];
 const seeds = configAssetSeeds(swapServer, PICKER_CHAINS);
